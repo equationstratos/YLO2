@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ylo2-sim"
+version = "1.0.0"
+description = "Simulateur cinématique du quadrupède YLO-2 (elpimous/ylo-2)"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = []
+
+[project.scripts]
+ylo2-sim = "ylo2_sim.cli:main"
+
+[tool.setuptools]
+packages = ["ylo2_sim"]

@@ -1,1 +1,6 @@
 dist/
+out/
+src/_geometry.gen.js
+__pycache__/
+*.pyc
+*.egg-info/
