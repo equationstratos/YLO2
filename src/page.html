@@ -1,0 +1,272 @@
+<title>YLO-2 Kinematic Bench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --ground:#0E100E; --panel:#141814; --panel-2:#1A201B; --raise:#212a22;
+  --line:#2A322B; --line-soft:#212821;
+  --ink:#E9EDE6; --dim:#98A297; --faint:#6C766C;
+  --accent:#FF6A2B; --accent-dim:#B34A1C;
+  --data:#77C2A6; --warn:#FFC24D; --bad:#FF5D52;
+  --stance:#FF6A2B; --swing:#3D4A3F;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,sans-serif;
+  --disp:"Archivo","Archivo Expanded",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:var(--sans); font-size:14px; line-height:1.5;
+  -webkit-font-smoothing:antialiased; overflow:hidden;
+}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.shell{display:grid;grid-template-rows:auto 1fr;height:100dvh}
+
+/* ---------- header ---------- */
+.top{
+  display:flex;align-items:center;gap:20px;padding:0 16px;height:58px;
+  border-bottom:1px solid var(--line);background:var(--panel);
+}
+.mark{display:flex;align-items:baseline;gap:10px;min-width:0}
+.mark b{
+  font-family:var(--disp);font-variation-settings:"wdth" 118;font-weight:800;
+  font-size:19px;letter-spacing:.02em;text-transform:uppercase;
+}
+.mark b i{font-style:normal;color:var(--accent)}
+.mark span{font-family:var(--mono);font-size:11px;color:var(--faint);letter-spacing:.06em;white-space:nowrap}
+.top .spacer{flex:1}
+.seg{display:flex;border:1px solid var(--line);border-radius:2px;overflow:hidden}
+.seg button{
+  padding:6px 11px;font-family:var(--mono);font-size:11px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--dim);border-right:1px solid var(--line-soft);
+}
+.seg button:last-child{border-right:none}
+.seg button:hover{background:var(--panel-2);color:var(--ink)}
+.seg button[aria-pressed="true"]{background:var(--raise);color:var(--accent)}
+.tgl{display:flex;gap:6px;flex-wrap:wrap}
+.tgl button{
+  padding:6px 10px;border:1px solid var(--line);border-radius:2px;
+  font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);
+}
+.tgl button:hover{border-color:var(--faint);color:var(--ink)}
+.tgl button[aria-pressed="true"]{border-color:var(--accent-dim);color:var(--accent);background:#20150F}
+.railtoggle{display:none}
+
+/* ---------- body ---------- */
+.main{position:relative;display:grid;grid-template-columns:236px 1fr 318px;min-height:0}
+.rail,.detail{background:var(--panel);overflow:auto;min-height:0}
+.rail{border-right:1px solid var(--line)}
+.detail{border-left:1px solid var(--line)}
+.stage{position:relative;min-width:0;min-height:0;overflow:hidden;background:
+  radial-gradient(120% 90% at 50% 8%, #191E1A 0%, var(--ground) 62%)}
+canvas{position:absolute;inset:0;display:block;width:100%;height:100%;touch-action:none}
+
+.sect{padding:14px 14px 6px}
+.sect h2{
+  margin:0 0 8px;font-family:var(--mono);font-size:10px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--faint);font-weight:500;
+}
+.node{
+  display:grid;grid-template-columns:14px 1fr auto;gap:9px;align-items:center;
+  width:100%;padding:7px 8px;border-radius:2px;text-align:left;color:var(--dim);
+  border:1px solid transparent;
+}
+.node:hover{background:var(--panel-2);color:var(--ink)}
+.node[aria-current="true"]{background:#20150F;border-color:var(--accent-dim);color:var(--ink)}
+.node .dot{width:8px;height:8px;border-radius:50%;background:var(--faint);box-shadow:0 0 0 3px #ffffff08}
+.node[aria-current="true"] .dot{background:var(--accent)}
+.node .nm{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.node .qty{font-family:var(--mono);font-size:10px;color:var(--faint)}
+
+/* ---------- detail ---------- */
+.detail .head{padding:16px 16px 12px;border-bottom:1px solid var(--line-soft)}
+.eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+.detail h3{
+  margin:6px 0 4px;font-family:var(--disp);font-variation-settings:"wdth" 108;
+  font-weight:700;font-size:20px;line-height:1.15;text-wrap:balance;
+}
+.detail p{margin:8px 0 0;color:var(--dim);font-size:13px;max-width:46ch}
+.specs{border-top:1px solid var(--line-soft)}
+.spec{display:flex;justify-content:space-between;gap:14px;padding:9px 16px;border-bottom:1px solid var(--line-soft)}
+.spec dt{color:var(--faint);font-size:12px}
+.spec dd{margin:0;font-family:var(--mono);font-size:12px;color:var(--ink);text-align:right;font-variant-numeric:tabular-nums}
+.pathrow{padding:12px 16px;display:flex;flex-direction:column;gap:8px}
+.path{
+  font-family:var(--mono);font-size:11px;color:var(--data);background:var(--panel-2);
+  border:1px solid var(--line-soft);border-radius:2px;padding:7px 9px;overflow-x:auto;white-space:nowrap;
+}
+.linkout{
+  display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--accent);text-decoration:none;
+  border:1px solid var(--accent-dim);border-radius:2px;padding:7px 10px;align-self:flex-start;
+}
+.linkout:hover{background:#20150F}
+
+/* joint telemetry table */
+.jt{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px;font-variant-numeric:tabular-nums}
+.jt th{color:var(--faint);font-weight:500;text-align:right;padding:6px 8px;letter-spacing:.08em;text-transform:uppercase;font-size:9px}
+.jt th:first-child{text-align:left}
+.jt td{padding:5px 8px;text-align:right;border-top:1px solid var(--line-soft);color:var(--ink)}
+.jt td:first-child{text-align:left;color:var(--dim)}
+.jt tr[data-contact="1"] td:first-child{color:var(--accent)}
+.lim{color:var(--bad)}
+
+/* ---------- gait hud ---------- */
+.hud{
+  position:absolute;left:16px;right:16px;bottom:16px;display:flex;gap:12px;align-items:flex-end;
+  pointer-events:none;flex-wrap:wrap;
+}
+.card{
+  pointer-events:auto;background:#121613cc;backdrop-filter:blur(9px);
+  border:1px solid var(--line);border-radius:3px;padding:10px 12px;
+}
+.card h4{
+  margin:0 0 10px;font-family:var(--mono);font-size:10px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--faint);font-weight:500;
+}
+.gaits{display:flex;gap:6px;flex-wrap:wrap}
+.gaits button{
+  padding:6px 10px;border:1px solid var(--line);border-radius:2px;color:var(--dim);
+  font-family:var(--mono);font-size:11px;letter-spacing:.07em;text-transform:uppercase;
+}
+.gaits button:hover{color:var(--ink);border-color:var(--faint)}
+.gaits button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#140B06;font-weight:600}
+.sliders{display:grid;gap:7px;min-width:216px}
+.sl{display:grid;grid-template-columns:64px 1fr 58px;gap:9px;align-items:center}
+.sl label{font-size:11px;color:var(--dim)}
+.sl output{font-family:var(--mono);font-size:11px;color:var(--ink);text-align:right;font-variant-numeric:tabular-nums}
+input[type=range]{
+  -webkit-appearance:none;appearance:none;width:100%;height:3px;background:var(--line);border-radius:2px;
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:var(--accent);
+  border:2px solid #140B06;cursor:grab;
+}
+input[type=range]::-moz-range-thumb{
+  width:13px;height:13px;border:2px solid #140B06;border-radius:50%;background:var(--accent);cursor:grab;
+}
+.phase{display:grid;gap:3px;min-width:216px}
+.prow{display:grid;grid-template-columns:34px 1fr;gap:8px;align-items:center}
+.prow span{font-family:var(--mono);font-size:10px;color:var(--dim);letter-spacing:.08em}
+.bar{position:relative;height:11px;background:var(--swing);border-radius:1px;overflow:hidden}
+.bar i{position:absolute;top:0;bottom:0;background:var(--accent);display:block}
+.cursor{position:absolute;top:0;bottom:0;width:1px;background:var(--ink);opacity:.75}
+.legend{display:flex;gap:14px;margin-top:8px;font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;color:var(--faint);text-transform:uppercase}
+.legend i{display:inline-block;width:9px;height:9px;margin-right:5px;vertical-align:-1px}
+
+/* hotspot labels */
+.tags{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.tag{
+  position:absolute;transform:translate(-50%,-50%);white-space:nowrap;
+  font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--ink);
+  background:#0E100EC0;border:1px solid var(--line);border-left:2px solid var(--data);
+  padding:3px 7px;border-radius:2px;opacity:0;transition:opacity .18s ease;
+}
+.tag.on{opacity:1}
+.tag.sel{border-left-color:var(--accent);color:var(--accent)}
+
+.hint{
+  position:absolute;top:14px;left:16px;font-family:var(--mono);font-size:10px;
+  letter-spacing:.08em;color:var(--faint);text-transform:uppercase;pointer-events:none;
+}
+.readout{
+  position:absolute;top:14px;right:16px;text-align:right;font-family:var(--mono);
+  font-size:10px;letter-spacing:.08em;color:var(--faint);pointer-events:none;line-height:1.7;
+}
+.readout b{color:var(--data);font-weight:500}
+
+@media (max-width:1080px){
+  .main{grid-template-columns:1fr;min-width:0}
+  .rail,.detail{
+    position:absolute;top:0;bottom:0;width:min(86vw,320px);z-index:6;
+    transform:translateX(-100%);transition:transform .22s ease;
+  }
+  .detail{right:0;left:auto;transform:translateX(100%)}
+  .rail.open,.detail.open{transform:none}
+  .railtoggle{display:flex}
+  .hud{left:10px;right:10px;bottom:10px;gap:8px}
+  .readout{display:none}
+}
+@media (max-width:760px){
+  .top{height:auto;flex-wrap:wrap;gap:8px;padding:9px 12px}
+  .top .spacer{display:none}
+  .mark{width:100%}
+  .mark span{font-size:9.5px;overflow:hidden;text-overflow:ellipsis}
+  .seg,.tgl{flex:0 1 auto;flex-wrap:wrap}
+  .seg button,.tgl button{padding:5px 8px;font-size:10px}
+  .hint{display:none}
+  .hud{flex-direction:column;flex-wrap:nowrap;align-items:stretch;max-height:42%;overflow-y:auto}
+  .card-phase{display:none}
+  .card{padding:9px 11px}
+  .sliders,.phase{min-width:0}
+  .sl{grid-template-columns:56px 1fr 54px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="shell">
+  <header class="top">
+    <div class="mark">
+      <b>YLO<i>-2</i></b>
+      <span>QUADRUPED&nbsp;·&nbsp;12&nbsp;DOF&nbsp;·&nbsp;MOTEUS&nbsp;R4-5&nbsp;·&nbsp;ROS&nbsp;NOETIC</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="tgl railtoggle">
+      <button id="btnRail" aria-pressed="false">Systèmes</button>
+      <button id="btnDetail" aria-pressed="false">Fiche</button>
+    </div>
+    <div class="seg" id="views" role="group" aria-label="Points de vue">
+      <button data-view="iso" aria-pressed="true">ISO</button>
+      <button data-view="side" aria-pressed="false">Profil</button>
+      <button data-view="front" aria-pressed="false">Face</button>
+      <button data-view="top" aria-pressed="false">Dessus</button>
+    </div>
+    <div class="tgl" id="toggles">
+      <button data-tog="explode" aria-pressed="false">Éclaté</button>
+      <button data-tog="axes" aria-pressed="false">Axes</button>
+      <button data-tog="trace" aria-pressed="true">Trajectoires</button>
+      <button data-tog="support" aria-pressed="false">Polygone</button>
+    </div>
+  </header>
+
+  <div class="main">
+    <nav class="rail" id="rail" aria-label="Sous-systèmes"></nav>
+
+    <div class="stage" id="stage">
+      <canvas id="gl"></canvas>
+      <div class="tags" id="tags"></div>
+      <p class="hint">Glisser&nbsp;: orbite&nbsp;· Molette&nbsp;: zoom&nbsp;· Clic sur une pièce&nbsp;: fiche</p>
+      <div class="readout" id="readout"></div>
+
+      <div class="hud">
+        <div class="card">
+          <h4>Allure</h4>
+          <div class="gaits" id="gaits"></div>
+        </div>
+        <div class="card">
+          <h4>Consigne de marche</h4>
+          <div class="sliders">
+            <div class="sl"><label for="sVx">Vx</label><input id="sVx" type="range" min="-0.2" max="0.2" step="0.005" value="0.12"><output id="oVx"></output></div>
+            <div class="sl"><label for="sWz">ωz</label><input id="sWz" type="range" min="-1" max="1" step="0.02" value="0"><output id="oWz"></output></div>
+            <div class="sl"><label for="sH">Hauteur</label><input id="sH" type="range" min="0.16" max="0.32" step="0.005" value="0.25"><output id="oH"></output></div>
+            <div class="sl"><label for="sSw">Garde</label><input id="sSw" type="range" min="0.01" max="0.09" step="0.002" value="0.04"><output id="oSw"></output></div>
+          </div>
+        </div>
+        <div class="card card-phase">
+          <h4>Diagramme d'appui</h4>
+          <div class="phase" id="phase"></div>
+          <div class="legend">
+            <span><i style="background:var(--stance)"></i>Appui</span>
+            <span><i style="background:var(--swing)"></i>Vol</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="detail" id="detail" aria-live="polite"></aside>
+  </div>
+</div>
