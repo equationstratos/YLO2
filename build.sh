@@ -23,7 +23,8 @@ else
   echo "// maillages absents : lancer tools/convert_meshes.py" > "$GEN"
 fi
 
-APP=(src/10-data.js src/20-materials.js src/30-robot.js src/40-motion.js src/50-app.js)
+APP=(src/10-data.js src/20-materials.js src/30-robot.js src/40-motion.js
+     src/44-locomotion.js src/50-app.js)
 
 emit_scripts() {
   printf '\n<script>\n'; cat vendor/three.min.js; printf '\n</script>\n'

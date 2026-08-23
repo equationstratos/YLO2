@@ -13,8 +13,9 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from . import gait as gaitmod
 from . import kinematics as kin
-from . import moteus, trajectory
+from . import moteus, stunts, trajectory
 from .model import DEFAULT, Model
+from .natural import Natural
 
 
 class LimitViolation(Exception):
@@ -32,7 +33,7 @@ class Robot:
 
     def __init__(self, rate: float = 50.0, model: Model = None, height: float = None,
                  gait: str = "trot", swing: float = gaitmod.SWING_HEIGHT,
-                 strict: bool = False) -> None:
+                 strict: bool = False, style: str = "souple") -> None:
         self.model = model or DEFAULT
         self.rate = float(rate)
         self.dt = 1.0 / self.rate
@@ -48,7 +49,10 @@ class Robot:
         self.q: List[float] = [0.0] * 12
         self.contacts: List[bool] = [True] * 4
         self.mode = "gait"                          # ou "joint"
+        self.style = style                          # "souple" (naturel) ou "brut"
+        self.natural = Natural(model=self.model)
 
+        self.stunt: Dict[str, Any] = {}
         self.frames: List[Dict[str, Any]] = []
         self.events: List[str] = []
         self._peak_velocity = 0.0
@@ -128,6 +132,21 @@ class Robot:
             self._advance()
         return self
 
+    def backflip(self) -> Dict[str, Any]:
+        """Salto arrière : armement, poussée, vol balistique, réception."""
+        info = stunts.perform(self)
+        self._note("salto arrière : vol %.2f s, apex %.2f m"
+                   % (info["flight_s"], info["apex_m"]))
+        self.stunt = info
+        return info
+
+    def set_style(self, style: str) -> "Robot":
+        """« souple » ajoute la couche naturelle, « brut » s'en passe."""
+        if style not in ("souple", "brut"):
+            raise ValueError("style inconnu : " + style)
+        self.style = style
+        return self
+
     # --- pilotage articulaire direct -------------------------------------
     def set_joint(self, name: str, angle: float) -> "Robot":
         """Impose un angle. Le mode « joint » gèle le générateur d'allure."""
@@ -203,7 +222,18 @@ class Robot:
         if not moving:
             self.contacts = [True] * 4
 
+    def _advance_recorded(self) -> None:
+        """Avance l'horloge et enregistre l'image courante, sans recalcul."""
+        self.t += self.dt
+        self._check_velocity()
+        self._record()
+
     def _advance(self) -> None:
+        if self.mode == "gait" and self.style == "souple":
+            self.natural.step(self, self.dt)
+            self._advance_recorded()
+            return
+
         if self.mode == "gait":
             if self.gait.name != "stand":
                 self.phase = (self.phase + self.dt / self.gait.cycle) % 1.0
@@ -220,9 +250,7 @@ class Robot:
                 self.base[3] = self.base[4] = 0.0
             self._solve_gait()
 
-        self.t += self.dt
-        self._check_velocity()
-        self._record()
+        self._advance_recorded()
 
     def _check_velocity(self) -> None:
         """Vitesse articulaire entre deux images enregistrées."""
@@ -276,6 +304,7 @@ class Robot:
             "duration_s": round(self.t, 3),
             "frames": len(self.frames),
             "rate_hz": self.rate,
+            "style": self.style,
             "gait": self.gait.name,
             "distance_m": round(math.hypot(self.base[0], self.base[1]), 3),
             "heading_deg": round(math.degrees(self.base[5]), 1),

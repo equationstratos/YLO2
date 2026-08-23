@@ -58,7 +58,9 @@ ou via `ylo2-sim run`.
 
 | Appel | Effet |
 | --- | --- |
+| `set_style("souple"\|"brut")` | couche de locomotion naturelle, ou générateur nu |
 | `set_gait("trot")` | allure : `stand`, `walk`, `trot`, `pace`, `bound` |
+| `backflip()` | salto arrière complet, renvoie les grandeurs du vol |
 | `command(vx, vy, wz)` | consigne, saturée aux maxima de `gait.yaml` |
 | `walk(vx, seconds)` / `turn(wz, seconds)` | marche ou rotation pendant une durée |
 | `stand(seconds, height)` / `squat(low, high, seconds)` | station et accroupissement |
@@ -72,6 +74,34 @@ ou via `ylo2-sim run`.
 
 Les axes portent les noms de l'URDF : `lf_haa`, `lf_hfe`, `lf_kfe`, puis `rf_`,
 `lh_`, `rh_`.
+
+## Styles de locomotion
+
+`Robot(style="souple")` (défaut) ajoute la couche naturelle décrite dans le
+README principal : rampes de consigne, choix d'allure selon la vitesse, vol du
+pied en Hermite, placement à la Raibert, report de masse, compensation
+d'assiette. `style="brut"` s'en passe et reproduit le générateur seul —
+c'est ce mode qui sert de référence dans les tests de cinématique.
+
+```python
+robot = Robot(rate=200)          # souple
+robot.walk(vx=0.05, seconds=3)   # bascule automatiquement en walk
+robot.walk(vx=0.18, seconds=4)   # puis en trot
+```
+
+## Salto arrière
+
+```python
+robot.stand(0.6)
+info = robot.backflip()
+# {'duration_s': 1.87, 'flight_s': 0.601, 'apex_m': 0.76,
+#  'takeoff_vz_ms': 2.95, 'rotation_deg': 360.0, 'travel_m': -0.1}
+```
+
+Le vol est intégré sous gravité (z balistique, rotation complète), les poses
+d'armement, de groupé et de réception sont interpolées à vitesse bornée. Les
+tests vérifient que la figure ne franchit aucune butée et reste sous les
+20 rad/s de l'URDF.
 
 ## Ce que le simulateur signale
 

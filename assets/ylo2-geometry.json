@@ -1,22 +1,22 @@
 {
  "crease": 35.0,
- "bytes": 3520992,
+ "bytes": 3956352,
  "parts": {
   "trunk": {
    "source": "champ_for_ylo2/ylo2_description/meshes/body/textured/ylo2_textured_body.dae",
    "tris": 18470,
    "trisSource": 18470,
-   "vertices": 21576,
+   "vertices": 20812,
    "pos": [
     0,
-    258912
+    249744
    ],
    "nrm": [
-    258912,
-    258912
+    249744,
+    249744
    ],
    "idx": [
-    517824,
+    499488,
     221640
    ],
    "bounds": [
@@ -34,20 +34,20 @@
   },
   "cover": {
    "source": "champ_for_ylo2/ylo2_description/meshes/body/textured/ylo2_textured_cover.dae",
-   "tris": 30064,
-   "trisSource": 30064,
-   "vertices": 28975,
+   "tris": 30060,
+   "trisSource": 30060,
+   "vertices": 28030,
    "pos": [
-    739464,
-    347700
+    721128,
+    336360
    ],
    "nrm": [
-    1087164,
-    347700
+    1057488,
+    336360
    ],
    "idx": [
-    1434864,
-    360768
+    1393848,
+    360720
    ],
    "bounds": [
     [
@@ -66,17 +66,17 @@
    "source": "champ_for_ylo2/ylo2_description/meshes/body/textured/ylo2_textured_abad_motors.dae",
    "tris": 3360,
    "trisSource": 3360,
-   "vertices": 4382,
+   "vertices": 4332,
    "pos": [
-    1795632,
-    52584
+    1754568,
+    51984
    ],
    "nrm": [
-    1848216,
-    52584
+    1806552,
+    51984
    ],
    "idx": [
-    1900800,
+    1858536,
     40320
    ],
    "bounds": [
@@ -96,17 +96,17 @@
    "source": "champ_for_ylo2/ylo2_description/meshes/body/textured/accessories.dae",
    "tris": 300,
    "trisSource": 300,
-   "vertices": 434,
+   "vertices": 470,
    "pos": [
-    1941120,
-    5208
+    1898856,
+    5640
    ],
    "nrm": [
-    1946328,
-    5208
+    1904496,
+    5640
    ],
    "idx": [
-    1951536,
+    1910136,
     3600
    ],
    "bounds": [
@@ -128,15 +128,15 @@
    "trisSource": 42,
    "vertices": 57,
    "pos": [
-    1955136,
+    1913736,
     684
    ],
    "nrm": [
-    1955820,
+    1914420,
     684
    ],
    "idx": [
-    1956504,
+    1915104,
     504
    ],
    "bounds": [
@@ -158,15 +158,15 @@
    "trisSource": 12,
    "vertices": 24,
    "pos": [
-    1957008,
+    1915608,
     288
    ],
    "nrm": [
-    1957296,
+    1915896,
     288
    ],
    "idx": [
-    1957584,
+    1916184,
     144
    ],
    "bounds": [
@@ -188,15 +188,15 @@
    "trisSource": 12,
    "vertices": 24,
    "pos": [
-    1957728,
+    1916328,
     288
    ],
    "nrm": [
-    1958016,
+    1916616,
     288
    ],
    "idx": [
-    1958304,
+    1916904,
     144
    ],
    "bounds": [
@@ -216,17 +216,17 @@
    "source": "champ_for_ylo2/ylo2_description/meshes/leg/textured/ylo2texturedhip.dae",
    "tris": 5534,
    "trisSource": 5534,
-   "vertices": 5914,
+   "vertices": 5770,
    "pos": [
-    1958448,
-    70968
+    1917048,
+    69240
    ],
    "nrm": [
-    2029416,
-    70968
+    1986288,
+    69240
    ],
    "idx": [
-    2100384,
+    2055528,
     66408
    ],
    "bounds": [
@@ -244,20 +244,20 @@
   },
   "upper_leg": {
    "source": "champ_for_ylo2/ylo2_description/meshes/leg/textured/ylo2_textured_upper_leg.dae",
-   "tris": 29998,
+   "tris": 49176,
    "trisSource": 49176,
-   "vertices": 17442,
+   "vertices": 28417,
    "pos": [
-    2166792,
-    209304
+    2121936,
+    341004
    ],
    "nrm": [
-    2376096,
-    209304
+    2462940,
+    341004
    ],
    "idx": [
-    2585400,
-    359976
+    2803944,
+    590112
    ],
    "bounds": [
     [
@@ -267,7 +267,7 @@
     ],
     [
      0.05009930953383446,
-     0.09330322820992891,
+     0.09310495108366013,
      0.05009930953383446
     ]
    ]
@@ -276,17 +276,17 @@
    "source": "champ_for_ylo2/ylo2_description/meshes/leg/textured/lower_leg.dae",
    "tris": 7284,
    "trisSource": 7284,
-   "vertices": 6392,
+   "vertices": 6048,
    "pos": [
-    2945376,
-    76704
+    3394056,
+    72576
    ],
    "nrm": [
-    3022080,
-    76704
+    3466632,
+    72576
    ],
    "idx": [
-    3098784,
+    3539208,
     87408
    ],
    "bounds": [
@@ -306,17 +306,17 @@
    "source": "champ_for_ylo2/ylo2_description/meshes/leg/textured/fl_foot.dae",
    "tris": 9020,
    "trisSource": 9020,
-   "vertices": 5387,
+   "vertices": 5380,
    "pos": [
-    3186192,
-    64644
+    3626616,
+    64560
    ],
    "nrm": [
-    3250836,
-    64644
+    3691176,
+    64560
    ],
    "idx": [
-    3315480,
+    3755736,
     108240
    ],
    "bounds": [
@@ -336,17 +336,17 @@
    "source": "Wolf_for_ylo2/wolf_descriptions/ylo2_description/meshes/body/textured/Rp_lidar_A2.dae",
    "tris": 2360,
    "trisSource": 2360,
-   "vertices": 2873,
+   "vertices": 2669,
    "pos": [
-    3423720,
-    34476
+    3863976,
+    32028
    ],
    "nrm": [
-    3458196,
-    34476
+    3896004,
+    32028
    ],
    "idx": [
-    3492672,
+    3928032,
     28320
    ],
    "bounds": [

@@ -59,7 +59,7 @@
   key.shadow.camera.near = 0.5; key.shadow.camera.far = 9;
   key.shadow.camera.left = -1.4; key.shadow.camera.right = 1.4;
   key.shadow.camera.top = 1.4; key.shadow.camera.bottom = -1.4;
-  key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02;
+  key.shadow.bias = -0.0002; key.shadow.normalBias = 0.055;
   scene.add(key, key.target);
   const rim = new T.DirectionalLight(0xff8b4d, 0.55); scene.add(rim, rim.target);
   const fill = new T.DirectionalLight(0x9fd8c4, 0.5); fill.position.set(-1, 2.2, 0.6); scene.add(fill);
@@ -361,7 +361,11 @@
     { file: "joint_sweep.py", name: "Balayage articulaire",
       desc: "Chaque axe parcourt sa course URDF, un par un — contrôle des limites." },
     { file: "can_traffic.py", name: "Trafic CAN",
-      desc: "Trames position envoyées par port PCAN, cadence et charge de bus." }
+      desc: "Trames position envoyées par port PCAN, cadence et charge de bus." },
+    { file: "backflip.py", name: "Salto arrière",
+      desc: "La même figure que le bouton du bandeau, écrite en trajectoire rejouable." },
+    { file: "souple_vs_brut.py", name: "Souple contre brut",
+      desc: "Même consigne, deux styles : distance, vitesses articulaires, marge de stabilité." }
   ];
 
   function buildSimPane() {
@@ -583,8 +587,27 @@
     });
   }
 
+  function setStyle(k) {
+    M.state.style = k;
+    if (k === "souple") Y.Natural.reset();
+    document.querySelectorAll("#styles button").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.style === k));
+    });
+  }
+
+  function launchFlip() {
+    if (M.state.source !== "internal") {
+      flash("Le salto vient du générateur interne : repassez sur cette source");
+      return;
+    }
+    if (Y.Stunt.active) { Y.Stunt.stop(); return; }
+    Y.Stunt.start("backflip");
+    clearTraces();
+  }
+
   function setGait(k) {
     M.state.gait = k;
+    Y.Natural.setAuto(k === "walk" || k === "trot" || k === "stand");
     document.querySelectorAll("#gaits button").forEach(function (x) {
       x.setAttribute("aria-pressed", String(x.dataset.gait === k));
     });
@@ -780,6 +803,13 @@
       const src = M.state.source;
       const srcLabel = { internal: "générateur interne", file: "trajectoire Python", live: "serveur local" }[src];
       let lines = "Source <span class='src'>" + srcLabel + "</span><br>";
+      if (Y.Stunt.active) {
+        lines += "Figure <b>salto arrière</b> · " + Y.Stunt.phase + "<br>" +
+          "Hauteur de caisse <b>" + (M.state.z * 1000).toFixed(0) + " mm</b> · rotation <b>" +
+          Math.abs(M.state.pitch * 180 / Math.PI).toFixed(0) + "°</b><br>";
+        const bar = document.querySelector("#flipbar i");
+        if (bar) bar.style.width = (Y.Stunt.progress * 100) + "%";
+      }
       if (src === "file") {
         lines += "Fichier <b>" + M.play.name + "</b><br>" +
           "Lecture <b>" + M.play.t.toFixed(2) + " / " + M.play.duration.toFixed(2) + " s</b>" +
@@ -853,6 +883,16 @@
       }
       if (k === "support") view.support = on;
     });
+    document.getElementById("styles").addEventListener("click", function (e) {
+      const b = e.target.closest("button[data-style]"); if (b) setStyle(b.dataset.style);
+    });
+    document.getElementById("btnFlip").addEventListener("click", launchFlip);
+    Y.Stunt.onChange(function (st) {
+      const btn = document.getElementById("btnFlip");
+      btn.setAttribute("aria-pressed", String(!!st.active));
+      btn.textContent = st.active ? "Annuler" : "Salto arrière";
+      document.getElementById("flipbar").classList.toggle("on", !!st.active);
+    });
     document.getElementById("views").addEventListener("click", function (e) {
       const b = e.target.closest("button[data-view]"); if (b) setView(b.dataset.view);
     });
@@ -874,6 +914,7 @@
       if (map[e.key]) setView(map[e.key]);
       if (e.key === "Escape") select(null);
       if (e.key === " ") { e.preventDefault(); setGait(M.state.gait === "stand" ? "trot" : "stand"); }
+      if (e.key === "b" || e.key === "B") launchFlip();
     });
 
     // changer de source téléporte le robot : on repart d'une trace vierge

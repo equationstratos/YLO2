@@ -113,19 +113,51 @@
     }
   };
 
-  function texture(pattern, scale) {
+  function texture(pattern) {
     if (pattern === "none" || !DRAW[pattern]) return null;
-    const key = pattern + "@" + scale;
-    if (cache[key]) return cache[key];
+    if (cache[pattern]) return cache[pattern];
     const c = canvas();
     DRAW[pattern](c.getContext("2d"));
     const tex = new T.CanvasTexture(c);
     tex.wrapS = tex.wrapT = T.RepeatWrapping;
-    tex.repeat.set(scale, scale);
     tex.anisotropy = 8;
     tex.colorSpace = T.SRGBColorSpace;
-    cache[key] = tex;
+    cache[pattern] = tex;
     return tex;
+  }
+
+  /* Les maillages du dépôt n'ont pas de coordonnées de texture exploitables :
+     on projette les motifs en triplanaire, dans le repère local de la pièce.
+     Le motif reste donc collé à la pièce quand le robot bouge, sans couture. */
+  function triplanar(material) {
+    material.onBeforeCompile = function (shader) {
+      shader.uniforms.uPatScale = material.userData.patScale;
+      shader.vertexShader = shader.vertexShader
+        .replace("#include <common>",
+          "#include <common>\nvarying vec3 vObjPos;\nvarying vec3 vObjNrm;")
+        .replace("#include <begin_vertex>",
+          "#include <begin_vertex>\nvObjPos = transformed;\nvObjNrm = objectNormal;");
+
+      const helper =
+        "uniform float uPatScale;\n" +
+        "varying vec3 vObjPos;\nvarying vec3 vObjNrm;\n" +
+        "vec4 triSample(sampler2D tex, float s) {\n" +
+        "  vec3 bw = abs(normalize(vObjNrm));\n" +
+        "  bw = pow(bw, vec3(4.0));\n" +
+        "  bw /= max(bw.x + bw.y + bw.z, 1e-4);\n" +
+        "  return texture2D(tex, vObjPos.zy * s) * bw.x\n" +
+        "       + texture2D(tex, vObjPos.xz * s) * bw.y\n" +
+        "       + texture2D(tex, vObjPos.xy * s) * bw.z;\n" +
+        "}\n";
+
+      shader.fragmentShader = shader.fragmentShader
+        .replace("#include <common>", "#include <common>\n" + helper)
+        .replace("#include <map_fragment>",
+          "#ifdef USE_MAP\ndiffuseColor *= triSample(map, uPatScale);\n#endif")
+        .replace("#include <roughnessmap_fragment>",
+          "float roughnessFactor = roughness;\n#ifdef USE_ROUGHNESSMAP\n" +
+          "roughnessFactor *= mix(0.75, 1.15, triSample(roughnessMap, uPatScale).g);\n#endif");
+    };
   }
 
   const state = {};                        // id -> {color, metal, rough, pattern, scale}
@@ -138,8 +170,18 @@
     init: function () {
       Y.MATGROUPS.forEach(function (g) {
         state[g.id] = Object.assign({ scale: 3 }, g.preset);
-        mats[g.id] = new T.MeshStandardMaterial({ name: g.id });
-        mats[g.id].envMapIntensity = 1.15;
+        const m = new T.MeshStandardMaterial({ name: g.id });
+        m.envMapIntensity = 1.15;
+        m.userData.patScale = { value: 8 };
+        triplanar(m);
+        // la cuisse et la hanche partagent la surface du tambour d'épaule :
+        // on tranche le conflit de profondeur au lieu de le laisser scintiller
+        if (g.id === "hip" || g.id === "abad") {
+          m.polygonOffset = true;
+          m.polygonOffsetFactor = 1.2;
+          m.polygonOffsetUnits = 1.2;
+        }
+        mats[g.id] = m;
       });
       this.restore();
       Object.keys(state).forEach(this.refresh, this);
@@ -155,10 +197,12 @@
       m.color.set(s.color);
       m.metalness = s.metal;
       m.roughness = s.rough;
-      const tex = texture(s.pattern, s.scale);
+      const had = !!m.map;
+      const tex = texture(s.pattern);
       m.map = tex;
       m.roughnessMap = tex;
-      m.needsUpdate = true;
+      m.userData.patScale.value = s.scale * 4;      // motifs par mètre
+      if (had !== !!tex) m.needsUpdate = true;      // le programme change
     },
 
     set: function (id, patch) {

@@ -11,7 +11,9 @@
 
   const state = {
     gait: "trot", vx: 0.12, vy: 0, wz: 0, height: 0.25, swing: 0.04,
-    phase: 0, px: 0, py: 0, yaw: 0, roll: 0, pitch: 0, z: 0.25,
+    phase: 0, px: 0, py: 0, yaw: 0, roll: 0, pitch: 0, z: 0.25, sway: 0,
+    t: 0,
+    style: "souple",              // « brut » = générateur nu, « souple » = couche naturelle
     source: "internal", frozen: false
   };
 
@@ -203,9 +205,19 @@
 
   /* ---------- pas de simulation, quelle que soit la source ---------- */
   function step(dt) {
-    if (state.source === "file") play.step(dt);
-    else if (state.source === "live") live.step();
-    else stepInternal(dt);
+    state.t += dt;
+    if (Y.Stunt && Y.Stunt.active && state.source === "internal") {
+      Y.Stunt.step(dt, state);
+    } else if (state.source === "file") {
+      play.step(dt);
+    } else if (state.source === "live") {
+      live.step();
+    } else if (state.style === "souple" && Y.Natural && !state.frozen) {
+      Y.Natural.step(dt, state);
+    } else {
+      state.sway = 0;
+      stepInternal(dt);
+    }
 
     // application aux articulations
     Y.LEGS.forEach(function (L) {
@@ -214,7 +226,12 @@
       n.upper.rotation.y = n.q[1];
       n.lower.rotation.y = n.q[2];
     });
-    Y.Robot.root.position.set(state.px, state.py, state.z);
+    // le report de masse déplace la caisse, pas les appuis
+    const sway = state.source === "internal" ? (state.sway || 0) : 0;
+    Y.Robot.root.position.set(
+      state.px - Math.sin(state.yaw) * sway,
+      state.py + Math.cos(state.yaw) * sway,
+      state.z);
     Y.Robot.root.rotation.set(state.roll, state.pitch, state.yaw, "ZYX");
   }
 

@@ -201,6 +201,17 @@ canvas{position:absolute;inset:0;display:block;width:100%;height:100%;touch-acti
 }
 .gaits button:hover{color:var(--ink);border-color:var(--faint)}
 .gaits button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#140B06;font-weight:600}
+.stylerow{display:flex;gap:8px;align-items:center;margin-top:9px;flex-wrap:wrap}
+.seg.small button{padding:5px 9px;font-size:10px}
+.stunt{
+  padding:6px 11px;border:1px solid var(--warn);border-radius:2px;color:var(--warn);
+  font-family:var(--mono);font-size:11px;letter-spacing:.09em;text-transform:uppercase;
+}
+.stunt:hover{background:#221B0C}
+.stunt[aria-pressed="true"]{background:var(--warn);color:#171203;font-weight:600}
+.flipbar{position:relative;height:3px;background:var(--line);margin-top:8px;border-radius:2px;overflow:hidden;display:none}
+.flipbar.on{display:block}
+.flipbar i{display:block;height:100%;background:var(--warn);width:0}
 .sliders{display:grid;gap:7px;min-width:216px}
 .sl{display:grid;grid-template-columns:64px 1fr 58px;gap:9px;align-items:center}
 .sl label{font-size:11px;color:var(--dim)}
@@ -331,6 +342,14 @@ input[type=range]::-moz-range-thumb{
         <div class="card">
           <h4>Allure</h4>
           <div class="gaits" id="gaits"></div>
+          <div class="stylerow">
+            <div class="seg small" id="styles" role="group" aria-label="Style de marche">
+              <button data-style="brut" aria-pressed="false">Brut</button>
+              <button data-style="souple" aria-pressed="true">Souple</button>
+            </div>
+            <button class="stunt" id="btnFlip">Salto arrière</button>
+          </div>
+          <div class="flipbar" id="flipbar"><i></i></div>
         </div>
         <div class="card">
           <h4>Consigne de marche</h4>
