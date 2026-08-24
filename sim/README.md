@@ -58,9 +58,10 @@ ou via `ylo2-sim run`.
 
 | Appel | Effet |
 | --- | --- |
-| `set_style("souple"\|"brut")` | couche de locomotion naturelle, ou générateur nu |
+| `set_style("souple"\|"felin"\|"brut")` | style de locomotion |
 | `set_gait("trot")` | allure : `stand`, `walk`, `trot`, `pace`, `bound` |
-| `backflip()` | salto arrière complet, renvoie les grandeurs du vol |
+| `figure(nom)` | `backflip`, `doubleflip`, `mctwist540` |
+| `backflip()` · `double_backflip()` · `mctwist540()` | raccourcis |
 | `command(vx, vy, wz)` | consigne, saturée aux maxima de `gait.yaml` |
 | `walk(vx, seconds)` / `turn(wz, seconds)` | marche ou rotation pendant une durée |
 | `stand(seconds, height)` / `squat(low, high, seconds)` | station et accroupissement |
@@ -80,8 +81,11 @@ Les axes portent les noms de l'URDF : `lf_haa`, `lf_hfe`, `lf_kfe`, puis `rf_`,
 `Robot(style="souple")` (défaut) ajoute la couche naturelle décrite dans le
 README principal : rampes de consigne, choix d'allure selon la vitesse, vol du
 pied en Hermite, placement à la Raibert, report de masse, compensation
-d'assiette. `style="brut"` s'en passe et reproduit le générateur seul —
-c'est ce mode qui sert de référence dans les tests de cinématique.
+d'assiette. `style="felin"` la règle sur une marche de chat — voie à 55 % de
+l'entraxe, appui prolongé, cadence allongée, report de masse anticipé,
+balancement du tronc, poser lent, posture basse. `style="brut"` s'en passe et
+reproduit le générateur seul : c'est ce mode qui sert de référence dans les
+tests de cinématique.
 
 ```python
 robot = Robot(rate=200)          # souple
@@ -89,19 +93,26 @@ robot.walk(vx=0.05, seconds=3)   # bascule automatiquement en walk
 robot.walk(vx=0.18, seconds=4)   # puis en trot
 ```
 
-## Salto arrière
+## Figures
 
 ```python
 robot.stand(0.6)
-info = robot.backflip()
-# {'duration_s': 1.87, 'flight_s': 0.601, 'apex_m': 0.76,
-#  'takeoff_vz_ms': 2.95, 'rotation_deg': 360.0, 'travel_m': -0.1}
+info = robot.figure("mctwist540")
+# {'figure': '540 McTwist', 'duration_s': 2.04, 'flight_s': 0.683,
+#  'apex_m': 0.89, 'takeoff_vz_ms': 3.35, 'rotation_deg': 360.0,
+#  'twist_deg': 540.0, 'travel_m': -0.06}
 ```
 
-Le vol est intégré sous gravité (z balistique, rotation complète), les poses
+| Figure | Tangage | Vrille | Vol | Apex |
+| --- | --- | --- | --- | --- |
+| `backflip` | 360° | — | 0,60 s | 0,76 m |
+| `doubleflip` | 720° | — | 0,86 s | 1,23 m |
+| `mctwist540` | 360° | 540° | 0,68 s | 0,89 m |
+
+Le vol est intégré sous gravité (z balistique, rotations complètes), les poses
 d'armement, de groupé et de réception sont interpolées à vitesse bornée. Les
-tests vérifient que la figure ne franchit aucune butée et reste sous les
-20 rad/s de l'URDF.
+tests vérifient qu'aucune figure ne franchit de butée, qu'elles restent sous
+les 20 rad/s de l'URDF et que le McTwist repose bien à 180° du cap de départ.
 
 ## Ce que le simulateur signale
 

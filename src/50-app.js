@@ -76,7 +76,7 @@
 
   /* --- état d'affichage --- */
   const view = { explode: 0, explodeOn: false, axes: false, trace: true,
-    support: false, selected: null, name: "iso" };
+    support: false, selected: null, name: "iso", stunt: 0 };
 
   /* --- traces de pieds --- */
   const TRACE_N = 220;
@@ -103,10 +103,12 @@
   let dragging = false, lastX = 0, lastY = 0, pinch0 = 0, downAt = null, camTween = null;
   const pointers = new Map();
   const clamp = function (v, a, b) { return Math.min(Math.max(v, a), b); };
+  const lerp = function (a, b, t) { return a + (b - a) * t; };
 
   function placeCamera() {
     const fit = clamp(1.55 / camera.aspect, 1, 1.95);
-    const d = orbit.dist * fit;
+    // pendant une figure on recule : le robot monte à près d'un mètre
+    const d = orbit.dist * fit * (1 + 0.3 * view.stunt);
     const cd = Math.cos(orbit.el) * d;
     camera.position.set(
       orbit.target.x + Math.cos(orbit.az) * cd,
@@ -365,7 +367,11 @@
     { file: "backflip.py", name: "Salto arrière",
       desc: "La même figure que le bouton du bandeau, écrite en trajectoire rejouable." },
     { file: "souple_vs_brut.py", name: "Souple contre brut",
-      desc: "Même consigne, deux styles : distance, vitesses articulaires, marge de stabilité." }
+      desc: "Même consigne, deux styles : distance, vitesses articulaires, marge de stabilité." },
+    { file: "felin_walk.py", name: "Marche féline",
+      desc: "Voie étroite, triple appui, balancement du tronc, puis bascule en trot." },
+    { file: "figures.py", name: "Enchaînement de figures",
+      desc: "Salto arrière, double salto et 540 McTwist à la suite, en une trajectoire." }
   ];
 
   function buildSimPane() {
@@ -577,42 +583,84 @@
   const bars = {};
   function buildGaitButtons() {
     const el = document.getElementById("gaits");
-    Object.keys(Y.GAITS).forEach(function (k) {
+    const entries = Object.keys(Y.GAITS).map(function (k) {
+      return { id: k, label: Y.GAITS[k].label };
+    });
+    entries.push({ id: "auto", label: "Auto" });
+    entries.forEach(function (e) {
       const b = document.createElement("button");
-      b.textContent = Y.GAITS[k].label;
-      b.dataset.gait = k;
-      b.setAttribute("aria-pressed", String(k === M.state.gait));
-      b.addEventListener("click", function () { setGait(k); });
+      b.textContent = e.label;
+      b.dataset.gait = e.id;
+      b.title = e.id === "auto"
+        ? "Laisse le style choisir l'allure selon la vitesse"
+        : "Impose cette allure";
+      b.addEventListener("click", function () { setGait(e.id); });
       el.appendChild(b);
     });
+    syncGaitButtons();
   }
 
   function setStyle(k) {
+    if (k !== M.state.style) M.blendFrom(0.35);   // pas de saut de pose
     M.state.style = k;
-    if (k === "souple") Y.Natural.reset();
+    // on change de profil sans réinitialiser : la posture est fondue en marche
+    if (k !== "brut") Y.Natural.setProfile(k);
     document.querySelectorAll("#styles button").forEach(function (b) {
       b.setAttribute("aria-pressed", String(b.dataset.style === k));
     });
   }
 
-  function launchFlip() {
+  function launchStunt(name) {
     if (M.state.source !== "internal") {
-      flash("Le salto vient du générateur interne : repassez sur cette source");
+      flash("Les figures viennent du générateur interne : repassez sur cette source");
       return;
     }
-    if (Y.Stunt.active) { Y.Stunt.stop(); return; }
-    Y.Stunt.start("backflip");
+    if (Y.Stunt.active) {
+      const same = Y.Stunt.active === name;
+      Y.Stunt.stop();
+      if (same) return;
+    }
+    Y.Stunt.start(name);
     clearTraces();
   }
 
-  function setGait(k) {
-    M.state.gait = k;
-    Y.Natural.setAuto(k === "walk" || k === "trot" || k === "stand");
-    document.querySelectorAll("#gaits button").forEach(function (x) {
-      x.setAttribute("aria-pressed", String(x.dataset.gait === k));
+  function buildStuntButtons() {
+    const row = document.getElementById("stunts");
+    row.innerHTML = "";
+    Object.keys(Y.Stunt.figures).forEach(function (id) {
+      const f = Y.Stunt.figures[id];
+      const b = document.createElement("button");
+      b.className = "stunt";
+      b.dataset.stunt = id;
+      b.textContent = f.label;
+      b.title = f.turns + " tour" + (f.turns > 1 ? "s" : "") +
+        (f.twist ? " + " + (f.twist * 360) + "° de vrille" : "") +
+        " · vol " + f.flight.toFixed(2) + " s · apex " + f.apex.toFixed(2) + " m";
+      b.addEventListener("click", function () { launchStunt(id); });
+      row.appendChild(b);
     });
+  }
+
+  function setGait(k) {
+    if (k === "auto") {                       // rendre la main au choix automatique
+      Y.Natural.setAuto(true);
+      syncGaitButtons();
+      return;
+    }
+    M.state.gait = k;
+    Y.Natural.setAuto(false);                 // un choix explicite est respecté
+    if (Y.Stunt.active) Y.Stunt.stop();
+    syncGaitButtons();
     buildPhase();
     if (M.live.status === "connecté") M.live.send({ gait: k });
+  }
+
+  function syncGaitButtons() {
+    const auto = Y.Natural.isAuto();
+    document.querySelectorAll("#gaits button").forEach(function (x) {
+      if (x.dataset.gait === "auto") x.setAttribute("aria-pressed", String(auto));
+      else x.setAttribute("aria-pressed", String(!auto && x.dataset.gait === M.state.gait));
+    });
   }
 
   function buildPhase() {
@@ -773,8 +821,10 @@
     });
 
     const portrait = camera.aspect < 0.9;
+    view.stunt += ((Y.Stunt.active ? 1 : 0) - view.stunt) * Math.min(1, dt * 3);
+    const baseZ = portrait ? 0.0 : M.state.height * 0.5 + 0.03;
     camTarget.set(Y.Robot.root.position.x, Y.Robot.root.position.y,
-      portrait ? 0.0 : M.state.height * 0.5 + 0.03);
+      lerp(baseZ, Math.max(baseZ, M.state.z * 0.72), view.stunt));
     orbit.target.lerp(camTarget, Math.min(1, dt * 3.2));
     if (camTween) {
       const e = 1 - Math.exp(-dt * 6);
@@ -799,12 +849,13 @@
       });
       updateJointTable();
       updateTags();
+      if (Y.Natural.isAuto()) syncGaitButtons();
       const G = Y.GAITS[M.state.gait];
       const src = M.state.source;
       const srcLabel = { internal: "générateur interne", file: "trajectoire Python", live: "serveur local" }[src];
       let lines = "Source <span class='src'>" + srcLabel + "</span><br>";
       if (Y.Stunt.active) {
-        lines += "Figure <b>salto arrière</b> · " + Y.Stunt.phase + "<br>" +
+        lines += "Figure <b>" + Y.Stunt.label() + "</b> · " + Y.Stunt.phase + "<br>" +
           "Hauteur de caisse <b>" + (M.state.z * 1000).toFixed(0) + " mm</b> · rotation <b>" +
           Math.abs(M.state.pitch * 180 / Math.PI).toFixed(0) + "°</b><br>";
         const bar = document.querySelector("#flipbar i");
@@ -886,11 +937,13 @@
     document.getElementById("styles").addEventListener("click", function (e) {
       const b = e.target.closest("button[data-style]"); if (b) setStyle(b.dataset.style);
     });
-    document.getElementById("btnFlip").addEventListener("click", launchFlip);
+    buildStuntButtons();
     Y.Stunt.onChange(function (st) {
-      const btn = document.getElementById("btnFlip");
-      btn.setAttribute("aria-pressed", String(!!st.active));
-      btn.textContent = st.active ? "Annuler" : "Salto arrière";
+      document.querySelectorAll("#stunts button").forEach(function (b) {
+        const on = st.active === b.dataset.stunt;
+        b.setAttribute("aria-pressed", String(on));
+        b.textContent = on ? "Annuler" : Y.Stunt.figures[b.dataset.stunt].label;
+      });
       document.getElementById("flipbar").classList.toggle("on", !!st.active);
     });
     document.getElementById("views").addEventListener("click", function (e) {
@@ -914,7 +967,9 @@
       if (map[e.key]) setView(map[e.key]);
       if (e.key === "Escape") select(null);
       if (e.key === " ") { e.preventDefault(); setGait(M.state.gait === "stand" ? "trot" : "stand"); }
-      if (e.key === "b" || e.key === "B") launchFlip();
+      if (e.key === "b" || e.key === "B") launchStunt("backflip");
+      if (e.key === "d" || e.key === "D") launchStunt("doubleflip");
+      if (e.key === "t" || e.key === "T") launchStunt("mctwist540");
     });
 
     // changer de source téléporte le robot : on repart d'une trace vierge

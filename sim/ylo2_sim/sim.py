@@ -15,7 +15,7 @@ from . import gait as gaitmod
 from . import kinematics as kin
 from . import moteus, stunts, trajectory
 from .model import DEFAULT, Model
-from .natural import Natural
+from .natural import Natural, profile as natural_profile
 
 
 class LimitViolation(Exception):
@@ -49,8 +49,8 @@ class Robot:
         self.q: List[float] = [0.0] * 12
         self.contacts: List[bool] = [True] * 4
         self.mode = "gait"                          # ou "joint"
-        self.style = style                          # "souple" (naturel) ou "brut"
-        self.natural = Natural(model=self.model)
+        self.style = style                          # "souple", "felin" ou "brut"
+        self.natural = Natural(model=self.model, params=natural_profile(style))
 
         self.stunt: Dict[str, Any] = {}
         self.frames: List[Dict[str, Any]] = []
@@ -60,7 +60,10 @@ class Robot:
         self._violations: Dict[str, int] = {}
         self._unreachable = 0
 
-        self._solve_gait()
+        if self.style == "brut":
+            self._solve_gait()
+        else:
+            self.natural.step(self, 0.0)      # pose initiale dans le bon style
         self._record()
 
     # --- consignes -------------------------------------------------------
@@ -132,19 +135,39 @@ class Robot:
             self._advance()
         return self
 
-    def backflip(self) -> Dict[str, Any]:
-        """Salto arrière : armement, poussée, vol balistique, réception."""
-        info = stunts.perform(self)
-        self._note("salto arrière : vol %.2f s, apex %.2f m"
-                   % (info["flight_s"], info["apex_m"]))
+    def figure(self, name: str = "backflip") -> Dict[str, Any]:
+        """Exécute une figure : backflip, doubleflip, mctwist540."""
+        if name not in stunts.FIGURES:
+            raise KeyError("figure inconnue : %s (parmi %s)"
+                           % (name, sorted(stunts.FIGURES)))
+        info = stunts.perform(self, stunts.FIGURES[name])
+        self._note("%s : vol %.2f s, apex %.2f m, %.0f° + %.0f° de vrille"
+                   % (info["figure"], info["flight_s"], info["apex_m"],
+                      info["rotation_deg"], info["twist_deg"]))
         self.stunt = info
         return info
 
+    def backflip(self) -> Dict[str, Any]:
+        """Salto arrière : armement, poussée, vol balistique, réception."""
+        return self.figure("backflip")
+
+    def double_backflip(self) -> Dict[str, Any]:
+        """Double salto arrière : deux tours dans le même envol."""
+        return self.figure("doubleflip")
+
+    def mctwist540(self) -> Dict[str, Any]:
+        """540 McTwist : un salto arrière avec un tour et demi de vrille."""
+        return self.figure("mctwist540")
+
     def set_style(self, style: str) -> "Robot":
-        """« souple » ajoute la couche naturelle, « brut » s'en passe."""
-        if style not in ("souple", "brut"):
+        """« souple », « felin » (naturels) ou « brut » (générateur nu)."""
+        if style not in ("souple", "felin", "brut"):
             raise ValueError("style inconnu : " + style)
         self.style = style
+        self.natural.params = natural_profile(style)
+        if style != "brut":
+            self.natural.step(self, 0.0)      # replace les pieds sans à-coup mesuré
+            self._recorded_q = list(self.q)
         return self
 
     # --- pilotage articulaire direct -------------------------------------
@@ -229,7 +252,7 @@ class Robot:
         self._record()
 
     def _advance(self) -> None:
-        if self.mode == "gait" and self.style == "souple":
+        if self.mode == "gait" and self.style != "brut":
             self.natural.step(self, self.dt)
             self._advance_recorded()
             return

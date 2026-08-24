@@ -89,7 +89,9 @@ JSON (`ylo2.materials/1`) pour être repris ailleurs.
 
 ## Locomotion
 
-Deux styles, commutables dans le bandeau **Allure** :
+Trois styles, commutables dans le bandeau **Allure**. Le choix d'allure y est
+soit **imposé** (un clic sur Statique, Walk, Trot, Pace ou Bound le fige), soit
+rendu au style par le bouton **Auto**, qui bascule alors selon la vitesse.
 
 **Brut** — le générateur nu, celui de `gait.yaml` : pied en sinusoïde, caisse en
 sinusoïde, aucune compensation. C'est la référence, utile pour comparer.
@@ -112,31 +114,50 @@ empilent par-dessus, ici en cinématique pure :
   repère tronc, donc les appuis restent plantés quand la caisse bouge ;
 - respiration à l'arrêt.
 
-Mesuré sur six secondes de trot à 0,15 m/s : le mode souple ne fait plus
-pénétrer les pieds dans le sol (0,0 mm contre 8 mm) et glisse moins en appui
-(0,08 m/s contre 0,11), pour un pic articulaire qui reste sous la butée de
-vitesse de l'URDF.
+**Félin** — même socle, réglé sur la marche d'un chat :
 
-### Salto arrière
+| Trait | Réglage | Ce que ça donne |
+| --- | --- | --- |
+| Voie étroite | appuis ramenés à 55 % de l'entraxe des hanches | le robot marche presque sur une ligne |
+| Appui prolongé | rapport d'appui porté à 0,80, cycle allongé de 35 % | trois pattes au sol en permanence |
+| Report de masse anticipé | 24 mm, avancé de 16 % de cycle | la caisse se déplace **avant** que la patte se lève |
+| Balancement du tronc | ±1,1° de lacet, contre-phase du report | lecture d'une colonne qui ondule |
+| Poser lent | garde réduite à 80 %, fin de vol aplatie | la patte se dépose au lieu de tomber |
+| Posture basse | hauteur × 0,93, appuis arrière avancés de 22 mm | genoux plus fléchis, allure ramassée |
+| Cadence irrégulière | ±1,4 % de phase par cycle | rien de métronomique |
+| Seuils d'allure relevés | trot au-delà de 0,17 m/s | le félin marche longtemps avant de trotter |
 
-Bouton **Salto arrière** du bandeau, touche `B`, ou
-`ylo2-sim run sim/scripts/backflip.py`. Six phases : armement, bascule,
-poussée, vol, réception, stabilisation. Le vol est **balistique** — la hauteur
-et la rotation viennent de la gravité, pas d'une courbe décorative :
+Mesuré sur six secondes à consigne constante : le mode souple ne fait plus
+pénétrer les pieds dans le sol (0,0 mm contre 8 mm en brut) et glisse moins en
+appui (0,08 m/s contre 0,11). Les trois styles restent sous la butée de vitesse
+de l'URDF (20 rad/s) : 6,8 rad/s en souple, 11 en félin, 17,5 en brut à
+0,18 m/s. Le félin garde en moyenne plus de trois appuis au sol, contre deux en
+trot.
 
-| Grandeur | Valeur |
-| --- | --- |
-| Vitesse verticale à la poussée | 2,95 m/s |
-| Durée de vol | 0,60 s |
-| Apex de la caisse | 0,76 m |
-| Rotation | 360° en tangage |
-| Recul | 0,10 m |
-| Pic de vitesse articulaire | 7 rad/s (butée URDF : 20) |
-| Butées franchies | aucune |
+### Figures
+
+Trois boutons dans le bandeau, touches `B`, `D` et `T`, ou
+`ylo2-sim run sim/scripts/figures.py`. Chacune suit six phases — armement,
+bascule, poussée, vol, réception, stabilisation — et le vol est **balistique** :
+hauteur et rotations viennent de la vitesse de poussée et de la gravité, pas
+d'une courbe décorative.
+
+| | Salto arrière | Double salto | 540 McTwist |
+| --- | --- | --- | --- |
+| Poussée | 2,95 m/s | 4,20 m/s | 3,35 m/s |
+| Vol | 0,60 s | 0,86 s | 0,68 s |
+| Apex de la caisse | 0,76 m | 1,23 m | 0,89 m |
+| Tangage | 360° | 720° | 360° |
+| Vrille | — | — | 540°, cap final à 180° |
+| Inclinaison de vrille | — | — | 26° |
+| Pose en l'air | groupé | groupé serré | vrille, abduction ouverte |
+| Pic articulaire | 7,0 rad/s | 7,2 rad/s | 6,8 rad/s |
+| Butées franchies | aucune | aucune | aucune |
 
 Le groupé part de la pose réellement mesurée au décollage et l'ouverture se fait
-par interpolation à vitesse bornée : c'est ce qui garde la figure dans les
-capacités déclarées des qdd100.
+par interpolation à vitesse bornée : c'est ce qui garde les figures dans les
+capacités déclarées des qdd100 (20 rad/s, genou au-dessus de −159°). La caméra
+recule et suit la caisse pendant la figure.
 
 ## Simulation Python
 
@@ -169,7 +190,7 @@ reçoit les consignes. Détails, API et scripts : [`sim/README.md`](sim/README.m
 | Clic sur une pièce | Fiche du sous-système |
 | `1` `2` `3` `4` | Iso · profil · face · dessus |
 | `Espace` | Bascule trot / statique |
-| `B` | Salto arrière |
+| `B` · `D` · `T` | Salto arrière · double salto · 540 McTwist |
 | `Échap` | Désélectionner |
 
 Bandeau : vue éclatée (fige la machine et étiquette les sous-ensembles), axes
@@ -182,7 +203,7 @@ src/10-data.js        cotes, allures, sous-systèmes, groupes de matières
 src/20-materials.js   matières PBR et motifs procéduraux
 src/30-robot.js       décodage des maillages et montage de l'arbre cinématique
 src/40-motion.js      cinématique inverse, allures, lecture de trajectoire, liaison directe
-src/44-locomotion.js  style souple (Raibert, Hermite, assiette) et salto arrière
+src/44-locomotion.js  styles souple et félin, catalogue des figures
 src/50-app.js         scène, rendu, interface
 src/page.html         structure et styles
 vendor/three.min.js   three.js r160 (UMD)

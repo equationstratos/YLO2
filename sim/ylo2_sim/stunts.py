@@ -1,4 +1,4 @@
-"""Figures : salto arrière.
+"""Figures : salto arrière, double salto, 540 McTwist.
 
 Le vol est balistique — hauteur et rotation sont imposées par la gravité,
 pas par une courbe décorative. Le reste (armement, poussée, réception) est
@@ -16,16 +16,26 @@ from .model import DEFAULT, Leg, Model
 
 G_ACC = 9.81
 
-# poses articulaires (haa, hfe, kfe) en radians
+# poses articulaires (haa, hfe, kfe) en radians ; haa est reflété par patte
 POSE: Dict[str, Dict[str, Tuple[float, float, float]]] = {
     "tuck":   {"front": (0.0, 1.55, -2.55), "hind": (0.0, 1.35, -2.60)},
+    "pike":   {"front": (0.0, 1.70, -2.35), "hind": (0.0, 1.15, -2.50)},
     "reach":  {"front": (0.0, 0.55, -1.45), "hind": (0.0, 0.85, -1.70)},
+    "twist":  {"front": (0.35, 1.45, -2.45), "hind": (-0.35, 1.30, -2.50)},
     "launch": {"front": (0.0, 0.35, -0.95), "hind": (0.0, 0.30, -0.85)},
 }
 
 
 @dataclass(frozen=True)
-class Backflip:
+class Figure:
+    """Une figure : phases au sol, envol balistique, rotations."""
+
+    name: str = "backflip"
+    label: str = "Salto arrière"
+    turns: float = 1.0          # tours de tangage
+    twist: float = 0.0          # tours de lacet (540 McTwist : 1,5)
+    cork: float = 0.0           # inclinaison de vrille (rad)
+    air: str = "tuck"           # pose en l'air
     crouch: float = 0.34        # accroupissement
     load: float = 0.10          # bascule arrière
     push: float = 0.19          # poussée
@@ -50,7 +60,21 @@ class Backflip:
         return self.takeoff_z + self.vz ** 2 / (2 * G_ACC)
 
 
-DEFAULT_FLIP = Backflip()
+FIGURES: Dict[str, Figure] = {
+    "backflip": Figure(),
+    "doubleflip": Figure(
+        name="doubleflip", label="Double salto", turns=2.0, air="pike",
+        vz=4.20, crouch=0.40, load=0.12, push=0.21, land=0.26, recover=0.50,
+        crouch_z=0.155, takeoff_z=0.33, absorb_z=0.175, travel=-0.16),
+    "mctwist540": Figure(
+        name="mctwist540", label="540 McTwist", turns=1.0, twist=1.5,
+        cork=0.45, air="twist", vz=3.35, crouch=0.36, load=0.10, push=0.20,
+        land=0.24, recover=0.46, crouch_z=0.160, takeoff_z=0.32,
+        absorb_z=0.180, travel=-0.06),
+}
+
+DEFAULT_FLIP = FIGURES["backflip"]
+Backflip = Figure          # compatibilité avec l'ancien nom
 
 
 def _smooth(s: float) -> float:
@@ -62,11 +86,12 @@ def _smoother(s: float) -> float:
 
 
 def _pose_for(leg: Leg, pose: str) -> Tuple[float, float, float]:
-    return POSE[pose]["front" if leg.front > 0 else "hind"]
+    base = POSE[pose]["front" if leg.front > 0 else "hind"]
+    return (base[0] * leg.mirror, base[1], base[2])       # l'abduction se reflète
 
 
-def perform(robot, flip: Backflip = DEFAULT_FLIP) -> Dict[str, float]:
-    """Exécute le salto sur un robot, en enregistrant chaque pas."""
+def perform(robot, flip: Figure = DEFAULT_FLIP) -> Dict[str, float]:
+    """Exécute la figure sur un robot, en enregistrant chaque pas."""
     model = robot.model
     dt = robot.dt
     steps = max(1, round(flip.duration / dt))
@@ -116,6 +141,7 @@ def perform(robot, flip: Backflip = DEFAULT_FLIP) -> Dict[str, float]:
     robot.mode = "joint"                       # le générateur d'allure est débrayé
     phases: List[str] = []
     takeoff_q: List[float] = []                # pose au décollage, départ du groupé
+    yaw0 = robot.base[5]
 
     for n in range(steps + 1):
         t = n * dt
@@ -143,14 +169,17 @@ def perform(robot, flip: Backflip = DEFAULT_FLIP) -> Dict[str, float]:
             s = (t - t_push) / flip.flight
             tf = t - t_push
             robot.base[2] = flip.takeoff_z + flip.vz * tf - 0.5 * G_ACC * tf * tf
-            robot.base[4] = -0.55 - (2 * math.pi - 0.55) * _smoother(s)
+            robot.base[4] = -0.55 - (2 * math.pi * flip.turns - 0.55) * _smoother(s)
+            if flip.twist:
+                robot.base[5] = yaw0 + 2 * math.pi * flip.twist * _smoother(s)
+                robot.base[3] = math.sin(math.pi * s) * flip.cork
             robot.base[0] += flip.travel * dt / flip.flight
             if not takeoff_q:
                 takeoff_q.extend(robot.q)                   # on part de la pose réelle
             if s < 0.45:                                   # groupé
-                pose_from(takeoff_q, "tuck", _smooth(s / 0.45))
+                pose_from(takeoff_q, flip.air, _smooth(s / 0.45))
             else:                                          # ouverture vers le sol
-                pose_mix("tuck", "reach", _smooth((s - 0.45) / 0.55))
+                pose_mix(flip.air, "reach", _smooth((s - 0.45) / 0.55))
         elif t < t_land:
             phases.append("réception")
             s = _smooth((t - t_fly) / flip.land)
@@ -165,18 +194,26 @@ def perform(robot, flip: Backflip = DEFAULT_FLIP) -> Dict[str, float]:
             robot.base[4] = 0.12 * (1 - s) + math.sin(math.pi * s * 3) * 0.02 * (1 - s)
             ground(robot.base[2], 0.015 * (1 - s))
 
-        robot.base[3] = 0.0
+        if t >= t_fly:
+            robot.base[3] += (0.0 - robot.base[3]) * min(1.0, dt * 8)
+        elif not flip.twist:
+            robot.base[3] = 0.0
         robot._advance_recorded()
 
     robot.base[4] = 0.0
+    robot.base[3] = 0.0
     robot.base[2] = robot.height
+    if flip.twist:
+        robot.base[5] = yaw0 + 2 * math.pi * flip.twist
     robot.mode = "gait"
 
     return {
+        "figure": flip.label,
         "duration_s": round(flip.duration, 3),
         "flight_s": round(flip.flight, 3),
         "apex_m": round(flip.apex, 3),
         "takeoff_vz_ms": flip.vz,
-        "rotation_deg": 360.0,
+        "rotation_deg": round(360.0 * flip.turns, 1),
+        "twist_deg": round(360.0 * flip.twist, 1),
         "travel_m": flip.travel,
     }

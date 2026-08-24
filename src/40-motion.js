@@ -11,9 +11,9 @@
 
   const state = {
     gait: "trot", vx: 0.12, vy: 0, wz: 0, height: 0.25, swing: 0.04,
-    phase: 0, px: 0, py: 0, yaw: 0, roll: 0, pitch: 0, z: 0.25, sway: 0,
+    phase: 0, px: 0, py: 0, yaw: 0, roll: 0, pitch: 0, z: 0.25, sway: 0, yawWag: 0,
     t: 0,
-    style: "souple",              // « brut » = générateur nu, « souple » = couche naturelle
+    style: "souple",              // « brut », « souple » ou « felin »
     source: "internal", frozen: false
   };
 
@@ -203,6 +203,28 @@
     }
   };
 
+  /* ---------- fondu de pose ----------
+     Changer de style replace les appuis : sans fondu, le premier pas demande
+     des dizaines de rad/s aux genoux. On interpole depuis la pose courante. */
+  const morph = { k: 1, dur: 0.3, from: null };
+
+  function blendFrom(seconds) {
+    morph.from = Y.LEGS.map(function (L) { return Y.Robot.legs[L.id].q.slice(); });
+    morph.dur = seconds || 0.3;
+    morph.k = 0;
+  }
+
+  function applyMorph(dt) {
+    if (morph.k >= 1 || !morph.from) return;
+    morph.k = Math.min(1, morph.k + dt / morph.dur);
+    const e = smooth(morph.k);
+    Y.LEGS.forEach(function (L, i) {
+      const n = Y.Robot.legs[L.id];
+      const from = morph.from[i];
+      n.q = n.q.map(function (v, k) { return from[k] + (v - from[k]) * e; });
+    });
+  }
+
   /* ---------- pas de simulation, quelle que soit la source ---------- */
   function step(dt) {
     state.t += dt;
@@ -212,12 +234,15 @@
       play.step(dt);
     } else if (state.source === "live") {
       live.step();
-    } else if (state.style === "souple" && Y.Natural && !state.frozen) {
+    } else if (state.style !== "brut" && Y.Natural && !state.frozen) {
       Y.Natural.step(dt, state);
     } else {
       state.sway = 0;
+      state.yawWag = 0;
       stepInternal(dt);
     }
+
+    applyMorph(dt);
 
     // application aux articulations
     Y.LEGS.forEach(function (L) {
@@ -232,7 +257,7 @@
       state.px - Math.sin(state.yaw) * sway,
       state.py + Math.cos(state.yaw) * sway,
       state.z);
-    Y.Robot.root.rotation.set(state.roll, state.pitch, state.yaw, "ZYX");
+    Y.Robot.root.rotation.set(state.roll, state.pitch, state.yaw + (state.yawWag || 0), "ZYX");
   }
 
   function outOfLimits(q) {
@@ -244,5 +269,5 @@
   }
 
   Y.Motion = { state: state, ik: ik, step: step, play: play, live: live,
-    outOfLimits: outOfLimits, smooth: smooth };
+    outOfLimits: outOfLimits, smooth: smooth, blendFrom: blendFrom };
 })(window.YLO);

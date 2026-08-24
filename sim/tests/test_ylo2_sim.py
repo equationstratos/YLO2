@@ -206,6 +206,96 @@ class TestNatural(unittest.TestCase):
             robot.set_style("mou")
 
 
+class TestFeline(unittest.TestCase):
+    """Profil félin : voie étroite, appui prolongé, tronc qui balance."""
+
+    def _track_width(self, style):
+        robot = Robot(rate=200, style=style)
+        robot.walk(vx=0.08, seconds=4.0)
+        return max(abs(robot.foot_position(leg.name)[1]) for leg in robot.model.legs)
+
+    def test_narrower_track_than_souple(self):
+        self.assertLess(self._track_width("felin"), self._track_width("souple") * 0.7)
+
+    def test_more_feet_on_the_ground(self):
+        counts = {}
+        for style in ("souple", "felin"):
+            robot = Robot(rate=200, style=style)
+            robot.walk(vx=0.06, seconds=4.0)
+            total = 0
+            for _ in range(400):
+                robot.step()
+                total += sum(robot.contacts)
+            counts[style] = total / 400.0
+        self.assertGreater(counts["felin"], counts["souple"])
+        self.assertGreater(counts["felin"], 3.0)          # triple appui dominant
+
+    def test_trunk_sways_and_wags(self):
+        robot = Robot(rate=200, style="felin")
+        robot.walk(vx=0.08, seconds=3.0)
+        wags, rolls = [], []
+        for _ in range(300):
+            robot.step()
+            wags.append(abs(robot.natural.yaw_wag))
+            rolls.append(abs(robot.base[3]))
+        self.assertGreater(max(wags), 0.008)              # le tronc oscille
+        self.assertGreater(max(rolls), 0.005)
+
+    def test_stays_within_actuator_limits(self):
+        for speed in (0.05, 0.12, 0.2):
+            robot = Robot(rate=200, style="felin")
+            robot.walk(vx=speed, seconds=6.0)
+            report = robot.report()
+            self.assertEqual(report["limit_violations"], {})
+            self.assertLess(report["peak_joint_velocity_rad_s"], DEFAULT.velocity_max)
+
+    def test_crouched_posture(self):
+        robot = Robot(rate=100, style="felin")
+        robot.walk(vx=0.08, seconds=2.0)
+        self.assertLess(robot.base[2], robot.height)       # se tient plus bas
+
+
+class TestFigures(unittest.TestCase):
+    def test_catalogue(self):
+        self.assertEqual(sorted(stunts.FIGURES), ["backflip", "doubleflip", "mctwist540"])
+        self.assertEqual(stunts.FIGURES["doubleflip"].turns, 2.0)
+        self.assertEqual(stunts.FIGURES["mctwist540"].twist, 1.5)
+
+    def test_each_figure_lands_clean(self):
+        for name in stunts.FIGURES:
+            robot = Robot(rate=200)
+            robot.stand(0.4)
+            info = robot.figure(name)
+            robot.hold(0.5)
+            report = robot.report()
+            self.assertEqual(report["limit_violations"], {}, name)
+            self.assertLess(report["peak_joint_velocity_rad_s"], DEFAULT.velocity_max, name)
+            self.assertAlmostEqual(robot.base[2], robot.height, places=2)
+            self.assertLess(abs(robot.base[4]), 0.05, name)
+            self.assertGreater(info["apex_m"], 0.6, name)
+
+    def test_double_turns_twice(self):
+        robot = Robot(rate=200)
+        robot.stand(0.3)
+        robot.double_backflip()
+        pitches = [f["base"][4] for f in robot.frames]
+        self.assertLess(min(pitches), -2 * math.pi - 3.0)   # dépasse un tour
+
+    def test_mctwist_ends_backwards(self):
+        robot = Robot(rate=200)
+        robot.stand(0.3)
+        info = robot.mctwist540()
+        self.assertEqual(info["twist_deg"], 540.0)
+        self.assertAlmostEqual(math.degrees(robot.base[5]) % 360, 180.0, places=1)
+        rolls = [abs(f["base"][3]) for f in robot.frames]
+        self.assertGreater(max(rolls), 0.3)                 # la vrille est inclinée
+
+    def test_unknown_figure(self):
+        robot = Robot(rate=50)
+        with self.assertRaises(KeyError):
+            robot.figure("triple_lutz")
+
+
 class TestBackflip(unittest.TestCase):
     def test_flight_is_ballistic(self):
         flip = stunts.DEFAULT_FLIP
