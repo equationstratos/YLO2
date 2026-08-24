@@ -14,6 +14,7 @@
     phase: 0, px: 0, py: 0, yaw: 0, roll: 0, pitch: 0, z: 0.25, sway: 0, yawWag: 0,
     t: 0,
     style: "souple",              // « brut », « souple » ou « felin »
+    mode: "pattes",               // « pattes » ou « roues »
     source: "internal", frozen: false
   };
 
@@ -22,7 +23,8 @@
     const x = tx - L.x, y = ty - L.y, z = tz - K.legZ;   // repère hanche
     const off = L.m * K.abadPlane;        // le joint KFE décale le plan sagittal
     const r2 = y * y + z * z;
-    const zp = -Math.sqrt(Math.max(r2 - off * off, 1e-6));
+    // plancher non nul : près de l'axe d'abduction, la racine saturerait sec
+    const zp = -Math.sqrt(Math.max(r2 - off * off, 0.0004));
     const q1 = Math.atan2(z, y) - Math.atan2(zp, off);
     const X = -x, Z = -zp;                                // plan sagittal
     let D = Math.hypot(X, Z);
@@ -48,7 +50,8 @@
       state.py += (state.vx * Math.sin(state.yaw) + state.vy * Math.cos(state.yaw)) * dt;
     }
 
-    state.z = state.height + (moving ? Math.sin(state.phase * Math.PI * 4) * 0.006 : 0);
+    const under = Y.Terrain ? Y.Terrain.heightAt(state.px, state.py) : 0;
+    state.z = under + state.height + (moving ? Math.sin(state.phase * Math.PI * 4) * 0.006 : 0);
     state.pitch = moving ? Math.sin(state.phase * Math.PI * 4 + 1.1) * 0.018 : 0;
     state.roll = (moving && (state.gait === "pace" || state.gait === "walk"))
       ? Math.sin(state.phase * Math.PI * 2) * 0.03 : 0;
@@ -61,7 +64,10 @@
       const sweepX = vfx * G.stance, sweepY = vfy * G.stance;
       const ph = (state.phase + G.off[L.id]) % 1;
 
-      let fx = nx, fy = ny, fz = -state.height, contact = true;
+      const ground = Y.Terrain ? Y.Terrain.heightAt(
+        state.px + Math.cos(state.yaw) * nx - Math.sin(state.yaw) * ny,
+        state.py + Math.sin(state.yaw) * nx + Math.cos(state.yaw) * ny) : 0;
+      let fx = nx, fy = ny, fz = ground - state.z, contact = true;
       if (moving) {
         if (ph < G.duty) {
           const s = ph / G.duty;
@@ -71,7 +77,7 @@
           const s = (ph - G.duty) / (1 - G.duty), e = smooth(s);
           fx = nx + sweepX * (-0.5 + e);
           fy = ny + sweepY * (-0.5 + e);
-          fz = -state.height + Math.sin(Math.PI * s) * state.swing;
+          fz = ground - state.z + Math.sin(Math.PI * s) * state.swing;
           contact = false;
         }
       }
@@ -234,6 +240,8 @@
       play.step(dt);
     } else if (state.source === "live") {
       live.step();
+    } else if (state.mode === "roues" && Y.Natural && !state.frozen) {
+      Y.Natural.stepWheels(dt, state);
     } else if (state.style !== "brut" && Y.Natural && !state.frozen) {
       Y.Natural.step(dt, state);
     } else {

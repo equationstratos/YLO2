@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from . import gait as gaitmod
 from . import kinematics as kin
-from . import moteus, stunts, trajectory
+from . import moteus, stunts, terrain as terrainmod, trajectory
 from .model import DEFAULT, Model
 from .natural import Natural, profile as natural_profile
 
@@ -33,7 +33,8 @@ class Robot:
 
     def __init__(self, rate: float = 50.0, model: Model = None, height: float = None,
                  gait: str = "trot", swing: float = gaitmod.SWING_HEIGHT,
-                 strict: bool = False, style: str = "souple") -> None:
+                 strict: bool = False, style: str = "souple",
+                 mode: str = "pattes", terrain: str = "plat") -> None:
         self.model = model or DEFAULT
         self.rate = float(rate)
         self.dt = 1.0 / self.rate
@@ -48,11 +49,15 @@ class Robot:
         self.base = [0.0, 0.0, self.height, 0.0, 0.0, 0.0]   # x y z roll pitch yaw
         self.q: List[float] = [0.0] * 12
         self.contacts: List[bool] = [True] * 4
-        self.mode = "gait"                          # ou "joint"
+        self.pose_mode = "gait"                     # ou "joint" (pilotage direct)
         self.style = style                          # "souple", "felin" ou "brut"
+        self.mode = mode                            # "pattes" ou "roues"
+        self.terrain = terrainmod.get(terrain)
+        self.foot_world: Dict[str, list] = {}
         self.natural = Natural(model=self.model, params=natural_profile(style))
 
         self.stunt: Dict[str, Any] = {}
+        self._air_frames = 0
         self.frames: List[Dict[str, Any]] = []
         self.events: List[str] = []
         self._peak_velocity = 0.0
@@ -60,7 +65,9 @@ class Robot:
         self._violations: Dict[str, int] = {}
         self._unreachable = 0
 
-        if self.style == "brut":
+        if self.mode == "roues":
+            self.natural.step_wheels(self, 0.0)
+        elif self.style == "brut":
             self._solve_gait()
         else:
             self.natural.step(self, 0.0)      # pose initiale dans le bon style
@@ -159,6 +166,36 @@ class Robot:
         """540 McTwist : un salto arrière avec un tour et demi de vrille."""
         return self.figure("mctwist540")
 
+    def set_terrain(self, key: str) -> "Robot":
+        """Change de terrain : escalier, gravats, rampe…"""
+        self.terrain = terrainmod.get(key)
+        for leg in self.model.legs:
+            self.natural.plant[leg.name] = None
+            self.natural.land[leg.name] = None
+            self.natural.wheel_z[leg.name] = None
+        self._note("terrain : %s" % self.terrain.name)
+        return self
+
+    def set_mode(self, mode: str) -> "Robot":
+        """« pattes » ou « roues » (variante Go2-W)."""
+        if mode not in ("pattes", "roues"):
+            raise ValueError("mode inconnu : " + mode)
+        if mode == self.mode:
+            return self
+        self.mode = mode
+        self.natural.wheel_z = {leg.name: None for leg in self.model.legs}
+        for leg in self.model.legs:                 # les appuis repartent à neuf
+            self.natural.plant[leg.name] = None
+            self.natural.prev_foot[leg.name] = None
+            self.natural.land[leg.name] = None
+        if mode == "roues":
+            self.natural.step_wheels(self, 0.0)
+        else:
+            self.natural.step(self, 0.0)
+        self._recorded_q = list(self.q)             # pas de faux pic de vitesse
+        self._note("train : %s" % mode)
+        return self
+
     def set_style(self, style: str) -> "Robot":
         """« souple », « felin » (naturels) ou « brut » (générateur nu)."""
         if style not in ("souple", "felin", "brut"):
@@ -183,7 +220,7 @@ class Robot:
             if self.strict:
                 raise LimitViolation(msg)
             self._note(msg)
-        self.mode = "joint"
+        self.pose_mode = "joint"
         self.q[self.joints.index(name)] = angle
         return self
 
@@ -252,12 +289,17 @@ class Robot:
         self._record()
 
     def _advance(self) -> None:
-        if self.mode == "gait" and self.style != "brut":
+        if self.mode == "roues" and self.pose_mode == "gait":
+            self.natural.step_wheels(self, self.dt)
+            self._advance_recorded()
+            return
+
+        if self.pose_mode == "gait" and self.style != "brut":
             self.natural.step(self, self.dt)
             self._advance_recorded()
             return
 
-        if self.mode == "gait":
+        if self.pose_mode == "gait":
             if self.gait.name != "stand":
                 self.phase = (self.phase + self.dt / self.gait.cycle) % 1.0
                 yaw = self.base[5] + self.wz * self.dt
@@ -286,6 +328,8 @@ class Robot:
 
     def _record(self) -> None:
         self._recorded_q = list(self.q)
+        if not any(self.contacts):
+            self._air_frames += 1
         self.frames.append({
             "t": round(self.t, 6),
             "q": [round(v, 6) for v in self.q],
@@ -328,7 +372,11 @@ class Robot:
             "frames": len(self.frames),
             "rate_hz": self.rate,
             "style": self.style,
-            "gait": self.gait.name,
+            "mode": self.mode,
+            "terrain": self.terrain.key,
+            "gait": self.gait.name if self.mode == "pattes" else "roues",
+            "speed_ms": round(math.hypot(self.natural.vx, self.natural.vy), 3),
+            "flight_ratio": round(self._air_frames / max(len(self.frames), 1), 3),
             "distance_m": round(math.hypot(self.base[0], self.base[1]), 3),
             "heading_deg": round(math.degrees(self.base[5]), 1),
             "peak_joint_velocity_rad_s": round(self._peak_velocity, 2),

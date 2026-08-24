@@ -108,6 +108,12 @@ canvas{position:absolute;inset:0;display:block;width:100%;height:100%;touch-acti
 .swatch::-webkit-color-swatch-wrapper{padding:2px}
 .swatch::-webkit-color-swatch{border:none;border-radius:1px}
 .matrow select{font-size:11px;font-family:var(--mono);max-width:118px}
+#terrain{font-family:var(--mono);font-size:11px;letter-spacing:.04em}
+.warn-strip{
+  margin-top:8px;padding:5px 8px;border:1px solid var(--warn);border-radius:2px;
+  font-family:var(--mono);font-size:10px;letter-spacing:.05em;color:var(--warn);display:none;
+}
+.warn-strip.on{display:block}
 .matrow .fine{display:grid;grid-template-columns:44px 1fr 34px;gap:8px;align-items:center;margin-top:7px}
 .matrow .fine label{font-family:var(--mono);font-size:10px;color:var(--faint);letter-spacing:.06em;text-transform:uppercase}
 .matrow .fine output{font-family:var(--mono);font-size:10px;color:var(--dim);text-align:right;font-variant-numeric:tabular-nums}
@@ -351,14 +357,22 @@ input[type=range]::-moz-range-thumb{
           </div>
           <div class="stylerow" id="stunts"></div>
           <div class="flipbar" id="flipbar"><i></i></div>
+          <div class="warn-strip" id="warnStrip"></div>
         </div>
         <div class="card">
           <h4>Consigne de marche</h4>
           <div class="sliders">
-            <div class="sl"><label for="sVx">Vx</label><input id="sVx" type="range" min="-0.2" max="0.2" step="0.005" value="0.12"><output id="oVx"></output></div>
-            <div class="sl"><label for="sWz">ωz</label><input id="sWz" type="range" min="-1" max="1" step="0.02" value="0"><output id="oWz"></output></div>
+            <div class="sl"><label for="sVx">Vitesse</label><input id="sVx" type="range" min="-0.6" max="2" step="0.01" value="0.35"><output id="oVx"></output></div>
+            <div class="sl"><label for="sWz">ωz</label><input id="sWz" type="range" min="-1.6" max="1.6" step="0.02" value="0"><output id="oWz"></output></div>
             <div class="sl"><label for="sH">Hauteur</label><input id="sH" type="range" min="0.16" max="0.32" step="0.005" value="0.25"><output id="oH"></output></div>
             <div class="sl"><label for="sSw">Garde</label><input id="sSw" type="range" min="0.01" max="0.09" step="0.002" value="0.04"><output id="oSw"></output></div>
+          </div>
+          <div class="stylerow">
+            <div class="seg small" id="modes" role="group" aria-label="Train de propulsion">
+              <button data-mode="pattes" aria-pressed="true">Pattes</button>
+              <button data-mode="roues" aria-pressed="false">Roues</button>
+            </div>
+            <select id="terrain" aria-label="Terrain"></select>
           </div>
         </div>
         <div class="card card-phase">

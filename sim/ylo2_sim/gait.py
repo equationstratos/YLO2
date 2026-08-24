@@ -32,11 +32,27 @@ GAITS: Dict[str, Gait] = {
     "trot":  Gait("trot", 0.50, 0.25, {"lf": 0.0, "rf": 0.5, "lh": 0.5, "rh": 0.0}),
     "pace":  Gait("pace", 0.50, 0.25, {"lf": 0.0, "lh": 0.0, "rf": 0.5, "rh": 0.5}),
     "bound": Gait("bound", 0.50, 0.20, {"lf": 0.0, "rf": 0.0, "lh": 0.5, "rh": 0.5}),
+    # allures rapides : le rapport d'appui passe sous 0,5, d'où des instants
+    # sans aucun appui — c'est la suspension d'un galop
+    "canter": Gait("canter", 0.42, 0.16, {"rh": 0.0, "lh": 0.30, "rf": 0.35, "lf": 0.65}),
+    "gallop": Gait("gallop", 0.34, 0.12, {"lh": 0.0, "rh": 0.12, "rf": 0.52, "lf": 0.64}),
 }
 
-MAX_VX = 0.2
-MAX_VY = 0.2
-MAX_WZ = 1.0
+# vitesses de référence par allure (m/s). Ordres de grandeur du commerce :
+# Unitree Go2 annonce 3,7 m/s, le B2 6 m/s, le Go2-W roule à 2,5 m/s.
+SPEED_REF: Dict[str, float] = {
+    "stand": 0.0, "walk": 0.15, "trot": 0.50, "canter": 1.10, "gallop": 1.70,
+    "pace": 0.45, "bound": 0.90,
+}
+LADDER = ["walk", "trot", "canter", "gallop"]
+MAX_WALK_SPEED = 2.0        # butée du curseur, sur pattes
+MAX_WHEEL_SPEED = 3.0       # en roues
+DECLARED_SPEED = 1.7        # au-delà, les 20 rad/s de l'URDF sont dépassés
+WHEEL_RADIUS = 0.075
+
+MAX_VX = 2.0
+MAX_VY = 0.6
+MAX_WZ = 1.6
 NOMINAL_HEIGHT = 0.25
 SWING_HEIGHT = 0.04
 

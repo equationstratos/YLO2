@@ -232,15 +232,43 @@
         const foot = new T.Group();
         foot.position.set(0, 0, -K.L2);
         lower.add(foot);
+        const footVisual = new T.Group();
+        foot.add(footVisual);
         if (real) {
           const fm = meshOf("foot", "foot");
           fm.position.set(0.009, 0.001 * L.m + 0.001, 0.069);
-          foot.add(tag(fm, "foot", [0, 0, -0.18]));
+          footVisual.add(tag(fm, "foot", [0, 0, -0.18]));
         } else {
           const ball = new T.Mesh(new T.SphereGeometry(K.footR, 20, 14), Y.Mat.get("foot"));
           ball.position.z = K.footR;
-          foot.add(tag(ball, "foot", [0, 0, -0.18]));
+          footVisual.add(tag(ball, "foot", [0, 0, -0.18]));
         }
+
+        // roue motrice, à la manière des Go2-W : l'axe remplace le pied et le
+        // contact se fait au bas du pneu, soit un rayon sous l'axe
+        const wheelR = 0.075;
+        const wheel = new T.Group();
+        wheel.position.set(0, L.m * 0.012, wheelR);
+        const tyre = new T.Mesh(new T.TorusGeometry(wheelR * 0.82, wheelR * 0.18, 12, 28),
+          Y.Mat.get("wheel"));
+        tyre.rotation.x = Math.PI / 2;
+        const rim = new T.Mesh(new T.CylinderGeometry(wheelR * 0.7, wheelR * 0.7, 0.026, 20),
+          Y.Mat.get("rim"));
+        rim.rotation.x = Math.PI / 2;
+        const hubCap = new T.Mesh(new T.CylinderGeometry(wheelR * 0.24, wheelR * 0.24, 0.034, 14),
+          Y.Mat.get("abad"));
+        hubCap.rotation.x = Math.PI / 2;
+        for (let k = 0; k < 5; k++) {                 // rayons
+          const spoke = new T.Mesh(new T.BoxGeometry(wheelR * 1.25, 0.012, 0.016),
+            Y.Mat.get("rim"));
+          spoke.rotation.y = k * Math.PI / 5;
+          wheel.add(spoke);
+        }
+        wheel.add(tyre, rim, hubCap);
+        wheel.rotation.z = 0;
+        wheel.visible = false;
+        tag(wheel, "wheels", [0, L.m * 0.3, -0.1]);
+        foot.add(wheel);
 
         // repères d'axes articulaires
         function axisMark(color, dir, parent) {
@@ -257,6 +285,7 @@
 
         legs[L.id] = {
           L: L, hip: hip, upper: upper, lower: lower, foot: foot,
+          footVisual: footVisual, wheel: wheel,
           axes: [axisMark(0xff6a2b, "x", hip), axisMark(0x77c2a6, "y", upper), axisMark(0x77c2a6, "y", lower)],
           q: [0, 0, 0], contact: true, phase: 0, world: new T.Vector3()
         };
@@ -273,6 +302,16 @@
       exploders.forEach(function (o) {
         v.copy(o.userData.home).addScaledVector(o.userData.explode, k * 0.32);
         o.position.copy(v);
+      });
+    },
+
+    /** Bascule pattes / roues : le contact passe du pied au bas du pneu. */
+    setWheels: function (on) {
+      Y.LEGS.forEach(function (L) {
+        const n = Y.Robot.legs[L.id];
+        if (!n) return;
+        if (n.wheel) n.wheel.visible = !!on;
+        if (n.footVisual) n.footVisual.visible = !on;
       });
     },
 

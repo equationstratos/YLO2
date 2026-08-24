@@ -9,6 +9,10 @@ par un générateur d'allure dans le navigateur, soit par des **scripts Python**
 
 ![salto arrière](docs/preview-backflip.png)
 
+![escalier](docs/preview-escalier.png)
+
+![roues motrices](docs/preview-roues.png)
+
 ## Trois pièces
 
 | | Où | Quoi |
@@ -87,6 +91,61 @@ bouge. L'échelle du curseur est en motifs par mètre.
 Les réglages sont conservés dans le navigateur (`localStorage`) et s'exportent en
 JSON (`ylo2.materials/1`) pour être repris ailleurs.
 
+## Courir : l'allure suit la vitesse
+
+Le curseur de vitesse va de −0,6 à 2,0 m/s sur pattes (3,0 m/s en roues) et
+l'allure se choisit toute seule, comme chez l'animal : la durée d'appui décroît
+en v^−0,55, le rapport d'appui baisse avec la vitesse, et des instants sans
+aucun appui apparaissent — la suspension du galop.
+
+| Consigne | Allure | Cycle | Suspension | Pic articulaire |
+| --- | --- | --- | --- | --- |
+| 0,15 m/s | Walk | 0,47 s | — | 6,1 rad/s |
+| 0,50 m/s | Trot | 0,50 s | 5,8 % | 9,8 rad/s |
+| 1,00 m/s | Canter | 0,43 s | 0,6 % | 12,0 rad/s |
+| 1,60 m/s | Galop | 0,35 s | 18,6 % | 13,9 rad/s |
+| 2,00 m/s | Galop | 0,35 s | 20,1 % | 26,2 rad/s |
+
+Repères du commerce, pour situer : l'[Unitree Go2](https://www.unitree.com/go2)
+annonce 3,7 m/s, le [B2](https://www.unitree.com/b2/) 6 m/s. YLO-2 est plus
+petit, et surtout ses qdd100 sont donnés à 20 rad/s dans l'URDF : **au-delà de
+1,7 m/s, la page prévient que le mouvement montré sort de la spécification**.
+Jusque-là, tout ce qui est affiché reste dans l'enveloppe déclarée.
+
+Le corps suit une vraie balistique pendant les phases de suspension (z'' = −g),
+et un rappel amorti au contact — c'est ce qui donne le poids à la réception.
+
+## Terrains et obstacles
+
+Un sélecteur, sept terrains. La même description analytique sert à calculer la
+hauteur sous chaque pied et à construire les volumes affichés : le contact et la
+géométrie sont la même chose, il n'y a pas de collision approchée.
+
+| Terrain | Relief | Ce qu'il montre |
+| --- | --- | --- |
+| Sol plat | — | référence |
+| Escalier | 8 marches de 130 mm × 300 mm, palier, descente | montée continue |
+| Marches hautes | 5 marches de 180 mm | la limite du gabarit |
+| Plateforme | marche unique de 240 mm | franchissement franc |
+| Rampe 20° | pente continue | assiette qui épouse la pente |
+| Gravats | blocs jusqu'à 90 mm | appuis à des hauteurs différentes |
+| Poutres | traverses de 140 mm | enjambement |
+
+Quatre mécanismes s'enclenchent tout seuls, comme sur un vrai contrôleur :
+
+- **gouverneur de vitesse** — le relief détecté à 0,75 m devant réduit la
+  consigne jusqu'à 25 %, ce qui laisse le temps au vol de se faire ;
+- **redressement** — la garde au sol de la caisse augmente de 18 % sur relief ;
+- **dégagement adaptatif** — le vol passe au-dessus du plus haut point rencontré
+  entre le décollage et le poser, plus la garde nominale ;
+- **pas raccourci** — une pose hors d'atteinte est ramenée dans l'enveloppe de
+  la patte avant d'être visée, plutôt que saturée à l'exécution.
+
+Sur l'escalier de 130 mm, la médiane des vitesses articulaires reste à
+6,7 rad/s ; 5 % des instants dépassent brièvement les 20 rad/s déclarés, au
+moment où la patte est fouettée sur la marche suivante. Les marches de 180 mm
+sont franchies mais sortent du gabarit : le robot y traîne les pieds.
+
 ## Locomotion
 
 Trois styles, commutables dans le bandeau **Allure**. Le choix d'allure y est
@@ -159,6 +218,29 @@ par interpolation à vitesse bornée : c'est ce qui garde les figures dans les
 capacités déclarées des qdd100 (20 rad/s, genou au-dessus de −159°). La caméra
 recule et suit la caisse pendant la figure.
 
+## Roues motrices
+
+Bouton **Roues** du bandeau ou touche `W`. La variante s'inspire des
+[Unitree Go2-W](https://www.unitree.com/go2) et B2-W : un moteur de roue par
+patte, l'axe remplace le pied, les jambes deviennent la suspension.
+
+| | Valeur | Référence Go2-W |
+| --- | --- | --- |
+| Rayon de roue | 75 mm | pneus de 7 pouces |
+| Vitesse | jusqu'à 3,0 m/s | 2,5 m/s annoncés |
+| Marche franchissable | ≈ 68 mm | obstacles au-delà : passage en pattes |
+| Sollicitation articulaire | 1,6 rad/s en roulant | — |
+
+Ce que fait le mode roues : suspension par patte (hauteur filtrée, vitesse de
+débattement bornée), assiette qui épouse le sol, plongée au freinage et
+cabrage à l'accélération, inclinaison dans les virages, roues qui tournent à
+ω = v / R avec différentiel de virage. Sur le plat, il couvre 15 m en 8 s là où
+les pattes en font 8 — et sans presque bouger les articulations.
+
+Ce qu'il ne fait pas : monter une marche plus haute que la roue. Le bandeau
+affiche alors un avertissement et invite à repasser sur pattes, exactement
+comme un Go2-W bascule en mode marche devant un obstacle.
+
 ## Simulation Python
 
 Le paquet `sim/` rejoue la chaîne embarquée hors ROS :
@@ -191,6 +273,7 @@ reçoit les consignes. Détails, API et scripts : [`sim/README.md`](sim/README.m
 | `1` `2` `3` `4` | Iso · profil · face · dessus |
 | `Espace` | Bascule trot / statique |
 | `B` · `D` · `T` | Salto arrière · double salto · 540 McTwist |
+| `W` | Bascule pattes / roues |
 | `Échap` | Désélectionner |
 
 Bandeau : vue éclatée (fige la machine et étiquette les sous-ensembles), axes
@@ -199,7 +282,8 @@ articulaires, trajectoires de pieds, polygone de sustentation.
 ## Structure
 
 ```
-src/10-data.js        cotes, allures, sous-systèmes, groupes de matières
+src/10-data.js        cotes, allures, vitesses, sous-systèmes, groupes de matières
+src/12-terrain.js     terrains analytiques : hauteur sous le pied et volumes affichés
 src/20-materials.js   matières PBR et motifs procéduraux
 src/30-robot.js       décodage des maillages et montage de l'arbre cinématique
 src/40-motion.js      cinématique inverse, allures, lecture de trajectoire, liaison directe

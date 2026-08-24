@@ -54,7 +54,25 @@ window.YLO = window.YLO || {};
     walk:  { label: "Walk",  duty: 0.75, stance: 0.35, off: { lf: 0, rh: 0.25, rf: 0.5, lh: 0.75 } },
     trot:  { label: "Trot",  duty: 0.50, stance: 0.25, off: { lf: 0, rf: 0.5, lh: 0.5, rh: 0 } },
     pace:  { label: "Pace",  duty: 0.50, stance: 0.25, off: { lf: 0, lh: 0, rf: 0.5, rh: 0.5 } },
-    bound: { label: "Bound", duty: 0.50, stance: 0.20, off: { lf: 0, rf: 0, lh: 0.5, rh: 0.5 } }
+    bound: { label: "Bound", duty: 0.50, stance: 0.20, off: { lf: 0, rf: 0, lh: 0.5, rh: 0.5 } },
+    // allures rapides : le rapport d'appui descend sous 0,5, il y a donc des
+    // instants sans aucun appui — c'est ce qui fait la suspension d'un galop
+    canter: { label: "Canter", duty: 0.42, stance: 0.16,
+      off: { rh: 0, lh: 0.30, rf: 0.35, lf: 0.65 } },
+    gallop: { label: "Galop", duty: 0.34, stance: 0.12,
+      off: { lh: 0, rh: 0.12, rf: 0.52, lf: 0.64 } }
+  };
+
+  /* Vitesses de référence par allure (m/s) : cadence et amplitude de pas en
+     découlent. Ordres de grandeur calés sur les quadrupèdes du commerce —
+     Unitree Go2 annonce 3,7 m/s, le B2 6 m/s ; YLO-2 est plus petit et ses
+     qdd100 sont donnés à 20 rad/s, d'où une plage utile plus basse. */
+  Y.SPEED = {
+    stand: 0.0, walk: 0.15, trot: 0.50, canter: 1.10, gallop: 1.70,
+    pace: 0.45, bound: 0.90,
+    max: 2.0,                 // butée du curseur, en marche
+    wheelMax: 3.0,            // en roues : le Go2-W roule à 2,5 m/s
+    declared: 1.7             // au-delà, les 20 rad/s de l'URDF sont dépassés
   };
 
   /* --- groupes de matières, éditables depuis l'interface --- */
@@ -68,7 +86,11 @@ window.YLO = window.YLO || {};
     { id: "foot",    name: "Pieds silicone", preset: { color: "#ff6a2b", metal: 0.00, rough: 0.85, pattern: "none" } },
     { id: "sensor",  name: "Capteurs",      preset: { color: "#2b3134", metal: 0.45, rough: 0.38, pattern: "none" } },
     { id: "battery", name: "Batterie",      preset: { color: "#1d232a", metal: 0.25, rough: 0.70, pattern: "none" } },
-    { id: "board",   name: "Électronique",  preset: { color: "#1c6b48", metal: 0.20, rough: 0.60, pattern: "none" } }
+    { id: "board",   name: "Électronique",  preset: { color: "#1c6b48", metal: 0.20, rough: 0.60, pattern: "none" } },
+    { id: "wheel",   name: "Pneus",         preset: { color: "#15181a", metal: 0.10, rough: 0.85, pattern: "none" } },
+    { id: "rim",     name: "Jantes",        preset: { color: "#b9c0ba", metal: 0.75, rough: 0.30, pattern: "brushed" } },
+    { id: "obstacle", name: "Obstacles",    preset: { color: "#5a6360", metal: 0.05, rough: 0.92, pattern: "print" } },
+    { id: "obstacleEdge", name: "Nez de marche", preset: { color: "#ffc24d", metal: 0.10, rough: 0.65, pattern: "none" } }
   ];
 
   Y.PATTERNS = [
@@ -191,6 +213,12 @@ window.YLO = window.YLO || {};
       desc: "Sonars I2C Devantech en façade, pour la détection rapprochée. L'I2C fonctionne sur l'UP Xtreme, l'intégration des capteurs reste à faire.",
       specs: [["Type", "sonar I2C"], ["Bus", "I2C UP Xtreme"], ["État", "à intégrer"]],
       path: "Devantech_SRF10/README.md" },
+
+    { id: "wheels", group: "Actionneurs", name: "Roues motrices (option)", qty: "×4",
+      at: [0.1745, 0.155, -0.20],
+      desc: "Variante roues, dans l'esprit des Unitree Go2-W et B2-W : un moteur de roue par patte, l'axe remplace le pied. Le robot roule à plat et garde ses pattes pour franchir ce que la roue ne monte pas.",
+      specs: [["Rayon", "75 mm"], ["Vitesse max", "3,0 m/s"], ["Marche franchissable", "≈ 68 mm"], ["Référence", "Go2-W : 2,5 m/s"]],
+      path: "src/44-locomotion.js" },
 
     { id: "champ", group: "Logiciel", name: "CHAMP · contrôleur d'allure", qty: "ROS Noetic", focus: "legs",
       at: [0, 0, -0.06],

@@ -1,22 +1,20 @@
 /* =====================================================================
-   YLO-2 — styles de locomotion et figures
+   YLO-2 — styles de locomotion, terrain, roues et figures
 
-   Trois styles, empilés sur le générateur d'allure de base :
-     · brut   — le générateur nu de gait.yaml, sans compensation
-     · souple — placement à la Raibert, vol en Hermite, compliance,
-                report de masse, compensation d'assiette
-     · félin  — même socle, réglé sur une marche de félin : voie étroite,
-                triple appui, report de masse anticipé, balancement du
-                tronc, poser lent, cadence non métronomique
+   Le placement des pieds se fait en coordonnées MONDE : chaque appui est
+   planté sur le sol au moment du poser, et l'on convertit ensuite dans le
+   repère du tronc. C'est ce qui permet de suivre un escalier sans que les
+   pieds glissent ni traversent les marches.
 
-   Trois figures : salto arrière, double salto, 540 McTwist. Le vol est
-   balistique dans les trois cas — hauteur et rotations sont imposées par
-   la gravité et la vitesse de poussée, pas par une courbe décorative.
+   Trois styles de marche (brut, souple, félin), une échelle d'allures qui
+   monte du pas au galop selon la vitesse, un mode roues à la Go2-W, et
+   trois figures avec vol balistique.
    ===================================================================== */
 (function (Y) {
   "use strict";
   const K = Y.K;
   const G_ACC = 9.81;
+  const WHEEL_R = 0.075;                 // rayon de roue (Go2-W : pneus 7")
 
   function clamp(v, a, b) { return Math.min(Math.max(v, a), b); }
   function smooth(s) { return s * s * (3 - 2 * s); }
@@ -28,44 +26,48 @@
      ===================================================================== */
   const PROFILES = {
     souple: {
-      accelLin: 0.45, accelAng: 2.0,
+      accelLin: 1.20, accelAng: 2.4,
       raibert: 0.06, retraction: 1.18,
       dip: 0.011, sway: 0.014, swayLead: 0.00,
-      bank: 0.55, pitchAccel: 0.16, pitchGait: 0.012, breath: 0.004,
-      trotAbove: 0.09, walkBelow: 0.06, blend: 3.5,
+      bank: 0.55, pitchAccel: 0.16, pitchGait: 0.012, breath: 0.004, blend: 3.5,
       track: 1.00, dutyBias: 0.00, swingScale: 1.00, cycleScale: 1.00,
       yawWag: 0.000, jitter: 0.000, heightBias: 1.00, hindReach: 0.000,
-      settle: 0.00
+      settle: 0.00, gaitScale: 1.00
     },
     felin: {
       // le chat marche bas, pose loin, garde trois appuis et se balance
-      accelLin: 0.32, accelAng: 1.5,
+      accelLin: 1.00, accelAng: 1.9,
       raibert: 0.05, retraction: 1.30,
       dip: 0.016, sway: 0.024, swayLead: 0.16,
-      bank: 0.80, pitchAccel: 0.10, pitchGait: 0.004, breath: 0.005,
-      trotAbove: 0.17, walkBelow: 0.12, blend: 1.8,
-      track: 0.55, dutyBias: 0.05, swingScale: 0.80, cycleScale: 1.35,
+      bank: 0.80, pitchAccel: 0.10, pitchGait: 0.004, breath: 0.005, blend: 1.8,
+      track: 0.55, dutyBias: 0.05, swingScale: 0.80, cycleScale: 1.20,
       yawWag: 0.020, jitter: 0.014, heightBias: 0.93, hindReach: 0.022,
-      settle: 0.14
+      settle: 0.14, gaitScale: 1.25          // marche plus longtemps avant de trotter
     }
   };
 
+  const LADDER = ["walk", "trot", "canter", "gallop"];
+
   const nat = {
     profile: PROFILES.souple,
-    vx: 0, vy: 0, wz: 0,             // vitesses réellement suivies (lissées)
-    ax: 0,                            // accélération longitudinale filtrée
-    lift: {},                         // position du pied au décollage
-    jit: {}, lastPh: {},              // cadence légèrement irrégulière
-    auto: true,                       // choix d'allure selon la vitesse
-    duty: 0.5, stance: 0.25,          // paramètres d'allure fondus
-    trotMix: 1,                       // 1 = trot, 0 = allure latérale (fondu)
-    // réglages de posture fondus : changer de style ne doit pas téléporter les pieds
+    vx: 0, vy: 0, wz: 0,
+    ax: 0,
+    plant: {}, lift: {}, land: {}, clear: {}, prevFoot: {}, wheelZ: {},
+    spin: {},                              // angle de roue
+    jit: {}, lastPh: {},
+    auto: true,
+    duty: 0.5, stance: 0.25, trotMix: 1,
+    off: {},
     track: 1, heightBias: 1, hindReach: 0, swingScale: 1,
-    off: {}
+    air: false, vz: 0, zBody: 0.25, zTarget: 0.25,
+    airTime: 0, lastAir: 0,
+    rough: 0, governor: 1, wheelWarn: 0
   };
 
   Y.LEGS.forEach(function (L) {
-    nat.lift[L.id] = null; nat.off[L.id] = 0; nat.jit[L.id] = 0; nat.lastPh[L.id] = 0;
+    nat.plant[L.id] = null; nat.lift[L.id] = null; nat.land[L.id] = null;
+    nat.clear[L.id] = 0; nat.prevFoot[L.id] = null; nat.wheelZ[L.id] = null;
+    nat.off[L.id] = 0; nat.jit[L.id] = 0; nat.lastPh[L.id] = 0; nat.spin[L.id] = 0;
   });
 
   function approach(current, target, rate, dt) {
@@ -74,38 +76,62 @@
     return current + Math.sign(target - current) * step;
   }
 
-  /** Fond les paramètres d'allure : un changement sec ferait sauter les pattes. */
-  function blendGait(g, dt) {
+  function terrainAt(x, y) {
+    return Y.Terrain ? Y.Terrain.heightAt(x, y) : 0;
+  }
+
+  /* --- échelle d'allures : la vitesse commande l'allure et la cadence --- */
+  function autoGait(state) {
+    if (!nat.auto) return;
+    const p = nat.profile;
+    const speed = Math.hypot(nat.vx, nat.vy) + Math.abs(nat.wz) * 0.12;
+    if (speed < 0.02) { state.gait = "stand"; return; }
+    // seuils : milieu géométrique entre les vitesses de référence, décalés
+    // par le style (le félin marche plus longtemps avant de trotter)
+    const bounds = [];
+    for (let i = 0; i < LADDER.length - 1; i++) {
+      bounds.push(Math.sqrt(Y.SPEED[LADDER[i]] * Y.SPEED[LADDER[i + 1]]) * p.gaitScale);
+    }
+    let want = LADDER[LADDER.length - 1];
+    for (let i = 0; i < bounds.length; i++) {
+      if (speed < bounds[i]) { want = LADDER[i]; break; }
+    }
+    // hystérésis : on ne change pas d'allure sur un frémissement
+    const cur = LADDER.indexOf(state.gait);
+    const idx = LADDER.indexOf(want);
+    if (cur >= 0 && Math.abs(idx - cur) === 1) {
+      const edge = bounds[Math.min(cur, idx)];
+      if (idx > cur && speed < edge * 1.08) return;
+      if (idx < cur && speed > edge * 0.92) return;
+    }
+    state.gait = want;
+  }
+
+  /**
+   * Cadence : la durée d'appui décroît avec la vitesse (t ∝ v^-0.55, ce que
+   * donnent les mesures sur animaux et sur quadrupèdes robotisés), l'amplitude
+   * de pas augmente donc moins vite que la vitesse.
+   */
+  function cadence(g, speed) {
+    const ref = Y.SPEED[g.name] || 0.5;
+    if (!ref) return g.stance;
+    const v = Math.max(speed, 0.04);
+    return clamp(g.stance * Math.pow(ref / v, 0.55), g.stance * 0.55, g.stance * 2.2);
+  }
+
+  function blendGait(g, dt, speed) {
     const k = Math.min(1, dt * nat.profile.blend);
     nat.duty = lerp(nat.duty, g.duty, k);
-    nat.stance = lerp(nat.stance, g.stance, k);
-    // le report de masse dépend de l'allure : on le fond aussi, sinon le
-    // passage marche -> trot déplace les appuis d'un coup
-    nat.trotMix = lerp(nat.trotMix, g.name === "trot" || g.name === "bound" ? 1 : 0, k);
+    nat.stance = lerp(nat.stance, cadence(g, speed) * nat.profile.cycleScale, k);
+    nat.trotMix = lerp(nat.trotMix, g.name === "walk" ? 0 : 1, k);
     Y.LEGS.forEach(function (L) {
       let d = g.off[L.id] - nat.off[L.id];
-      if (d > 0.5) d -= 1; else if (d < -0.5) d += 1;    // chemin le plus court
+      if (d > 0.5) d -= 1; else if (d < -0.5) d += 1;
       nat.off[L.id] = (nat.off[L.id] + d * k + 1) % 1;
     });
   }
 
-  /** Choix d'allure : marche à basse vitesse, trot au-dessus. */
-  function autoGait(state) {
-    if (!nat.auto) return;
-    if (state.gait === "pace" || state.gait === "bound") return;
-    const p = nat.profile;
-    const speed = Math.hypot(nat.vx, nat.vy) + Math.abs(nat.wz) * 0.12;
-    if (state.gait !== "trot" && speed > p.trotAbove) state.gait = "trot";
-    else if (state.gait === "trot" && speed < p.walkBelow) state.gait = "walk";
-    else if (state.gait === "stand" && speed > 0.005) state.gait = "walk";
-    if (speed < 0.004 && state.gait !== "stand") state.gait = "stand";
-  }
-
-  /**
-   * Trajectoire de vol : Hermite cubique dont les tangentes prolongent la
-   * vitesse d'appui. Le pied quitte et retrouve le sol à la vitesse du sol,
-   * ce qui supprime le raclage et donne l'aspect « posé » du pas.
-   */
+  /* --- trajectoire de vol : Hermite raccordée à la vitesse d'appui --- */
   function swingXY(p0, p1, tangent, s, retraction) {
     const h00 = 2 * s * s * s - 3 * s * s + 1;
     const h10 = s * s * s - 2 * s * s + s;
@@ -114,21 +140,48 @@
     return h00 * p0 + h10 * tangent + h01 * p1 + h11 * tangent * retraction;
   }
 
-  /** Profil vertical : montée vive, apex avancé, poser amorti. */
   function swingZ(s, settle) {
     const e = Math.pow(clamp(s, 0, 1), 0.82);
     const base = Math.sin(Math.PI * e) * (1 - 0.18 * s);
     if (!settle) return base;
-    // le félin approche le sol puis dépose la patte : on aplatit la fin du vol
     const damp = s > 1 - settle ? smooth((1 - s) / settle) : 1;
     return base * damp;
   }
 
   /**
-   * Repère « horizon » (aligné sur le sol) vers repère tronc : sans ça, le
-   * tangage et le roulis enfoncent les pieds dans le sol au lieu de les
-   * laisser plantés. Le lacet de balancement est compensé de la même façon.
+   * Ramène une cible dans l'enveloppe de travail de la patte : sans ça, une
+   * marche trop haute ou une descente trop profonde sature la cinématique
+   * inverse et fait claquer les angles.
    */
+  function constrain(L, t) {
+    const hx = L.x, hy = L.y, hz = K.legZ;
+    let dx = t[0] - hx, dy = t[1] - hy, dz = t[2] - hz;
+    // le pied reste sous sa hanche : au-dessus, la cinématique inverse
+    // change de branche et les angles sautent d'un tour
+    dz = Math.min(dz, -0.06);
+    const off = Math.abs(K.abadPlane);
+    const lat = Math.hypot(dy, dz);
+    if (lat < off * 1.06) dz -= off * 1.06 - lat;
+    const reach = Math.hypot(dx, dy, dz);
+    const max = (K.L1 + K.L2) * 0.985, min = Math.abs(K.L1 - K.L2) + 0.045;
+    if (reach > max) { const k = max / reach; dx *= k; dy *= k; dz *= k; }
+    else if (reach < min && reach > 1e-6) { const k = min / reach; dx *= k; dy *= k; dz *= k; }
+    return [hx + dx, hy + dy, hz + dz];
+  }
+
+  /** Angles continus : on garde la branche la plus proche du pas précédent. */
+  function assign(n, q) {
+    const prev = n.q;
+    if (prev) {
+      for (let i = 0; i < 3; i++) {
+        while (q[i] - prev[i] > Math.PI) q[i] -= 2 * Math.PI;
+        while (prev[i] - q[i] > Math.PI) q[i] += 2 * Math.PI;
+      }
+    }
+    n.q = q;
+  }
+
+  /** Repère horizon -> repère tronc (appuis plantés malgré l'assiette). */
   function levelToBody(v, roll, pitch, wag) {
     const cw = Math.cos(wag), sw = Math.sin(wag);
     const x0 = cw * v[0] + sw * v[1];
@@ -142,32 +195,44 @@
     ];
   }
 
+  /* =====================================================================
+     2. Marche : appuis plantés en monde, terrain suivi
+     ===================================================================== */
   function stepNatural(dt, state) {
     const p = nat.profile;
     const cmdVx = state.vx, cmdVy = state.vy, cmdWz = state.wz;
     const prevVx = nat.vx;
 
-    nat.vx = approach(nat.vx, cmdVx, p.accelLin, dt);
-    nat.vy = approach(nat.vy, cmdVy, p.accelLin, dt);
+    // relief devant : on ralentit avant de l'aborder, comme un vrai robot
+    const ahead = Y.Terrain ? Y.Terrain.stepAhead(state.px, state.py, state.yaw, 0.75) : 0;
+    nat.rough = lerp(nat.rough, ahead, Math.min(1, dt * 3));
+    nat.governor = clamp(1 - nat.rough / 0.22, 0.25, 1);
+
+    nat.vx = approach(nat.vx, cmdVx * nat.governor, p.accelLin, dt);
+    nat.vy = approach(nat.vy, cmdVy * nat.governor, p.accelLin, dt);
     nat.wz = approach(nat.wz, cmdWz, p.accelAng, dt);
     nat.ax = lerp(nat.ax, (nat.vx - prevVx) / Math.max(dt, 1e-3), Math.min(1, dt * 6));
 
-    // fondu de posture entre profils (voie, hauteur, portée arrière, garde)
     const kp = Math.min(1, dt * 2.5);
     nat.track = lerp(nat.track, p.track, kp);
     nat.heightBias = lerp(nat.heightBias, p.heightBias, kp);
     nat.hindReach = lerp(nat.hindReach, p.hindReach, kp);
     nat.swingScale = lerp(nat.swingScale, p.swingScale, kp);
 
+    const speed = Math.hypot(nat.vx, nat.vy);
     autoGait(state);
     const g = Y.GAITS[state.gait];
-    blendGait(g, dt);
+    blendGait(g, dt, speed);
 
     const moving = state.gait !== "stand";
-    const duty = moving ? clamp(nat.duty + p.dutyBias, 0.4, 0.80) : 1;
-    const stance = nat.stance * p.cycleScale;
+    // à vitesse élevée le rapport d'appui baisse : c'est ce qui ouvre les
+    // phases de suspension, comme chez l'animal qui passe au galop
+    const fastDuty = clamp(Math.hypot(nat.vx, nat.vy) / 1.4, 0, 1);
+    const duty = moving ? clamp(nat.duty + p.dutyBias - 0.10 * fastDuty, 0.28, 0.80) : 1;
+    const stance = nat.stance;
     const cycle = stance / Math.max(duty, 0.05);
-    const height = state.height * nat.heightBias;
+    // sur relief, le robot se redresse : plus de garde sous le ventre
+    const height = state.height * nat.heightBias * (1 + clamp(nat.rough / 0.20, 0, 1) * 0.18);
 
     if (moving) {
       state.phase = (state.phase + dt / cycle) % 1;
@@ -176,92 +241,283 @@
       state.py += (nat.vx * Math.sin(state.yaw) + nat.vy * Math.cos(state.yaw)) * dt;
     }
 
-    // --- attitude de caisse -------------------------------------------
-    let stanceLoad = 0;
-    Y.LEGS.forEach(function (L) {
-      const ph = (state.phase + nat.off[L.id]) % 1;
-      if (!moving || ph < duty) stanceLoad += Math.sin(Math.PI * clamp(ph / duty, 0, 1));
-    });
-    stanceLoad /= 4;
+    // report de masse et balancement, atténués quand ça va vite
+    const fast = clamp(speed / 1.2, 0, 1);
+    const swayPhase = (state.phase + p.swayLead) * Math.PI * 2 + Math.PI / 2 * (1 - nat.trotMix);
+    state.sway = moving ? Math.sin(swayPhase) * p.sway * lerp(1, 0.45, nat.trotMix) * (1 - 0.6 * fast) : 0;
+    state.yawWag = moving ? -Math.sin(swayPhase) * p.yawWag * (1 - 0.5 * fast) : 0;
 
-    const breath = moving ? 0 : Math.sin(state.t * 1.6) * p.breath;
-    state.z = height - (moving ? p.dip * stanceLoad : 0) + breath;
+    // garde au sol : on lève plus haut quand on va vite
+    const swingH = state.swing * nat.swingScale * (1 + 1.1 * fast) + nat.rough * 0.55;
 
-    // report de masse : la caisse glisse vers les appuis, en anticipant le pas
-    const swayPhase = (state.phase + p.swayLead) * Math.PI * 2 +
-      lerp(Math.PI / 2, 0, nat.trotMix);
-    state.sway = moving ? Math.sin(swayPhase) * p.sway * lerp(1, 0.45, nat.trotMix) : 0;
+    /* --- cinématique des pieds, en monde --- */
+    const cy = Math.cos(state.yaw), sy = Math.sin(state.yaw);
+    const toWorld = function (x, y) {
+      return [state.px + cy * x - sy * y, state.py + sy * x + cy * y];
+    };
 
-    // balancement du tronc en lacet : ce que ferait la colonne d'un félin
-    state.yawWag = moving ? -Math.sin(swayPhase) * p.yawWag : 0;
+    let contacts = 0;
+    const support = [];
 
-    const bankIdeal = Math.atan2(nat.vx * nat.wz, G_ACC);
-    state.roll = lerp(state.roll, -bankIdeal * p.bank + state.sway * 0.9, Math.min(1, dt * 5));
-    const pitchGait = moving ? Math.sin(state.phase * Math.PI * 4 + 1.1) * p.pitchGait : 0;
-    state.pitch = lerp(state.pitch, clamp(nat.ax, -1.2, 1.2) * p.pitchAccel + pitchGait,
-      Math.min(1, dt * 6));
-
-    // --- pieds ---------------------------------------------------------
     Y.LEGS.forEach(function (L) {
       const n = Y.Robot.legs[L.id];
-
-      // voie : le félin rapproche ses appuis de l'axe du corps
       const nx = L.x + (L.f < 0 ? nat.hindReach : 0);
       const ny = (L.y + L.m * K.abadPlane) * nat.track - state.sway;
+      const hip = toWorld(nx, ny);
 
-      const vfx = nat.vx - nat.wz * ny;                  // v + ω × r
+      // vitesse du pied au sol dans le repère monde
+      const vfx = nat.vx - nat.wz * ny;
       const vfy = nat.vy + nat.wz * nx;
-      const sweepX = vfx * stance, sweepY = vfy * stance;
-      const errX = (nat.vx - cmdVx) * p.raibert;
-      const errY = (nat.vy - cmdVy) * p.raibert;
+      const sweep = stance;
+      const wvx = cy * vfx - sy * vfy;
+      const wvy = sy * vfx + cy * vfy;
 
-      // cadence légèrement irrégulière, renouvelée à chaque cycle de la patte
       let ph = (state.phase + nat.off[L.id] + nat.jit[L.id]) % 1;
       if (ph < nat.lastPh[L.id]) nat.jit[L.id] = (Math.random() - 0.5) * p.jitter;
       nat.lastPh[L.id] = ph;
 
-      let fx = nx, fy = ny, fz = -state.z, contact = true;
+      let foot, contact;
 
-      if (moving) {
-        if (ph < duty) {                                  // appui
-          const s = ph / duty;
-          fx = nx + sweepX * (0.5 - s);
-          fy = ny + sweepY * (0.5 - s);
-          nat.lift[L.id] = [fx, fy];
-        } else {                                          // vol
-          const s = (ph - duty) / (1 - duty);
-          const p0 = nat.lift[L.id] || [nx - sweepX * 0.5, ny - sweepY * 0.5];
-          const tanX = sweepX * (1 - duty) / duty;
-          const tanY = sweepY * (1 - duty) / duty;
-          fx = swingXY(p0[0], nx + sweepX * 0.5 + errX, tanX, s, p.retraction);
-          fy = swingXY(p0[1], ny + sweepY * 0.5 + errY, tanY, s, p.retraction);
-          fz = -state.z + state.swing * nat.swingScale * swingZ(s, p.settle);
-          contact = false;
+      if (!moving) {
+        const h = terrainAt(hip[0], hip[1]);
+        foot = [hip[0], hip[1], h];
+        nat.plant[L.id] = foot.slice();
+        contact = true;
+      } else if (ph < duty) {                       // --- appui ---
+        if (!nat.plant[L.id]) {
+          // on plante le pied là où le vol l'a réellement amené, pas sous la
+          // hanche : sinon il saute d'une demi-course au moment du poser
+          const src = nat.prevFoot[L.id] || nat.land[L.id] || [hip[0], hip[1], 0];
+          nat.plant[L.id] = [src[0], src[1], terrainAt(src[0], src[1])];
         }
+        foot = nat.plant[L.id];
+        nat.lift[L.id] = foot.slice();
+        contact = true;
+      } else {                                      // --- vol ---
+        const s = (ph - duty) / (1 - duty);
+        if (nat.plant[L.id]) { nat.lift[L.id] = nat.plant[L.id].slice(); nat.plant[L.id] = null; }
+        const p0 = nat.lift[L.id] || [hip[0], hip[1], 0];
+
+        // pose visée : demi-course devant la hanche + rattrapage de vitesse
+        const errX = (nat.vx - cmdVx) * p.raibert, errY = (nat.vy - cmdVy) * p.raibert;
+        const tdx = hip[0] + wvx * sweep * 0.5 + (cy * errX - sy * errY);
+        const tdy = hip[1] + wvy * sweep * 0.5 + (sy * errX + cy * errY);
+        // la cible de poser et le dégagement sont lissés : le relief change
+        // par marches, et un saut de cible se paierait en dizaines de rad/s
+        let wanted = [tdx, tdy, terrainAt(tdx, tdy)];
+        // pas raccourci si la cible sort du domaine atteignable depuis la hanche
+        const hz = nat.zBody + K.legZ;
+        const drop = hz - wanted[2];
+        const maxHoriz = Math.sqrt(Math.max(0.01,
+          Math.pow((K.L1 + K.L2) * 0.93, 2) - drop * drop));
+        const dxh = wanted[0] - hip[0], dyh = wanted[1] - hip[1];
+        const horiz = Math.hypot(dxh, dyh);
+        if (horiz > maxHoriz) {
+          const kk = maxHoriz / horiz;
+          wanted = [hip[0] + dxh * kk, hip[1] + dyh * kk, terrainAt(hip[0] + dxh * kk, hip[1] + dyh * kk)];
+        }
+        const obstacle = Y.Terrain ? Y.Terrain.maxHeightAlong(p0[0], p0[1], tdx, tdy, 8) : 0;
+        if (!nat.land[L.id]) { nat.land[L.id] = wanted; nat.clear[L.id] = obstacle; }
+        else {
+          const kl = Math.min(1, dt * 9);
+          for (let i = 0; i < 3; i++) {
+            nat.land[L.id][i] = lerp(nat.land[L.id][i], wanted[i], kl);
+          }
+          nat.clear[L.id] = lerp(nat.clear[L.id], obstacle, kl);
+        }
+        const land = nat.land[L.id];
+
+        const tanX = wvx * sweep * (1 - duty) / duty;
+        const tanY = wvy * sweep * (1 - duty) / duty;
+        const fx = swingXY(p0[0], land[0], tanX, s, p.retraction);
+        const fy = swingXY(p0[1], land[1], tanY, s, p.retraction);
+
+        const line = lerp(p0[2], land[2], smooth(s));
+        const over = Math.max(0, Math.max(p0[2], land[2], nat.clear[L.id]) - line);
+        const fz = line + over * Math.sin(Math.PI * clamp(s, 0, 1)) * 1.0 +
+          swingH * swingZ(s, p.settle);
+        foot = [fx, fy, fz];
+        contact = false;
       }
 
-      const target = levelToBody([fx, fy, fz], state.roll, state.pitch, state.yawWag);
-      n.q = Y.Motion.ik(L, target[0], target[1], target[2]);
+      // limiteur : un pied ne se déplace pas plus vite que ce que les
+      // actionneurs permettent (≈ 4 m/s au bout d'une patte de 0,22 m)
+      const prevF = nat.prevFoot[L.id];
+      if (prevF) {
+        const dxf = foot[0] - prevF[0], dyf = foot[1] - prevF[1], dzf = foot[2] - prevF[2];
+        const dist = Math.hypot(dxf, dyf, dzf);
+        const maxd = 4.0 * dt;
+        if (dist > maxd) {
+          const kf = maxd / dist;
+          foot = [prevF[0] + dxf * kf, prevF[1] + dyf * kf, prevF[2] + dzf * kf];
+        }
+      }
+      nat.prevFoot[L.id] = foot;
+
+      n.footWorld = foot;
       n.contact = contact;
       n.phase = ph;
+      if (contact) { contacts++; support.push({ L: L, f: foot }); }
+    });
+
+    /* --- caisse : appui sur les pieds au sol, sinon vol balistique --- */
+    let groundZ = 0, highest = -9, front = 0, rear = 0, nf = 0, nr = 0, left = 0, right = 0, nl = 0, nrt = 0;
+    support.forEach(function (s) {
+      groundZ += s.f[2];
+      highest = Math.max(highest, s.f[2]);
+      if (s.L.f > 0) { front += s.f[2]; nf++; } else { rear += s.f[2]; nr++; }
+      if (s.L.m > 0) { left += s.f[2]; nl++; } else { right += s.f[2]; nrt++; }
+    });
+    // moyenne des appuis, tirée vers le plus haut : sur une marche, la caisse
+    // doit monter avant que les pattes arrière n'aient suivi
+    groundZ = contacts ? lerp(groundZ / contacts, highest, 0.55) : nat.zBody - height;
+
+    const dip = moving ? p.dip * (1 + 2.4 * fast) : 0;
+    nat.zTarget = groundZ + height - dip * 0.5 +
+      (moving ? 0 : Math.sin(state.t * 1.6) * p.breath);
+
+    if (contacts === 0) {                            // suspension
+      nat.air = true;
+      nat.airTime += dt;
+      nat.vz -= G_ACC * dt;
+      nat.zBody += nat.vz * dt;
+      if (nat.zBody < nat.zTarget) { nat.zBody = nat.zTarget; nat.vz = 0; }
+    } else {
+      if (nat.air) {                                  // réception : on encaisse
+        nat.lastAir = nat.airTime;
+        nat.airTime = 0;
+        nat.vz = Math.min(nat.vz, -0.15);
+      }
+      nat.air = false;
+      // rappel amorti vers la hauteur visée (compliance de patte)
+      const k = 90, c = 2 * Math.sqrt(k) * 0.85;
+      const acc = k * (nat.zTarget - nat.zBody) - c * nat.vz;
+      nat.vz = clamp(nat.vz + acc * dt, -1.0, 1.0);     // la caisse ne saute pas
+      nat.zBody += nat.vz * dt;
+      if (moving && speed > 0.6) {
+        // à l'appui, la poussée relance la caisse vers le haut en fin de phase
+        nat.vz += 0.9 * fast * dt * (contacts >= 2 ? 1 : 0.4) * G_ACC * 0.12;
+      }
+    }
+    state.z = nat.zBody;
+
+    // assiette : on épouse la pente du support
+    const slopePitch = (nf && nr) ? Math.atan2(rear / nr - front / nf, 2 * K.legX) : 0;
+    const slopeRoll = (nl && nrt) ? Math.atan2(left / nl - right / nrt, 2 * K.legY) : 0;
+    const bankIdeal = Math.atan2(nat.vx * nat.wz, G_ACC);
+    const pitchGait = moving ? Math.sin(state.phase * Math.PI * 4 + 1.1) * p.pitchGait * (1 + 2.2 * fast) : 0;
+    state.roll = lerp(state.roll, slopeRoll - bankIdeal * p.bank + state.sway * 0.9, Math.min(1, dt * 6));
+    state.pitch = lerp(state.pitch,
+      slopePitch + clamp(nat.ax, -2, 2) * p.pitchAccel + pitchGait, Math.min(1, dt * 6));
+
+    /* --- cinématique inverse, cible ramenée dans le repère tronc --- */
+    Y.LEGS.forEach(function (L) {
+      const n = Y.Robot.legs[L.id];
+      const f = n.footWorld;
+      const dx = f[0] - state.px, dy = f[1] - state.py;
+      const level = [cy * dx + sy * dy, -sy * dx + cy * dy, f[2] - state.z];
+      const target = constrain(L, levelToBody(level, state.roll, state.pitch, state.yawWag));
+      assign(n, Y.Motion.ik(L, target[0], target[1], target[2]));
     });
   }
 
   /* =====================================================================
-     2. Figures
+     3. Mode roues — inspiré des Go2-W / B2-W
      ===================================================================== */
+  function stepWheels(dt, state) {
+    const p = nat.profile;
+    const cmdVx = clamp(state.vx, -Y.SPEED.wheelMax, Y.SPEED.wheelMax);
+    const prevVx = nat.vx;
 
-  // poses articulaires (haa, hfe, kfe), par patte avant / arrière
+    // les roues accélèrent plus fort que les pattes
+    nat.vx = approach(nat.vx, cmdVx, 2.4, dt);
+    nat.vy = approach(nat.vy, 0, 2.4, dt);           // pas de dérive latérale
+    nat.wz = approach(nat.wz, state.wz, 3.2, dt);
+    nat.ax = lerp(nat.ax, (nat.vx - prevVx) / Math.max(dt, 1e-3), Math.min(1, dt * 8));
+
+    state.gait = "roues";
+    state.phase = (state.phase + dt * 0.6) % 1;
+    state.yaw += nat.wz * dt;
+    state.px += nat.vx * Math.cos(state.yaw) * dt;
+    state.py += nat.vx * Math.sin(state.yaw) * dt;
+
+    const cy = Math.cos(state.yaw), sy = Math.sin(state.yaw);
+    const height = state.height * 0.92;
+    let groundZ = 0, front = 0, rear = 0, left = 0, right = 0;
+
+    const contacts = [];
+    Y.LEGS.forEach(function (L) {
+      const nx = L.x, ny = L.y + L.m * K.abadPlane;
+      const wx = state.px + cy * nx - sy * ny;
+      const wy = state.py + sy * nx + cy * ny;
+      // suspension : la hauteur vue par la roue est filtrée et sa vitesse
+      // bornée, sinon une arête de marche fait sauter la patte d'un coup
+      const raw = terrainAt(wx, wy);
+      const prevH = nat.wheelZ[L.id];
+      let h;
+      if (prevH === null || prevH === undefined) h = raw;
+      else {
+        const target = lerp(prevH, raw, Math.min(1, dt * 8));
+        const maxRate = 0.55 * dt;
+        h = clamp(target, prevH - maxRate, prevH + maxRate);
+      }
+      nat.wheelZ[L.id] = h;
+      contacts.push({ L: L, x: wx, y: wy, z: h });
+      groundZ += h / 4;
+      if (L.f > 0) front += h / 2; else rear += h / 2;
+      if (L.m > 0) left += h / 2; else right += h / 2;
+
+      // rotation de roue : ω = v / R (plus le différentiel de virage)
+      const vWheel = nat.vx - nat.wz * ny;
+      nat.spin[L.id] = (nat.spin[L.id] + vWheel / WHEEL_R * dt) % (Math.PI * 2);
+    });
+
+    // suspension : la caisse suit le sol filtré, pas chaque bosse
+    nat.zTarget = groundZ + height + WHEEL_R;
+    const k = 60, c = 2 * Math.sqrt(k) * 0.9;
+    nat.vz += (k * (nat.zTarget - nat.zBody) - c * nat.vz) * dt;
+    nat.zBody += nat.vz * dt;
+    state.z = nat.zBody;
+
+    const slopePitch = Math.atan2(rear - front, 2 * K.legX);
+    const slopeRoll = Math.atan2(left - right, 2 * K.legY);
+    const bankIdeal = Math.atan2(nat.vx * nat.wz, G_ACC);
+    // plongée au freinage, cabrage à l'accélération : c'est ce qui donne le poids
+    state.pitch = lerp(state.pitch, slopePitch + clamp(nat.ax, -4, 4) * 0.10, Math.min(1, dt * 8));
+    state.roll = lerp(state.roll, slopeRoll - bankIdeal * 0.9, Math.min(1, dt * 8));
+    state.sway = 0; state.yawWag = 0;
+
+    // obstacle trop haut : une roue ne monte pas une marche plus haute qu'elle
+    const step = Y.Terrain ? Y.Terrain.stepAhead(state.px, state.py, state.yaw, 0.7) : 0;
+    nat.wheelWarn = step > WHEEL_R * 0.9 ? step : 0;
+
+    Y.LEGS.forEach(function (L, i) {
+      const n = Y.Robot.legs[L.id];
+      const c = contacts[i];
+      const dx = c.x - state.px, dy = c.y - state.py;
+      const level = [cy * dx + sy * dy, -sy * dx + cy * dy, c.z + WHEEL_R - state.z];
+      const target = constrain(L, levelToBody(level, state.roll, state.pitch, 0));
+      assign(n, Y.Motion.ik(L, target[0], target[1], target[2]));
+      n.contact = true;
+      n.phase = 0;
+      n.footWorld = [c.x, c.y, c.z];
+      if (n.wheel) n.wheel.rotation.y = nat.spin[L.id];
+    });
+  }
+
+  /* =====================================================================
+     4. Figures
+     ===================================================================== */
   const POSE = {
-    tuck:  { front: [0, 1.55, -2.55], hind: [0, 1.35, -2.60] },   // groupé
-    pike:  { front: [0, 1.70, -2.35], hind: [0, 1.15, -2.50] },   // groupé serré (double)
-    reach: { front: [0, 0.55, -1.45], hind: [0, 0.85, -1.70] },   // jambes vers le sol
-    twist: { front: [0.35, 1.45, -2.45], hind: [-0.35, 1.30, -2.50] }  // vrille : bras de levier
+    tuck:  { front: [0, 1.55, -2.55], hind: [0, 1.35, -2.60] },
+    pike:  { front: [0, 1.70, -2.35], hind: [0, 1.15, -2.50] },
+    reach: { front: [0, 0.55, -1.45], hind: [0, 0.85, -1.70] },
+    twist: { front: [0.35, 1.45, -2.45], hind: [-0.35, 1.30, -2.50] }
   };
 
   function poseFor(L, pose) {
     const base = (L.f > 0 ? pose.front : pose.hind).slice();
-    base[0] *= L.m;                                     // l'abduction se reflète
+    base[0] *= L.m;
     return base;
   }
 
@@ -291,12 +547,13 @@
     f.duration = f.crouch + f.load + f.push + f.flight + f.land + f.recover;
   });
 
-  const run = { fig: null, t: 0, takeoffQ: null, yaw0: 0 };
+  const run = { fig: null, t: 0, takeoffQ: null, yaw0: 0, ground: 0 };
 
   function stepFigure(dt, state) {
     const f = run.fig;
     run.t += dt;
     const t = run.t;
+    const base = run.ground;
 
     const tCrouch = f.crouch;
     const tLoad = tCrouch + f.load;
@@ -307,13 +564,10 @@
     const groundPose = function (h, shiftX) {
       Y.LEGS.forEach(function (L) {
         const n = Y.Robot.legs[L.id];
-        n.q = Y.Motion.ik(L, L.x + (shiftX || 0), L.y + L.m * K.abadPlane, -h);
+        n.q = Y.Motion.ik(L, L.x + (shiftX || 0), L.y + L.m * K.abadPlane, -(h - base));
         n.contact = true;
       });
     };
-
-    // interpolations de pose à vitesse bornée : on part de la pose mesurée au
-    // décollage, sinon le passage appui -> groupé impose des dizaines de rad/s
     const poseFrom = function (start, pose, k) {
       Y.LEGS.forEach(function (L, li) {
         const n = Y.Robot.legs[L.id];
@@ -334,38 +588,38 @@
       Y.LEGS.forEach(function (L) {
         const n = Y.Robot.legs[L.id];
         const pa = poseFor(L, pose);
-        const pb = Y.Motion.ik(L, L.x + shiftX, L.y + L.m * K.abadPlane, -h);
+        const pb = Y.Motion.ik(L, L.x + shiftX, L.y + L.m * K.abadPlane, -(h - base));
         n.q = [0, 1, 2].map(function (i) { return lerp(pa[i], pb[i], k); });
         n.contact = k > 0.5;
       });
     };
 
     let phase;
-    if (t < tCrouch) {                                   // 1. accroupissement
+    if (t < tCrouch) {
       phase = "armement";
       const s = smooth(t / tCrouch);
-      state.z = lerp(state.height, f.crouchZ, s);
+      state.z = lerp(state.height + base, f.crouchZ + base, s);
       state.pitch = lerp(0, 0.06, s);
       groundPose(state.z, lerp(0, 0.02, s));
-    } else if (t < tLoad) {                              // 2. bascule arrière
+    } else if (t < tLoad) {
       phase = "bascule";
       const s = smooth((t - tCrouch) / f.load);
-      state.z = f.crouchZ;
+      state.z = f.crouchZ + base;
       state.pitch = lerp(0.06, -0.10, s);
       groundPose(state.z, lerp(0.02, -0.01, s));
-    } else if (t < tPush) {                              // 3. poussée
+    } else if (t < tPush) {
       phase = "poussée";
       const s = smooth((t - tLoad) / f.push);
-      state.z = lerp(f.crouchZ, f.takeoffZ, s);
+      state.z = lerp(f.crouchZ, f.takeoffZ, s) + base;
       state.pitch = lerp(-0.10, -0.55, s);
       state.px += f.travel * dt * 0.5;
-      groundPose(Math.min(state.z, K.L1 + K.L2 - 0.02), -0.01);
+      groundPose(Math.min(state.z, base + K.L1 + K.L2 - 0.02), -0.01);
       run.takeoffQ = null;
-    } else if (t < tFly) {                               // 4. vol balistique
+    } else if (t < tFly) {
       phase = f.twist ? "vrille" : "vol";
       const s = (t - tPush) / f.flight;
       const tf = t - tPush;
-      state.z = f.takeoffZ + f.vz * tf - 0.5 * G_ACC * tf * tf;
+      state.z = base + f.takeoffZ + f.vz * tf - 0.5 * G_ACC * tf * tf;
       state.pitch = -0.55 - (2 * Math.PI * f.turns - 0.55) * smoother(s);
       if (f.twist) {
         state.yaw = run.yaw0 + 2 * Math.PI * f.twist * smoother(s);
@@ -379,19 +633,18 @@
       }
       if (s < 0.45) poseFrom(run.takeoffQ, POSE[f.air], smooth(s / 0.45));
       else poseMix(POSE[f.air], POSE.reach, smooth((s - 0.45) / 0.55));
-    } else if (t < tLand) {                              // 5. réception amortie
+    } else if (t < tLand) {
       phase = "réception";
       const s = smooth((t - tFly) / f.land);
-      // le tour est bouclé : -2π·n est la même orientation que 0
-      state.z = lerp(f.takeoffZ, f.absorbZ, s);
+      state.z = base + lerp(f.takeoffZ, f.absorbZ, s);
       state.pitch = lerp(0, 0.12, s);
       state.roll = lerp(state.roll, 0, Math.min(1, dt * 8));
       poseToGround(POSE.reach, s, state.z, 0.015);
-    } else {                                             // 6. stabilisation
+    } else {
       phase = "stabilisation";
       const s = smooth((t - tLand) / f.recover);
       const bounce = Math.sin(Math.PI * s * 2) * 0.012 * (1 - s);
-      state.z = lerp(f.absorbZ, state.height, s) + bounce;
+      state.z = base + lerp(f.absorbZ, state.height, s) + bounce;
       state.pitch = lerp(0.12, 0, s) + Math.sin(Math.PI * s * 3) * 0.02 * (1 - s);
       state.roll = lerp(state.roll, 0, Math.min(1, dt * 8));
       groundPose(state.z, lerp(0.015, 0, s));
@@ -401,59 +654,42 @@
     Y.Stunt.progress = clamp(t / f.duration, 0, 1);
 
     if (t >= f.duration) {
-      state.pitch = 0;
-      state.roll = 0;
-      state.z = state.height;
+      state.pitch = 0; state.roll = 0;
+      state.z = base + state.height;
       if (f.twist) state.yaw = run.yaw0 + 2 * Math.PI * f.twist;
+      nat.zBody = state.z; nat.vz = 0;
+      Y.LEGS.forEach(function (L) { nat.plant[L.id] = null; });
       Y.Stunt.stop();
     }
   }
 
   Y.Stunt = {
     figures: FIGURES,
-    active: null,
-    phase: "",
-    progress: 0,
-    listeners: [],
-
+    active: null, phase: "", progress: 0, listeners: [],
     onChange: function (fn) { this.listeners.push(fn); },
-    emit: function () {
-      const self = this;
-      this.listeners.forEach(function (fn) { fn(self); });
-    },
-
-    label: function (name) { return FIGURES[name] ? FIGURES[name].label : ""; },
-    duration: function (name) {
-      const f = FIGURES[name || this.active];
-      return f ? f.duration : 0;
-    },
+    emit: function () { const s = this; this.listeners.forEach(function (fn) { fn(s); }); },
+    label: function (name) { const f = FIGURES[name || this.active]; return f ? f.label : ""; },
+    duration: function (name) { const f = FIGURES[name || this.active]; return f ? f.duration : 0; },
     info: function (name) {
       const f = FIGURES[name || this.active];
       if (!f) return null;
       return { label: f.label, flight: f.flight, apex: f.apex, duration: f.duration,
         turns: f.turns, twist: f.twist, vz: f.vz };
     },
-
     start: function (name) {
       const f = FIGURES[name];
       if (!f) return false;
       run.fig = f; run.t = 0; run.takeoffQ = null;
       run.yaw0 = Y.Motion.state.yaw;
-      this.active = name;
-      this.phase = "armement";
-      this.progress = 0;
+      run.ground = terrainAt(Y.Motion.state.px, Y.Motion.state.py);
+      this.active = name; this.phase = "armement"; this.progress = 0;
       this.emit();
       return true;
     },
-
     stop: function () {
-      run.fig = null;
-      this.active = null;
-      this.phase = "";
-      this.progress = 0;
+      run.fig = null; this.active = null; this.phase = ""; this.progress = 0;
       this.emit();
     },
-
     step: function (dt, state) {
       if (!run.fig) return false;
       stepFigure(dt, state);
@@ -465,22 +701,29 @@
     profiles: PROFILES,
     state: nat,
     step: stepNatural,
-    setProfile: function (name) {
-      nat.profile = PROFILES[name] || PROFILES.souple;   // la posture est fondue
-    },
+    stepWheels: stepWheels,
+    wheelRadius: WHEEL_R,
+    setProfile: function (name) { nat.profile = PROFILES[name] || PROFILES.souple; },
     reset: function () {
       nat.vx = nat.vy = nat.wz = nat.ax = 0;
       const g = Y.GAITS[Y.Motion.state.gait] || Y.GAITS.trot;
       nat.duty = g.duty; nat.stance = g.stance;
-      nat.trotMix = (g.name === "trot" || g.name === "bound") ? 1 : 0;
+      nat.trotMix = g.name === "walk" ? 0 : 1;
+      nat.air = false; nat.vz = 0;
+      nat.zBody = Y.Motion.state.z || 0.25; nat.zTarget = nat.zBody;
       nat.track = nat.profile.track; nat.heightBias = nat.profile.heightBias;
       nat.hindReach = nat.profile.hindReach; nat.swingScale = nat.profile.swingScale;
       Y.LEGS.forEach(function (L) {
-        nat.lift[L.id] = null; nat.off[L.id] = g.off[L.id];
+        nat.plant[L.id] = null; nat.lift[L.id] = null; nat.land[L.id] = null;
+        nat.clear[L.id] = 0; nat.prevFoot[L.id] = null; nat.wheelZ[L.id] = null;
+        nat.off[L.id] = g.off[L.id] !== undefined ? g.off[L.id] : 0;
         nat.jit[L.id] = 0; nat.lastPh[L.id] = 0;
       });
     },
     setAuto: function (on) { nat.auto = !!on; },
-    isAuto: function () { return nat.auto; }
+    isAuto: function () { return nat.auto; },
+    airborne: function () { return nat.air; },
+    lastFlight: function () { return nat.lastAir; },
+    wheelWarning: function () { return nat.wheelWarn; }
   };
 })(window.YLO);

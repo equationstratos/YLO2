@@ -138,7 +138,7 @@ def perform(robot, flip: Figure = DEFAULT_FLIP) -> Dict[str, float]:
                 robot.q[i * 3 + j] = pa[j] + (pb[j] - pa[j]) * k
             robot.contacts[i] = k > 0.5
 
-    robot.mode = "joint"                       # le générateur d'allure est débrayé
+    robot.pose_mode = "joint"                  # le générateur d'allure est débrayé
     phases: List[str] = []
     takeoff_q: List[float] = []                # pose au décollage, départ du groupé
     yaw0 = robot.base[5]
@@ -202,10 +202,18 @@ def perform(robot, flip: Figure = DEFAULT_FLIP) -> Dict[str, float]:
 
     robot.base[4] = 0.0
     robot.base[3] = 0.0
-    robot.base[2] = robot.height
+    robot.base[2] = robot.terrain.height_at(robot.base[0], robot.base[1]) + robot.height
+    # la couche de marche repart d'appuis neufs, sinon les pieds sautent
+    nat = robot.natural
+    nat.z_body, nat.vz, nat.air = robot.base[2], 0.0, False
+    for leg in model.legs:
+        nat.plant[leg.name] = None
+        nat.land[leg.name] = None
+        nat.prev_foot[leg.name] = None
+        nat.lift[leg.name] = None
     if flip.twist:
         robot.base[5] = yaw0 + 2 * math.pi * flip.twist
-    robot.mode = "gait"
+    robot.pose_mode = "gait"
 
     return {
         "figure": flip.label,

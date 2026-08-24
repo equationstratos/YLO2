@@ -12,7 +12,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from ylo2_sim import gait, kinematics as kin, moteus, trajectory  # noqa: E402
-from ylo2_sim import natural, stunts                               # noqa: E402
+from ylo2_sim import natural, stunts, terrain                      # noqa: E402
 from ylo2_sim.model import DEFAULT, Model                          # noqa: E402
 from ylo2_sim.sim import LimitViolation, Robot                     # noqa: E402
 
@@ -167,9 +167,9 @@ class TestNatural(unittest.TestCase):
 
     def test_gait_follows_speed(self):
         robot = Robot(rate=100)
-        robot.walk(vx=0.04, seconds=3.0)
+        robot.walk(vx=0.10, seconds=3.0)
         self.assertEqual(robot.gait.name, "walk")
-        robot.walk(vx=0.18, seconds=3.0)
+        robot.walk(vx=0.60, seconds=3.0)
         self.assertEqual(robot.gait.name, "trot")
         robot.hold(2.0)
         self.assertEqual(robot.gait.name, "stand")
@@ -253,6 +253,129 @@ class TestFeline(unittest.TestCase):
         robot = Robot(rate=100, style="felin")
         robot.walk(vx=0.08, seconds=2.0)
         self.assertLess(robot.base[2], robot.height)       # se tient plus bas
+
+
+class TestSpeed(unittest.TestCase):
+    """Échelle d'allures : la vitesse commande l'allure et la cadence."""
+
+    def _run(self, speed, seconds=6.0, style="souple"):
+        robot = Robot(rate=200, style=style)
+        robot.walk(vx=speed, seconds=seconds)
+        return robot
+
+    def test_gait_ladder(self):
+        self.assertEqual(self._run(0.15).gait.name, "walk")
+        self.assertEqual(self._run(0.5).gait.name, "trot")
+        self.assertIn(self._run(1.7).gait.name, ("canter", "gallop"))
+
+    def test_cadence_shortens_with_speed(self):
+        slow = self._run(0.3).natural.stance
+        fast = self._run(1.5).natural.stance
+        self.assertLess(fast, slow)
+
+    def test_suspension_appears_at_speed(self):
+        """Au galop, il y a des instants sans aucun appui."""
+        robot = self._run(1.7, seconds=8.0)
+        window = robot.frames[-800:]
+        air = sum(1 for f in window if not any(f["contact"])) / len(window)
+        self.assertGreater(air, 0.05)
+
+    def test_walk_has_no_flight_phase(self):
+        robot = self._run(0.15, seconds=6.0)
+        window = robot.frames[-600:]
+        self.assertTrue(all(any(f["contact"]) for f in window))
+
+    def test_declared_envelope(self):
+        """Sous la vitesse déclarée, on reste dans les 20 rad/s de l'URDF."""
+        robot = self._run(gait.DECLARED_SPEED * 0.75, seconds=8.0)
+        self.assertLess(robot.report()["peak_joint_velocity_rad_s"], DEFAULT.velocity_max)
+
+    def test_speed_actually_reached(self):
+        robot = self._run(1.2, seconds=8.0)
+        self.assertAlmostEqual(robot.natural.vx, 1.2, places=2)
+
+
+class TestTerrain(unittest.TestCase):
+    def test_height_sampling(self):
+        stairs = terrain.get("escalier")
+        self.assertAlmostEqual(stairs.height_at(0.5, 0), 0.0)
+        self.assertAlmostEqual(stairs.height_at(1.25, 0), 0.13, places=3)
+        self.assertGreater(stairs.height_at(2.0, 0), 0.3)
+        self.assertAlmostEqual(stairs.height_at(2.0, 5.0), 0.0)     # hors emprise
+
+    def test_step_ahead(self):
+        stairs = terrain.get("escalier")
+        self.assertGreater(stairs.step_ahead(1.0, 0, 0.0), 0.1)
+        self.assertAlmostEqual(stairs.step_ahead(-2.0, 0, 0.0), 0.0)
+
+    def test_robot_climbs_stairs(self):
+        robot = Robot(rate=200, terrain="escalier")
+        robot.walk(vx=0.45, seconds=26.0)
+        ground = robot.terrain.height_at(robot.base[0], robot.base[1])
+        self.assertGreater(ground, 0.3)                    # a gravi des marches
+        self.assertGreater(robot.base[2], ground + 0.15)   # la caisse suit
+        self.assertEqual(robot.report()["limit_violations"], {})
+
+    def test_feet_stay_on_the_surface(self):
+        robot = Robot(rate=200, terrain="gravats")
+        robot.walk(vx=0.4, seconds=8.0)
+        worst = 0.0
+        for _ in range(600):
+            robot.step()
+            for i, leg in enumerate(robot.model.legs):
+                if not robot.contacts[i]:
+                    continue
+                f = robot.foot_world[leg.name]
+                worst = min(worst, f[2] - robot.terrain.height_at(f[0], f[1]))
+        self.assertGreater(worst, -0.005)
+
+    def test_governor_slows_down_on_obstacles(self):
+        flat = Robot(rate=200)
+        flat.walk(vx=0.6, seconds=6.0)
+        rough = Robot(rate=200, terrain="marches_hautes")
+        rough.walk(vx=0.6, seconds=6.0)
+        self.assertLess(rough.natural.vx, flat.natural.vx * 0.8)
+
+
+class TestWheels(unittest.TestCase):
+    def test_rolls_faster_than_it_walks(self):
+        legs = Robot(rate=200)
+        legs.walk(vx=2.0, seconds=6.0)
+        wheels = Robot(rate=200, mode="roues")
+        wheels.walk(vx=2.5, seconds=6.0)
+        self.assertGreater(wheels.base[0], legs.base[0])
+
+    def test_wheels_barely_move_the_joints(self):
+        robot = Robot(rate=200, mode="roues")
+        robot.walk(vx=2.0, seconds=6.0)
+        self.assertLess(robot.report()["peak_joint_velocity_rad_s"], 5.0)
+
+    def test_wheel_spins_at_v_over_r(self):
+        robot = Robot(rate=200, mode="roues")
+        robot.walk(vx=1.0, seconds=2.0)
+        before = robot.natural.spin["lf"]
+        robot.step(100)                                   # 0,5 s
+        turned = (robot.natural.spin["lf"] - before) % math.tau
+        expected = (1.0 / gait.WHEEL_RADIUS * 0.5) % math.tau
+        self.assertAlmostEqual(turned, expected, delta=0.6)
+
+    def test_ride_height_includes_the_wheel(self):
+        robot = Robot(rate=200, mode="roues")
+        robot.hold(1.5)
+        self.assertGreater(robot.base[2], gait.WHEEL_RADIUS + 0.15)
+
+    def test_warns_on_steps_too_high(self):
+        robot = Robot(rate=200, mode="roues", terrain="escalier")
+        robot.walk(vx=1.0, seconds=4.0)
+        self.assertGreater(robot.natural.wheel_warn_max, gait.WHEEL_RADIUS)
+
+    def test_switch_back_to_legs(self):
+        robot = Robot(rate=200, mode="roues")
+        robot.walk(vx=1.5, seconds=3.0)
+        robot.set_mode("pattes")
+        robot.walk(vx=0.4, seconds=4.0)
+        self.assertEqual(robot.report()["limit_violations"], {})
+        self.assertIn(robot.gait.name, ("walk", "trot"))
 
 
 class TestFigures(unittest.TestCase):

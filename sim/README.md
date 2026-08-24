@@ -59,7 +59,9 @@ ou via `ylo2-sim run`.
 | Appel | Effet |
 | --- | --- |
 | `set_style("souple"\|"felin"\|"brut")` | style de locomotion |
-| `set_gait("trot")` | allure : `stand`, `walk`, `trot`, `pace`, `bound` |
+| `set_gait("trot")` | allure : `stand`, `walk`, `trot`, `pace`, `bound`, `canter`, `gallop` |
+| `set_terrain("escalier")` | terrain : `plat`, `escalier`, `marches_hautes`, `plateforme`, `rampe`, `gravats`, `poutres` |
+| `set_mode("roues")` | train de propulsion : `pattes` ou `roues` |
 | `figure(nom)` | `backflip`, `doubleflip`, `mctwist540` |
 | `backflip()` · `double_backflip()` · `mctwist540()` | raccourcis |
 | `command(vx, vy, wz)` | consigne, saturée aux maxima de `gait.yaml` |

@@ -74,9 +74,11 @@
     g.material.opacity = g === gridFine ? 0.32 : 0.6; scene.add(g);
   });
 
+  Y.Terrain.build(scene);
+
   /* --- état d'affichage --- */
   const view = { explode: 0, explodeOn: false, axes: false, trace: true,
-    support: false, selected: null, name: "iso", stunt: 0 };
+    support: false, selected: null, name: "iso", stunt: 0, speed: 0 };
 
   /* --- traces de pieds --- */
   const TRACE_N = 220;
@@ -108,7 +110,7 @@
   function placeCamera() {
     const fit = clamp(1.55 / camera.aspect, 1, 1.95);
     // pendant une figure on recule : le robot monte à près d'un mètre
-    const d = orbit.dist * fit * (1 + 0.3 * view.stunt);
+    const d = orbit.dist * fit * (1 + 0.3 * view.stunt + 0.12 * view.speed);
     const cd = Math.cos(orbit.el) * d;
     camera.position.set(
       orbit.target.x + Math.cos(orbit.az) * cd,
@@ -371,7 +373,13 @@
     { file: "felin_walk.py", name: "Marche féline",
       desc: "Voie étroite, triple appui, balancement du tronc, puis bascule en trot." },
     { file: "figures.py", name: "Enchaînement de figures",
-      desc: "Salto arrière, double salto et 540 McTwist à la suite, en une trajectoire." }
+      desc: "Salto arrière, double salto et 540 McTwist à la suite, en une trajectoire." },
+    { file: "course.py", name: "Montée en vitesse",
+      desc: "0,15 à 1,7 m/s : allure, cadence et temps de suspension à chaque palier." },
+    { file: "escalier.py", name: "Escalier",
+      desc: "Montée, palier, descente : le gouverneur ralentit tout seul à l'approche." },
+    { file: "roues.py", name: "Roues motrices",
+      desc: "Vitesse sur le plat, limite face à une marche, retour sur pattes." }
   ];
 
   function buildSimPane() {
@@ -581,6 +589,7 @@
      HUD
      ===================================================================== */
   const bars = {};
+  let lastGait = "";
   function buildGaitButtons() {
     const el = document.getElementById("gaits");
     const entries = Object.keys(Y.GAITS).map(function (k) {
@@ -598,6 +607,47 @@
       el.appendChild(b);
     });
     syncGaitButtons();
+  }
+
+  function setMode(k) {
+    if (k === M.state.mode) return;
+    M.blendFrom(0.4);
+    M.state.mode = k;
+    Y.Robot.setWheels(k === "roues");
+    if (k === "roues" && Y.Stunt.active) Y.Stunt.stop();
+    Y.Natural.reset();
+    clearTraces();
+    document.querySelectorAll("#modes button").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.mode === k));
+    });
+    const vx = document.getElementById("sVx");
+    vx.max = k === "roues" ? Y.SPEED.wheelMax : Y.SPEED.max;
+    if (M.state.vx > vx.max) { vx.value = vx.max; vx.dispatchEvent(new Event("input")); }
+    document.querySelectorAll("#gaits button, #styles button").forEach(function (b) {
+      b.disabled = k === "roues";
+    });
+    document.querySelectorAll("#stunts button").forEach(function (b) {
+      b.disabled = k === "roues";
+    });
+    flash(k === "roues"
+      ? "Roues motrices : jusqu'à " + Y.SPEED.wheelMax.toFixed(1) + " m/s sur terrain roulant"
+      : "Retour sur pattes");
+  }
+
+  function buildTerrainSelect() {
+    const sel = document.getElementById("terrain");
+    Y.Terrain.presets.forEach(function (t) {
+      const o = document.createElement("option");
+      o.value = t.id; o.textContent = t.name; o.title = t.desc;
+      sel.appendChild(o);
+    });
+    sel.addEventListener("change", function () {
+      Y.Terrain.set(sel.value);
+      Y.Natural.reset();
+      clearTraces();
+      const t = Y.Terrain.current;
+      flash(t.name + (t.maxStep ? " · marche " + Math.round(t.maxStep * 1000) + " mm" : ""));
+    });
   }
 
   function setStyle(k) {
@@ -666,7 +716,7 @@
   function buildPhase() {
     const phaseEl = document.getElementById("phase");
     phaseEl.innerHTML = "";
-    const G = Y.GAITS[M.state.gait];
+    const G = Y.GAITS[M.state.gait] || Y.GAITS.trot;
     Y.LEGS.forEach(function (L) {
       const row = document.createElement("div"); row.className = "prow";
       const s = document.createElement("span"); s.textContent = L.label;
@@ -707,6 +757,23 @@
     btn.setAttribute("aria-pressed", String(on));
   }
   function closeRail() { openPanel("rail", false); }
+
+  /* --- avertissements : capacité des actionneurs, obstacle vs roues --- */
+  function updateWarning(speed) {
+    const el = document.getElementById("warnStrip");
+    if (!el) return;
+    let msg = "";
+    if (M.state.mode === "roues") {
+      const step = Y.Natural.wheelWarning();
+      if (step) msg = "Marche de " + Math.round(step * 1000) + " mm devant : au-delà de ce " +
+        "qu'une roue de 75 mm franchit — repasser sur pattes (touche W)";
+    } else if (speed > Y.SPEED.declared) {
+      msg = "Au-delà de " + Y.SPEED.declared.toFixed(2) + " m/s, les articulations " +
+        "dépassent les 20 rad/s déclarés dans l'URDF : mouvement montré, hors spécification";
+    }
+    el.textContent = msg;
+    el.classList.toggle("on", !!msg);
+  }
 
   /* --- message éphémère --- */
   let flashEl = null, flashTimer = 0;
@@ -822,10 +889,13 @@
 
     const portrait = camera.aspect < 0.9;
     view.stunt += ((Y.Stunt.active ? 1 : 0) - view.stunt) * Math.min(1, dt * 3);
+    view.speed += (clamp(Math.hypot(Y.Natural.state.vx, Y.Natural.state.vy) / 1.5, 0, 1) - view.speed)
+      * Math.min(1, dt * 1.5);
     const baseZ = portrait ? 0.0 : M.state.height * 0.5 + 0.03;
     camTarget.set(Y.Robot.root.position.x, Y.Robot.root.position.y,
       lerp(baseZ, Math.max(baseZ, M.state.z * 0.72), view.stunt));
-    orbit.target.lerp(camTarget, Math.min(1, dt * 3.2));
+    const chase = 3.2 + Math.hypot(Y.Natural.state.vx, Y.Natural.state.vy) * 2.5;
+    orbit.target.lerp(camTarget, Math.min(1, dt * chase));
     if (camTween) {
       const e = 1 - Math.exp(-dt * 6);
       orbit.az += (camTween.az - orbit.az) * e;
@@ -849,8 +919,12 @@
       });
       updateJointTable();
       updateTags();
-      if (Y.Natural.isAuto()) syncGaitButtons();
-      const G = Y.GAITS[M.state.gait];
+      if (Y.Natural.isAuto() && M.state.mode !== "roues") {
+        syncGaitButtons();
+        if (M.state.gait !== lastGait) { lastGait = M.state.gait; buildPhase(); }
+      }
+      const G = Y.GAITS[M.state.gait] ||
+        { label: M.state.mode === "roues" ? "Roues" : M.state.gait, duty: 1, stance: 1 };
       const src = M.state.source;
       const srcLabel = { internal: "générateur interne", file: "trajectoire Python", live: "serveur local" }[src];
       let lines = "Source <span class='src'>" + srcLabel + "</span><br>";
@@ -869,10 +943,20 @@
         lines += "Allure <b>" + G.label + "</b> · cycle <b>" + (G.stance / G.duty).toFixed(2) + " s</b><br>" +
           "Appui <b>" + Math.round(G.duty * 100) + " %</b> · phase <b>" + M.state.phase.toFixed(2) + "</b><br>";
       }
+      const realV = Math.hypot(Y.Natural.state.vx, Y.Natural.state.vy);
+      const nContact = Y.LEGS.filter(function (L) { return Y.Robot.legs[L.id].contact; }).length;
       readout.innerHTML = lines +
+        "Vitesse <b>" + realV.toFixed(2) + " m/s</b> · <b>" + (realV * 3.6).toFixed(1) + " km/h</b><br>" +
         "Odométrie <b>" + Math.hypot(M.state.px, M.state.py).toFixed(2) + " m</b> · cap <b>" +
         ((M.state.yaw * 180 / Math.PI) % 360).toFixed(0) + "°</b><br>" +
-        "Appuis au sol <b>" + Y.LEGS.filter(function (L) { return Y.Robot.legs[L.id].contact; }).length + " / 4</b>";
+        "Appuis au sol <b>" + nContact + " / 4</b>" +
+        (Y.Natural.airborne() ? " · <span class='src'>suspension</span>" : "") +
+        (Y.Natural.lastFlight() > 0.01
+          ? "<br>Dernier temps de vol <b>" + (Y.Natural.lastFlight() * 1000).toFixed(0) + " ms</b>"
+          : "") +
+        "<br>Terrain <b>" + Y.Terrain.current.name + "</b> · sol <b>" +
+        (Y.Terrain.heightAt(M.state.px, M.state.py) * 1000).toFixed(0) + " mm</b>";
+      updateWarning(realV);
       const phaseTitle = document.querySelector(".card-phase h4");
       if (phaseTitle) {
         phaseTitle.textContent = src === "internal"
@@ -911,7 +995,9 @@
     buildGaitButtons();
     buildPhase();
 
-    bindSlider("sVx", "oVx", "vx", function (v) { return v.toFixed(3) + " m/s"; }, "vx");
+    bindSlider("sVx", "oVx", "vx", function (v) {
+      return v.toFixed(2) + " m/s\n" + (v * 3.6).toFixed(1) + " km/h";
+    }, "vx");
     bindSlider("sWz", "oWz", "wz", function (v) { return v.toFixed(2) + " rad/s"; }, "wz");
     bindSlider("sH", "oH", "height", function (v) { return (v * 1000).toFixed(0) + " mm"; }, "height");
     bindSlider("sSw", "oSw", "swing", function (v) { return (v * 1000).toFixed(0) + " mm"; }, "swing");
@@ -934,6 +1020,10 @@
       }
       if (k === "support") view.support = on;
     });
+    document.getElementById("modes").addEventListener("click", function (e) {
+      const b = e.target.closest("button[data-mode]"); if (b) setMode(b.dataset.mode);
+    });
+    buildTerrainSelect();
     document.getElementById("styles").addEventListener("click", function (e) {
       const b = e.target.closest("button[data-style]"); if (b) setStyle(b.dataset.style);
     });
@@ -967,6 +1057,7 @@
       if (map[e.key]) setView(map[e.key]);
       if (e.key === "Escape") select(null);
       if (e.key === " ") { e.preventDefault(); setGait(M.state.gait === "stand" ? "trot" : "stand"); }
+      if (e.key === "w" || e.key === "W") setMode(M.state.mode === "roues" ? "pattes" : "roues");
       if (e.key === "b" || e.key === "B") launchStunt("backflip");
       if (e.key === "d" || e.key === "D") launchStunt("doubleflip");
       if (e.key === "t" || e.key === "T") launchStunt("mctwist540");
@@ -982,6 +1073,7 @@
 
     window.__ylo = { Y: Y, scene: scene, camera: camera, orbit: orbit, view: view };
 
+    Y.Terrain.set("plat");
     resize(); setView("iso"); placeCamera(); select(null);
     boot.hidden = true;
     if (!Y.Geo.ready) flash("Maillages indisponibles : " + Y.Geo.error);
