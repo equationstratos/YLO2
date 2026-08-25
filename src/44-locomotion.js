@@ -61,7 +61,9 @@
     track: 1, heightBias: 1, hindReach: 0, swingScale: 1,
     air: false, vz: 0, zBody: 0.25, zTarget: 0.25,
     airTime: 0, lastAir: 0,
-    rough: 0, governor: 1, wheelWarn: 0
+    rough: 0, governor: 1, wheelWarn: 0,
+    // sens de marche des roues : un 540 se reçoit en fakie, roues en arrière
+    dir: 1
   };
 
   Y.LEGS.forEach(function (L) {
@@ -433,7 +435,7 @@
     nat.rough = lerp(nat.rough, ahead, Math.min(1, dt * 3));
     nat.governor = clamp(1 - nat.rough / 0.30, 0.28, 1);
 
-    const cmdVx = clamp(state.vx, -Y.SPEED.wheelMax, Y.SPEED.wheelMax) * nat.governor;
+    const cmdVx = clamp(state.vx * nat.dir, -Y.SPEED.wheelMax, Y.SPEED.wheelMax) * nat.governor;
     // freinage plus vif que l'accélération : les roues mordent
     const braking = Math.abs(cmdVx) < Math.abs(nat.vx) * 0.98;
     nat.vx = approach(nat.vx, cmdVx, braking ? 4.5 : 2.4, dt);
@@ -682,7 +684,8 @@
   });
 
   const run = { fig: null, t: 0, takeoffQ: null, yaw0: 0, ground: 0,
-                holdQ: null, holdZ: 0, shiftX: 0, shiftY: 0 };
+                holdQ: null, holdZ: 0, shiftX: 0, shiftY: 0,
+                carry: null, fakie: false };
 
   function stepFigure(dt, state) {
     const f = run.fig;
@@ -811,9 +814,17 @@
     const cy = Math.cos(state.yaw), sy = Math.sin(state.yaw);
     const ride = state.height * 0.92;
 
-    // avance libre : une figure sur roues garde sa vitesse
-    state.px += nat.vx * cy * dt;
-    state.py += nat.vx * sy * dt;
+    // Avance libre : une figure sur roues garde sa vitesse. Pendant une
+    // vrille, c'est la quantité de mouvement qui porte le robot en ligne
+    // droite — pas son cap, qui tourne sous lui. Sans ça le 540 décrivait
+    // une spirale puis repartait dans l'autre sens au poser.
+    if (run.carry) {
+      state.px += run.carry[0] * dt;
+      state.py += run.carry[1] * dt;
+    } else {
+      state.px += nat.vx * cy * dt;
+      state.py += nat.vx * sy * dt;
+    }
     Y.LEGS.forEach(function (L) {
       const ny = L.y + L.m * K.abadPlane;
       nat.spin[L.id] = (nat.spin[L.id] + (nat.vx - nat.wz * ny) / WHEEL_R * dt) % (Math.PI * 2);
@@ -1050,6 +1061,15 @@
         if (f.twist) {                                // on remet la gîte à plat
           state.yaw = run.yaw0 + 2 * Math.PI * f.twist;
           state.roll = lerp(state.roll, 0, Math.min(1, dt * 8));
+          // Un 540 tourne le robot d'un demi-tour net : il retombe face à
+          // l'arrière de sa trajectoire. Au toucher, les pneus sont donc
+          // traînés en arrière — c'est le « fakie » du skate, et le robot
+          // continue sur son erre, roues à l'envers.
+          if (!run.fakie) {
+            run.fakie = true;
+            nat.vx = -nat.vx;
+            nat.dir = -nat.dir;
+          }
         }
         if (f.turns) {
           // on ouvre depuis la pose de vol vers la pose d'appui : sans ce
@@ -1092,6 +1112,7 @@
       if (f.kind === "spin") { state.yaw = run.yaw0 + 2 * Math.PI * f.turns; nat.wz = 0; }
       if (f.twist) state.yaw = run.yaw0 + 2 * Math.PI * f.twist;
       nat.zBody = state.z; nat.vz = 0;
+      run.carry = null;
       Y.LEGS.forEach(function (L) { nat.wheelZ[L.id] = null; nat.wstep[L.id] = null; });
       Y.Stunt.stop();
     }
@@ -1116,6 +1137,10 @@
       if ((f.mode || "pattes") !== Y.Motion.state.mode) return false;
       run.fig = f; run.t = 0; run.takeoffQ = null;
       run.holdQ = null; run.shiftX = 0; run.shiftY = 0;
+      run.fakie = false;
+      run.carry = f.twist
+        ? [nat.vx * Math.cos(Y.Motion.state.yaw), nat.vx * Math.sin(Y.Motion.state.yaw)]
+        : null;
       run.yaw0 = Y.Motion.state.yaw;
       Y.LEGS.forEach(function (L) { nat.figAxle[L.id] = null; });
       run.ground = terrainAt(Y.Motion.state.px, Y.Motion.state.py);
@@ -1151,6 +1176,7 @@
     setProfile: function (name) { nat.profile = PROFILES[name] || PROFILES.souple; },
     reset: function () {
       nat.vx = nat.vy = nat.wz = nat.ax = 0;
+      nat.dir = 1;                                   // on repart en marche avant
       const g = Y.GAITS[Y.Motion.state.gait] || Y.GAITS.trot;
       nat.duty = g.duty; nat.stance = g.stance;
       nat.trotMix = g.name === "walk" ? 0 : 1;
@@ -1162,7 +1188,6 @@
         nat.plant[L.id] = null; nat.lift[L.id] = null; nat.land[L.id] = null;
         nat.clear[L.id] = 0; nat.prevFoot[L.id] = null; nat.wheelZ[L.id] = null;
         nat.wstep[L.id] = null;
-    nat.wstep[L.id] = null;
         nat.off[L.id] = g.off[L.id] !== undefined ? g.off[L.id] : 0;
         nat.jit[L.id] = 0; nat.lastPh[L.id] = 0;
       });

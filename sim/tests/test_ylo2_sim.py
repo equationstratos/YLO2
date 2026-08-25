@@ -490,6 +490,24 @@ class TestWheelFigures(unittest.TestCase):
         self.assertGreater(max(rolls), 0.3)                        # la gîte du McTwist
         self.assertLess(abs(robot.base[3]), 0.02)                  # remis à plat
 
+    def test_mctwist_lands_fakie_and_keeps_rolling(self):
+        robot = Robot(rate=200, mode="roues")
+        robot.walk(vx=1.2, seconds=1.5)
+        x0, y0 = robot.base[0], robot.base[1]
+        robot.figure("wheeltwist540")
+        self.assertEqual(robot.natural.direction, -1)              # reçu en fakie
+        self.assertLess(robot.natural.vx, -1.0)                    # roues en arrière
+        robot.walk(vx=1.2, seconds=2.0)
+        self.assertLess(robot.natural.vx, -1.0)                    # et ça continue
+        # la vrille ne fait pas dévier : c'est la quantité de mouvement qui porte
+        after = [f for f in robot.frames if f["base"][0] >= x0]
+        self.assertLess(max(abs(f["base"][1] - y0) for f in after), 0.01)
+        self.assertGreater(robot.base[0] - x0, 3.0)                # tout droit, devant
+        robot.figure("wheeltwist540")                              # un second remet d'endroit
+        self.assertEqual(robot.natural.direction, 1)
+        robot.walk(vx=1.2, seconds=1.0)
+        self.assertGreater(robot.natural.vx, 1.0)
+
     def test_pirouette_turns_540(self):
         robot, info = self._run("pirouette")
         self.assertAlmostEqual(math.degrees(robot.base[5]) % 360, 180.0, places=1)

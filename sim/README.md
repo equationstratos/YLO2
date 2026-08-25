@@ -63,6 +63,7 @@ ou via `ylo2-sim run`.
 | `set_terrain("escalier")` | terrain : `plat`, `escalier`, `marches_hautes`, `plateforme`, `rampe`, `gravats`, `poutres` |
 | `set_mode("roues")` | train de propulsion : `pattes` ou `roues` |
 | `figure(nom)` | pattes : `backflip`, `doubleflip`, `mctwist540` · roues : `wheelie`, `sidestand`, `pirouette`, `wheeljump`, `wheelflip`, `wheeldoubleflip`, `wheeltwist540` |
+| `natural.direction` | sens de marche des roues, `+1` ou `-1`. Un `wheeltwist540` le bascule : le robot repart en fakie, roues en arrière |
 | `figures()` | catalogue du train de propulsion courant |
 | `brake(secondes)` | arrêt franc, consignes à zéro |
 | `backflip()` · `double_backflip()` · `mctwist540()` | raccourcis |

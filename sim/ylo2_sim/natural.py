@@ -175,6 +175,8 @@ class Natural:
     last_air: float = 0.0
     wheel_warn: float = 0.0
     wheel_warn_max: float = 0.0
+    # sens de marche des roues : un 540 se reçoit en fakie, roues en arrière
+    direction: int = 1
 
     def __post_init__(self) -> None:
         g = gaitmod.GAITS["trot"]
@@ -464,8 +466,8 @@ class Natural:
         self.rough += (ahead - self.rough) * min(1.0, dt * 3)
         self.governor = min(max(1.0 - self.rough / 0.30, 0.28), 1.0)
 
-        cmd_vx = (min(max(robot.vx, -gaitmod.MAX_WHEEL_SPEED), gaitmod.MAX_WHEEL_SPEED)
-                  * self.governor)
+        cmd_vx = (min(max(robot.vx * self.direction, -gaitmod.MAX_WHEEL_SPEED),
+                      gaitmod.MAX_WHEEL_SPEED) * self.governor)
         prev_vx = self.vx
 
         # freinage plus vif que l'accélération, et arrêt franc

@@ -980,7 +980,8 @@
       const realV = Math.hypot(Y.Natural.state.vx, Y.Natural.state.vy);
       const nContact = Y.LEGS.filter(function (L) { return Y.Robot.legs[L.id].contact; }).length;
       readout.innerHTML = lines +
-        "Vitesse <b>" + realV.toFixed(2) + " m/s</b> · <b>" + (realV * 3.6).toFixed(1) + " km/h</b><br>" +
+        "Vitesse <b>" + realV.toFixed(2) + " m/s</b> · <b>" + (realV * 3.6).toFixed(1) + " km/h</b>" +
+        (Y.Natural.state.dir < 0 ? " · <span class='src'>fakie, roues en arrière</span>" : "") + "<br>" +
         "Odométrie <b>" + Math.hypot(M.state.px, M.state.py).toFixed(2) + " m</b> · cap <b>" +
         ((M.state.yaw * 180 / Math.PI) % 360).toFixed(0) + "°</b><br>" +
         "Appuis au sol <b>" + nContact + " / 4</b>" +

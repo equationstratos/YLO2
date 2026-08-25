@@ -301,6 +301,23 @@ vrille d'un tour et demi avec un peu de gîte, pour que l'axe de vrille soit
 incliné comme sur la figure de skate d'origine ; la gîte est ramenée à plat
 pendant la réception, sans quoi une roue toucherait avant les autres.
 
+**Le 540 se reçoit en fakie.** Un tour et demi de vrille, c'est un demi-tour
+net : le robot retombe face à l'arrière de sa trajectoire. Deux conséquences,
+toutes deux corrigées :
+
+- Pendant la vrille, l'avance suivait le cap — qui tourne sous le robot — si
+  bien que le 540 décrivait une spirale puis repartait dans l'autre sens au
+  poser. C'est maintenant la **quantité de mouvement** qui porte la caisse, en
+  ligne droite : écart latéral mesuré sur toute la figure, 0,0000 m.
+- Au toucher des roues, les pneus sont traînés en arrière. Le sens de marche
+  bascule donc à cet instant précis : la roue passe à −14,4 rad/s et le robot
+  **continue sur son erre, roues à l'envers**, exactement comme un skateur qui
+  repart fakie. La consigne de vitesse s'applique dans ce sens tant qu'on ne
+  refait pas de demi-tour ; un second 540 le remet d'endroit (cap 1080°, soit
+  un tour complet, et sens de marche à nouveau +1). Le bandeau affiche
+  « fakie, roues en arrière » tant que ça dure, et repasser sur pattes remet
+  le sens à l'endroit.
+
 En vol, le débattement des jambes est borné **relativement à la caisse** : quand
 elle monte à 3 m/s en balistique, ce sont les mouvements par rapport au tronc
 qui coûtent des rad/s, pas la translation. Pour le salto, les jambes sont

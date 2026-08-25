@@ -182,6 +182,11 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
     yaw0 = robot.base[5]
     takeoff_q: List[float] = []
     hold: Dict[str, object] = {"q": None, "z": 0.0, "sx": 0.0, "sy": 0.0}
+    # Pendant une vrille, c'est la quantité de mouvement qui porte le robot en
+    # ligne droite — pas son cap, qui tourne sous lui.
+    carry = ((nat.vx * math.cos(yaw0), nat.vx * math.sin(yaw0))
+             if fig.twist else None)
+    fakie = [False]
     for leg in model.legs:
         nat.fig_axle[leg.name] = None
 
@@ -226,8 +231,12 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
     for n in range(steps + 1):
         t = n * dt
         cy, sy = math.cos(robot.base[5]), math.sin(robot.base[5])
-        robot.base[0] += nat.vx * cy * dt
-        robot.base[1] += nat.vx * sy * dt
+        if carry:
+            robot.base[0] += carry[0] * dt
+            robot.base[1] += carry[1] * dt
+        else:
+            robot.base[0] += nat.vx * cy * dt
+            robot.base[1] += nat.vx * sy * dt
         for leg in model.legs:
             ny = leg.y + leg.mirror * model.abad_plane
             nat.spin[leg.name] = (nat.spin[leg.name]
@@ -412,6 +421,14 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
                 if fig.twist:                            # on remet la gîte à plat
                     robot.base[5] = yaw0 + math.tau * fig.twist
                     robot.base[3] *= 1 - min(1.0, dt * 8)
+                    # Un 540 tourne le robot d'un demi-tour net : il retombe
+                    # face à l'arrière de sa trajectoire, les pneus traînés en
+                    # arrière. C'est le « fakie » du skate — il continue sur
+                    # son erre, roues à l'envers.
+                    if not fakie[0]:
+                        fakie[0] = True
+                        nat.vx = -nat.vx
+                        nat.direction = -nat.direction
                 if fig.turns:                            # ouverture depuis la pose de vol
                     cy2, sy2 = math.cos(robot.base[5]), math.sin(robot.base[5])
                     for i, leg in enumerate(model.legs):
