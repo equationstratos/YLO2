@@ -219,6 +219,13 @@ canvas{position:absolute;inset:0;display:block;width:100%;height:100%;touch-acti
   font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;
 }
 .reset:hover{color:var(--ink);border-color:var(--faint)}
+.session{
+  padding:6px 12px;border:1px solid var(--accent);border-radius:2px;color:var(--accent);
+  font-family:var(--mono);font-size:11px;letter-spacing:.09em;text-transform:uppercase;
+}
+.session:hover{background:#251409}
+.session[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#140B06;font-weight:600}
+.sessionsay{font-family:var(--mono);font-size:10px;letter-spacing:.05em;color:var(--warn)}
 .stunt[aria-pressed="true"]{background:var(--warn);color:#171203;font-weight:600}
 .flipbar{position:relative;height:3px;background:var(--line);margin-top:8px;border-radius:2px;overflow:hidden;display:none}
 .flipbar.on{display:block}
@@ -361,6 +368,10 @@ input[type=range]::-moz-range-thumb{
             </div>
           </div>
           <div class="stylerow" id="stunts"></div>
+          <div class="stylerow" id="sessionrow" hidden>
+            <button class="session" id="session" title="Un run complet dans le skatepark : le robot enchaîne les figures là où le relief les appelle, et finit en slide">Session AUTO</button>
+            <span class="sessionsay" id="sessionsay"></span>
+          </div>
           <div class="flipbar" id="flipbar"><i></i></div>
           <div class="warn-strip" id="warnStrip"></div>
         </div>

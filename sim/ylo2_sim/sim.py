@@ -93,7 +93,7 @@ class Robot:
         vx = self.vx if vx is None else vx
         vy = self.vy if vy is None else vy
         wz = self.wz if wz is None else wz
-        cvx, cvy, cwz = gaitmod.clamp_command(vx, vy, wz)
+        cvx, cvy, cwz = gaitmod.clamp_command(vx, vy, wz, self.mode)
         if (cvx, cvy, cwz) != (vx, vy, wz):
             self._note("consigne saturée aux maxima de gait.yaml")
         self.vx, self.vy, self.wz = cvx, cvy, cwz

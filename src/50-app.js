@@ -120,6 +120,28 @@
     camera.lookAt(orbit.target);
   }
 
+  /**
+   * Caméra de session : elle suit le robot, se cale sur le cadrage voulu par
+   * l'acte en cours et anticipe un peu sa trajectoire sur les liaisons. Tout
+   * est fondu, sinon chaque changement d'acte ferait un saut de caméra.
+   */
+  function followSession(dt) {
+    const shot = Y.Session.shot();
+    const st = M.state;
+    const k = Math.min(1, dt * 1.8);
+    const lead = shot.lead * (Y.Natural.state.dir || 1);
+    orbit.target.x += (st.px + Math.cos(st.yaw) * lead - orbit.target.x) * k;
+    orbit.target.y += (st.py + Math.sin(st.yaw) * lead - orbit.target.y) * k;
+    orbit.target.z += (Math.max(st.z, 0.24) - orbit.target.z) * k;
+    orbit.dist += (shot.dist - orbit.dist) * k;
+    orbit.el += (shot.el - orbit.el) * k;
+    // l'azimut se rejoint par le plus court chemin, sinon la caméra fait le tour
+    let da = (shot.az - orbit.az) % (Math.PI * 2);
+    if (da > Math.PI) da -= Math.PI * 2;
+    if (da < -Math.PI) da += Math.PI * 2;
+    orbit.az += da * k;
+  }
+
   canvas.addEventListener("pointerdown", function (e) {
     canvas.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, [e.clientX, e.clientY]);
@@ -385,7 +407,9 @@
     { file: "roues_escalier.py", name: "Escalier en roues",
       desc: "La patte soulève la roue marche après marche, comme un Go2-W." },
     { file: "skatepark.py", name: "Skatepark",
-      desc: "La mini-plaza en pattes puis en roues, recentrage et cabrage tenu." }
+      desc: "La mini-plaza en pattes puis en roues, recentrage et cabrage tenu." },
+    { file: "session.py", name: "Session",
+      desc: "Le run complet : neuf figures placées sur le relief, slide final." }
   ];
 
   function buildSimPane() {
@@ -642,6 +666,8 @@
       b.disabled = k === "roues";
     });
     buildStuntButtons();
+    if (Y.Session.state.running) Y.Session.stop();
+    document.getElementById("sessionrow").hidden = k !== "roues";
     flash(k === "roues"
       ? "Roues motrices : jusqu'à " + Y.SPEED.wheelMax.toFixed(1) + " m/s sur terrain roulant"
       : "Retour sur pattes");
@@ -936,7 +962,9 @@
     const dt = Math.min((now - last) / 1000, 0.05); last = now;
 
     M.state.frozen = view.explodeOn;
+    if (Y.Session.state.running) Y.Session.step(dt);
     M.step(dt);
+    if (Y.Session.state.running) followSession(dt);
 
     const target = view.explodeOn ? 1 : 0;
     view.explode += (target - view.explode) * Math.min(1, dt * 5);
@@ -1117,6 +1145,23 @@
       });
     });
     document.getElementById("recenter").addEventListener("click", recenter);
+    document.getElementById("session").addEventListener("click", function () {
+      if (Y.Session.state.running) { Y.Session.stop(); return; }
+      if (Y.Terrain.current.id !== "skatepark") {   // le run est écrit pour la plaza
+        document.getElementById("terrain").value = "skatepark";
+        Y.Terrain.set("skatepark");
+        recenter();
+      } else {
+        recenter();
+      }
+      if (!Y.Session.start()) flash("La session demande le mode roues");
+    });
+    Y.Session.onChange(function (st) {
+      const b = document.getElementById("session");
+      b.setAttribute("aria-pressed", String(st.running));
+      b.textContent = st.running ? "Arrêter la session" : "Session AUTO";
+      document.getElementById("sessionsay").textContent = st.running ? st.label : "";
+    });
     document.getElementById("btnRail").addEventListener("click", function () { openPanel("rail"); });
     document.getElementById("btnDetail").addEventListener("click", function () { openPanel("detail"); });
 
@@ -1136,6 +1181,7 @@
       if (e.key === "h" || e.key === "H") launchStunt(figs[5]);
       if (e.key === "s" || e.key === "S") brake();
       if (e.key === "r" || e.key === "R") recenter();
+      if (e.key === "a" || e.key === "A") document.getElementById("session").click();
     });
 
     // changer de source téléporte le robot : on repart d'une trace vierge

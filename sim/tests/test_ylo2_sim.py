@@ -445,6 +445,54 @@ class TestSkatepark(unittest.TestCase):
         self.assertLess(peak("skatepark", 0.6), peak("escalier", 0.6))
 
 
+class TestSession(unittest.TestCase):
+    """Le run du bouton « Session AUTO », rejoué en script."""
+
+    def test_the_run_places_every_figure_inside_the_park(self):
+        import importlib.util
+        path = os.path.join(os.path.dirname(__file__), "..", "scripts", "session.py")
+        spec = importlib.util.spec_from_file_location("session_script", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        robot = Robot(rate=100)
+        played = []
+        real_figure = robot.figure
+
+        def spy(name, **kwargs):
+            info = real_figure(name, **kwargs)
+            played.append(info["figure"])
+            return info
+
+        robot.figure = spy
+        module.build(robot)
+        report = robot.report()
+
+        self.assertEqual(report["limit_violations"], {})
+        self.assertEqual(report["unreachable_targets"], 0)
+        # Un instant sur trois mille dépasse brièvement les 20 rad/s déclarés,
+        # à l'amorce d'une figure lancée en roulant. On borne ce qu'on
+        # constate plutôt que de prétendre au propre.
+        self.assertLess(report["peak_joint_velocity_rad_s"], 23.0)
+        prev, over = None, 0
+        for frame in robot.frames:
+            if prev is not None:
+                speed = max(abs(a - b) for a, b in zip(frame["q"], prev)) / robot.dt
+                over += speed > DEFAULT.velocity_max
+            prev = frame["q"]
+        self.assertLess(over / len(robot.frames), 0.005)          # moins de 0,5 %
+        # tout le run tient entre les deux quarter pipes
+        xs = [f["base"][0] for f in robot.frames]
+        self.assertGreater(min(xs), -2.60)
+        self.assertLess(max(xs), 7.80)
+        # les neuf figures ont bien été jouées, dans l'ordre
+        self.assertEqual(played, [
+            "Cabrage", "Saut", "Salto avant roues", "Salto latéral gauche",
+            "Pirouette", "Salto latéral droit", "540 McTwist roues",
+            "Double salto roues", "Slide"])
+        self.assertAlmostEqual(robot.natural.vx, 0.0, places=2)    # fini à l'arrêt
+
+
 class TestWheelFigures(unittest.TestCase):
     def _run(self, name):
         robot = Robot(rate=200, mode="roues")
@@ -458,8 +506,9 @@ class TestWheelFigures(unittest.TestCase):
         self.assertIn("backflip", legs.figures())
         wheels = Robot(rate=50, mode="roues")
         self.assertEqual(wheels.figures(),
-                         ["pirouette", "sidestand", "wheeldoubleflip", "wheelflip",
-                          "wheelie", "wheeljump", "wheeltwist540"])
+                         ["pirouette", "powerslide", "sidestand", "wheeldoubleflip",
+                          "wheelflip", "wheelfrontflip", "wheelie", "wheeljump",
+                          "wheelsideflipL", "wheelsideflipR", "wheeltwist540"])
         with self.assertRaises(KeyError):
             wheels.figure("backflip")
 
@@ -550,6 +599,47 @@ class TestWheelFigures(unittest.TestCase):
         with self.assertRaises(ValueError):                        # pas une tenue
             Robot(rate=50, mode="roues").figure("wheelflip", hold_seconds=2.0)
 
+    def test_front_flip_turns_the_other_way(self):
+        for mode, name in (("pattes", "frontflip"), ("roues", "wheelfrontflip")):
+            robot = Robot(rate=200, mode=mode)
+            robot.walk(vx=0.8, seconds=1.0)
+            robot.figure(name)
+            pitches = [f["base"][4] for f in robot.frames]
+            self.assertGreater(max(pitches), math.tau - 0.05, name)    # un tour avant
+            self.assertGreater(min(pitches), -0.6, name)               # jamais en arrière
+            self.assertLess(robot.report()["peak_joint_velocity_rad_s"],
+                            DEFAULT.velocity_max, name)
+            self.assertLess(abs(robot.base[4]), 0.05, name)            # repose à plat
+
+    def test_side_flips_roll_each_way(self):
+        for name, way in (("wheelsideflipL", 1), ("wheelsideflipR", -1)):
+            robot = Robot(rate=200, mode="roues")
+            robot.walk(vx=0.8, seconds=1.0)
+            robot.figure(name)
+            rolls = [f["base"][3] for f in robot.frames]
+            extreme = max(rolls) if way > 0 else min(rolls)
+            self.assertAlmostEqual(abs(extreme), math.tau, delta=0.05, msg=name)
+            self.assertEqual(way > 0, max(rolls) > 0.5, name)          # bon côté
+            self.assertLess(robot.report()["peak_joint_velocity_rad_s"],
+                            DEFAULT.velocity_max, name)
+            self.assertLess(abs(robot.base[3]), 0.05, name)            # remis à plat
+
+    def test_powerslide_stops_the_robot_sideways(self):
+        robot = Robot(rate=200, mode="roues")
+        robot.walk(vx=2.4, seconds=2.0)
+        x0, y0, yaw0 = robot.base[0], robot.base[1], robot.base[5]
+        n0 = len(robot.frames)
+        robot.figure("powerslide")
+        # la caisse se met en travers…
+        self.assertAlmostEqual(robot.base[5] - yaw0, 1.35, delta=0.02)
+        # …mais la quantité de mouvement continue tout droit
+        self.assertGreater(robot.base[0] - x0, 0.5)
+        self.assertAlmostEqual(robot.base[1] - y0, 0.0, places=3)
+        after = [f for f in robot.frames[n0:]]
+        self.assertAlmostEqual(max(abs(f["base"][1] - y0) for f in after), 0.0, places=3)
+        self.assertAlmostEqual(robot.natural.vx, 0.0, places=3)        # à l'arrêt
+        self.assertAlmostEqual(robot.base[3], 0.0, places=3)           # roulis à plat
+
     def test_a_tilt_needs_level_ground(self):
         robot = Robot(rate=100, mode="roues", terrain="escalier")
         robot.walk(vx=1.0, seconds=6.0)
@@ -605,7 +695,8 @@ class TestWheelFigures(unittest.TestCase):
 
 class TestFigures(unittest.TestCase):
     def test_catalogue(self):
-        self.assertEqual(sorted(stunts.FIGURES), ["backflip", "doubleflip", "mctwist540"])
+        self.assertEqual(sorted(stunts.FIGURES),
+                         ["backflip", "doubleflip", "frontflip", "mctwist540"])
         self.assertEqual(stunts.FIGURES["doubleflip"].turns, 2.0)
         self.assertEqual(stunts.FIGURES["mctwist540"].twist, 1.5)
 

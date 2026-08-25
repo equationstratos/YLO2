@@ -100,10 +100,18 @@ def foot_target(
     ), False
 
 
-def clamp_command(vx: float, vy: float, wz: float) -> Tuple[float, float, float]:
-    """Sature la consigne aux maxima déclarés dans gait.yaml."""
+def clamp_command(vx: float, vy: float, wz: float,
+                  mode: str = "pattes") -> Tuple[float, float, float]:
+    """Sature la consigne aux maxima déclarés dans gait.yaml.
+
+    En roues, le plafond longitudinal n'est plus celui de la marche : le
+    train roulant tient MAX_WHEEL_SPEED, et c'est ce que propose le
+    visualiseur. Saturer à MAX_VX dans les deux modes bridait les scripts
+    à 1,7 m/s alors que la couche roues en acceptait 3,0.
+    """
+    top = MAX_WHEEL_SPEED if mode == "roues" else MAX_VX
     return (
-        max(-MAX_VX, min(MAX_VX, vx)),
+        max(-top, min(top, vx)),
         max(-MAX_VY, min(MAX_VY, vy)),
         max(-MAX_WZ, min(MAX_WZ, wz)),
     )

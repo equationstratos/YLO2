@@ -49,6 +49,14 @@ class WheelFigure:
     land: float = 0.26
     recover: float = 0.34
     turns: float = 0.0
+    sense: int = 1              # +1 salto arrière, -1 salto avant
+    roll_turns: float = 0.0     # tours de roulis (saltos latéraux)
+    entry: float = 0.20         # slide : mise en travers
+    slide: float = 0.95         # slide : dérapage
+    settle_slide: float = 0.45  # slide : arrêt
+    yaw_sweep: float = 1.35     # slide : angle de travers (rad)
+    decel: float = 3.4          # slide : freinage par le chasse des pneus
+    side: int = 1               # slide et saltos latéraux : côté
     twist: float = 0.0          # tours de lacet (540 McTwist : 1,5)
     cork: float = 0.0           # gîte pendant la vrille (rad)
     lean: float = 0.20
@@ -69,6 +77,8 @@ class WheelFigure:
     def duration(self) -> float:
         if self.kind == "tilt":
             return self.arm + self.rise + self.hold + self.drop
+        if self.kind == "slide":
+            return self.entry + self.slide + self.settle_slide
         if self.kind == "spin":
             return self.arm + self.spin + self.settle
         return self.crouch + self.push + self.flight + self.land + self.recover
@@ -96,6 +106,22 @@ WHEEL_FIGURES: Dict[str, WheelFigure] = {
     "wheeldoubleflip": WheelFigure("wheeldoubleflip", "Double salto roues", "flip",
                                    crouch=0.40, push=0.22, land=0.28, recover=0.50,
                                    vz=4.20, crouch_z=0.66, turns=2.0, tuck=0.16),
+    # Salto avant : même mécanique, sens inverse (`sense` = -1).
+    "wheelfrontflip": WheelFigure("wheelfrontflip", "Salto avant roues", "flip",
+                                  crouch=0.34, push=0.20, land=0.28, recover=0.44,
+                                  vz=3.05, crouch_z=0.70, turns=1.0, sense=-1, tuck=0.18),
+    # Saltos latéraux : un tour complet autour de l'axe de roulis.
+    "wheelsideflipL": WheelFigure("wheelsideflipL", "Salto latéral gauche", "flip",
+                                  crouch=0.34, push=0.20, land=0.28, recover=0.44,
+                                  vz=3.05, crouch_z=0.70, roll_turns=1.0, tuck=0.18),
+    "wheelsideflipR": WheelFigure("wheelsideflipR", "Salto latéral droit", "flip",
+                                  crouch=0.34, push=0.20, land=0.28, recover=0.44,
+                                  vz=3.05, crouch_z=0.70, roll_turns=-1.0, tuck=0.18),
+    # Powerslide : la caisse pivote en travers, la quantité de mouvement
+    # continue tout droit, les pneus chassent et le robot s'arrête.
+    "powerslide": WheelFigure("powerslide", "Slide", "slide",
+                              entry=0.20, slide=0.95, settle_slide=0.45,
+                              yaw_sweep=1.35, lean=0.26, decel=3.4),
     # McTwist : salto complet pendant que la caisse vrille d'un tour et demi,
     # avec un peu de gîte pour incliner l'axe de vrille.
     "wheeltwist540": WheelFigure("wheeltwist540", "540 McTwist roues", "flip",
@@ -112,6 +138,7 @@ class Figure:
     name: str = "backflip"
     label: str = "Salto arrière"
     turns: float = 1.0          # tours de tangage
+    sense: int = 1              # +1 salto arrière, -1 salto avant
     twist: float = 0.0          # tours de lacet (540 McTwist : 1,5)
     cork: float = 0.0           # inclinaison de vrille (rad)
     air: str = "tuck"           # pose en l'air
@@ -145,6 +172,10 @@ FIGURES: Dict[str, Figure] = {
         name="doubleflip", label="Double salto", turns=2.0, air="pike",
         vz=4.20, crouch=0.40, load=0.12, push=0.21, land=0.26, recover=0.50,
         crouch_z=0.155, takeoff_z=0.33, absorb_z=0.175, travel=-0.16),
+    "frontflip": Figure(
+        name="frontflip", label="Salto avant", turns=1.0, sense=-1, air="tuck",
+        vz=3.10, crouch=0.34, load=0.10, push=0.19, land=0.24, recover=0.44,
+        crouch_z=0.165, takeoff_z=0.32, absorb_z=0.185, travel=0.10),
     "mctwist540": Figure(
         name="mctwist540", label="540 McTwist", turns=1.0, twist=1.5,
         cork=0.45, air="twist", vz=3.35, crouch=0.36, load=0.10, push=0.20,
@@ -222,8 +253,9 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
     hold: Dict[str, object] = {"q": None, "z": 0.0, "sx": 0.0, "sy": 0.0}
     # Pendant une vrille, c'est la quantité de mouvement qui porte le robot en
     # ligne droite — pas son cap, qui tourne sous lui.
-    carry = ((nat.vx * math.cos(yaw0), nat.vx * math.sin(yaw0))
-             if fig.twist else None)
+    carry_v = ([nat.vx * math.cos(yaw0), nat.vx * math.sin(yaw0)]
+               if (fig.twist or fig.kind == "slide") else None)
+    carry = carry_v
     fakie = [False]
     prev_a: Dict[str, List[float]] = {}
     # On amorce le limiteur de débattement sur la position réelle des pieds :
@@ -433,32 +465,79 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
                 robot.base[2] = base + ride * (0.90 + 0.10 * s) + radius
                 nat.wz *= 1 - min(1.0, dt * 6)
             place(lambda leg, h: h + radius)
+        elif fig.kind == "slide":
+            # Powerslide : la caisse pivote en travers pendant que la quantité
+            # de mouvement continue tout droit. Les pneus chassent — la roue ne
+            # tourne plus qu'à la projection de la trajectoire sur le cap.
+            t1 = fig.entry
+            t2 = t1 + fig.slide
+            sgn = fig.side
+            sweep = fig.yaw_sweep * sgn
+            if t < t1:
+                s = _smooth(t / t1)
+                robot.base[5] = yaw0 + sweep * 0.25 * s
+                robot.base[3] = fig.lean * sgn * 0.5 * s
+                robot.base[2] = base + ride * (1 - 0.06 * s) + radius
+            elif t < t2:
+                s = _smooth((t - t1) / fig.slide)
+                robot.base[5] = yaw0 + sweep * (0.25 + 0.75 * s)
+                robot.base[3] = fig.lean * sgn * (0.5 + 0.5 * math.sin(math.pi * s))
+                robot.base[2] = base + ride * 0.94 + radius
+                if carry_v:
+                    sp = math.hypot(carry_v[0], carry_v[1])
+                    ns = max(0.0, sp - fig.decel * dt)
+                    if sp > 1e-6:
+                        carry_v[0] *= ns / sp
+                        carry_v[1] *= ns / sp
+            else:
+                s = _smooth((t - t2) / fig.settle_slide)
+                robot.base[5] = yaw0 + sweep
+                robot.base[3] = fig.lean * sgn * 0.5 * (1 - s)
+                robot.base[2] = base + ride * (0.94 + 0.06 * s) + radius
+                if carry_v:
+                    carry_v[0] *= 1 - min(1.0, dt * 6)
+                    carry_v[1] *= 1 - min(1.0, dt * 6)
+            if carry_v:
+                nat.vx = (carry_v[0] * math.cos(robot.base[5])
+                          + carry_v[1] * math.sin(robot.base[5]))
+            place(lambda leg, h: h + radius)
+
         else:                                            # saut et salto
             t1 = fig.crouch
             t2 = t1 + fig.push
             t3 = t2 + fig.flight
             t4 = t3 + fig.land
+            sense = fig.sense
+            arm_p = -0.10 * sense if fig.turns else 0.04
+            off_p = -0.50 * sense if fig.turns else -0.14
+            spinning = bool(fig.turns or fig.roll_turns)
             if t < t1:
                 s = _smooth(t / t1)
                 robot.base[2] = base + ride * (1 + (fig.crouch_z - 1) * s) + radius
-                robot.base[4] = (-0.10 if fig.turns else 0.04) * s
+                robot.base[4] = arm_p * s
+                robot.base[3] = -0.10 * fig.roll_turns * s
                 place(lambda leg, h: h + radius)
             elif t < t2:
                 s = _smooth((t - t1) / fig.push)
                 robot.base[2] = base + ride * (fig.crouch_z + (1.18 - fig.crouch_z) * s) + radius
-                start_p = -0.10 if fig.turns else 0.04
-                end_p = -0.50 if fig.turns else -0.14
-                robot.base[4] = start_p + (end_p - start_p) * s
+                robot.base[4] = arm_p + (off_p - arm_p) * s
+                robot.base[3] = (-0.10 * fig.roll_turns
+                                 + (-0.30 * fig.roll_turns) * s)
                 place(lambda leg, h: h + radius)
             elif t < t3:
                 tf = t - t2
                 s = tf / fig.flight
                 robot.base[2] = base + ride + radius + fig.vz * tf - 0.5 * G_ACC * tf * tf
-                if fig.turns:
-                    robot.base[4] = -0.50 - (math.tau * fig.turns - 0.50) * _smoother(s)
-                    if fig.twist:                        # vrille + gîte du McTwist
-                        robot.base[5] = yaw0 + math.tau * fig.twist * _smoother(s)
-                        robot.base[3] = math.sin(math.pi * s) * fig.cork
+                if spinning:
+                    if fig.turns:
+                        robot.base[4] = off_p + (-math.tau * fig.turns * sense - off_p) * _smoother(s)
+                        if fig.twist:                    # vrille + gîte du McTwist
+                            robot.base[5] = yaw0 + math.tau * fig.twist * _smoother(s)
+                            robot.base[3] = math.sin(math.pi * s) * fig.cork
+                    else:
+                        r0 = -0.40 * fig.roll_turns
+                        robot.base[3] = r0 + (math.tau * fig.roll_turns - r0) * _smoother(s)
+                        robot.base[4] = 0.0
                     if not takeoff_q:
                         takeoff_q.extend(robot.q)
                     if s < 0.45:
@@ -475,7 +554,11 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
             elif t < t4:
                 s = _smooth((t - t3) / fig.land)
                 robot.base[2] = base + ride * (1.0 - 0.20 * s) + radius
-                robot.base[4] = (0.10 * s) if fig.turns else (0.10 - 0.04 * s)
+                robot.base[4] = (0.10 * s) if spinning else (0.10 - 0.04 * s)
+                # un tour de roulis ramène la caisse à l'endroit : 2π et 0,
+                # c'est la même orientation, on recale sans dérouler à l'envers
+                if fig.roll_turns:
+                    robot.base[3] = 0.0
                 if fig.twist:                            # on remet la gîte à plat
                     robot.base[5] = yaw0 + math.tau * fig.twist
                     robot.base[3] *= 1 - min(1.0, dt * 8)
@@ -487,7 +570,7 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
                         fakie[0] = True
                         nat.vx = -nat.vx
                         nat.direction = -nat.direction
-                if fig.turns:                            # ouverture depuis la pose de vol
+                if spinning:                             # ouverture depuis la pose de vol
                     cy2, sy2 = math.cos(robot.base[5]), math.sin(robot.base[5])
                     for i, leg in enumerate(model.legs):
                         nx, ny = leg.x, leg.y + leg.mirror * model.abad_plane
@@ -519,9 +602,13 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
     if fig.kind == "spin":
         robot.base[5] = yaw0 + math.tau * fig.turns
         nat.wz = 0.0
+    if fig.kind == "slide":
+        robot.base[5] = yaw0 + fig.yaw_sweep * fig.side
+        nat.vx = 0.0
     if fig.twist:
         robot.base[5] = yaw0 + math.tau * fig.twist
     nat.z_body, nat.vz = robot.base[2], 0.0
+    nat.blend_from(robot.q, 0.28)
     for leg in model.legs:
         nat.wheel_z[leg.name] = None
         nat.wstep[leg.name] = None
@@ -544,6 +631,9 @@ def perform(robot, flip: Figure = DEFAULT_FLIP) -> Dict[str, float]:
     """Exécute la figure sur un robot, en enregistrant chaque pas."""
     model = robot.model
     dt = robot.dt
+    # +1 salto arrière, -1 salto avant : retourne bascule, poussée et rotation
+    sense = flip.sense
+    t0 = robot.t
     steps = max(1, round(flip.duration / dt))
 
     t_crouch = flip.crouch
@@ -552,12 +642,19 @@ def perform(robot, flip: Figure = DEFAULT_FLIP) -> Dict[str, float]:
     t_fly = t_push + flip.flight
     t_land = t_fly + flip.land
 
+    entry_q = list(robot.q)
+
     def ground(height: float, shift_x: float = 0.0) -> None:
+        # Entrée de figure : on vient de la pose de marche, qui n'a aucune
+        # raison d'être celle de l'armement. Sans ce fondu la première image
+        # saute — le robot ne bouge pas vraiment, mais le moteur, si : 115 rad/s.
+        blend = _smooth(min(1.0, (robot.t - t0) / max(flip.crouch * 0.5, 1e-3)))
         for i, leg in enumerate(model.legs):
             target = (leg.x + shift_x, leg.y + leg.mirror * model.abad_plane, -height)
             angles = kin.inverse(leg, *target, model=model)
             for k in range(3):
-                robot.q[i * 3 + k] = angles[k]
+                q0 = entry_q[i * 3 + k]
+                robot.q[i * 3 + k] = q0 + (angles[k] - q0) * blend
             robot.contacts[i] = True
 
     def pose_from(start: List[float], b: str, k: float) -> None:
@@ -599,27 +696,27 @@ def perform(robot, flip: Figure = DEFAULT_FLIP) -> Dict[str, float]:
             phases.append("armement")
             s = _smooth(t / t_crouch)
             robot.base[2] = robot.height + (flip.crouch_z - robot.height) * s
-            robot.base[4] = 0.06 * s
-            ground(robot.base[2], 0.02 * s)
+            robot.base[4] = 0.06 * sense * s
+            ground(robot.base[2], 0.02 * sense * s)
         elif t < t_load:
             phases.append("bascule")
             s = _smooth((t - t_crouch) / flip.load)
             robot.base[2] = flip.crouch_z
-            robot.base[4] = 0.06 + (-0.10 - 0.06) * s
-            ground(robot.base[2], 0.02 + (-0.01 - 0.02) * s)
+            robot.base[4] = (0.06 + (-0.10 - 0.06) * s) * sense
+            ground(robot.base[2], (0.02 + (-0.01 - 0.02) * s) * sense)
         elif t < t_push:
             phases.append("poussée")
             s = _smooth((t - t_load) / flip.push)
             robot.base[2] = flip.crouch_z + (flip.takeoff_z - flip.crouch_z) * s
-            robot.base[4] = -0.10 + (-0.55 + 0.10) * s
+            robot.base[4] = (-0.10 + (-0.55 + 0.10) * s) * sense
             robot.base[0] += flip.travel * dt * 0.5
-            ground(min(robot.base[2], model.l1 + model.l2 - 0.02), -0.01)
+            ground(min(robot.base[2], model.l1 + model.l2 - 0.02), -0.01 * sense)
         elif t < t_fly:
             phases.append("vol")
             s = (t - t_push) / flip.flight
             tf = t - t_push
             robot.base[2] = flip.takeoff_z + flip.vz * tf - 0.5 * G_ACC * tf * tf
-            robot.base[4] = -0.55 - (2 * math.pi * flip.turns - 0.55) * _smoother(s)
+            robot.base[4] = (-0.55 - (2 * math.pi * flip.turns - 0.55) * _smoother(s)) * sense
             if flip.twist:
                 robot.base[5] = yaw0 + 2 * math.pi * flip.twist * _smoother(s)
                 robot.base[3] = math.sin(math.pi * s) * flip.cork
@@ -662,6 +759,9 @@ def perform(robot, flip: Figure = DEFAULT_FLIP) -> Dict[str, float]:
         nat.prev_foot[leg.name] = None
         nat.lift[leg.name] = None
         nat.clear[leg.name] = 0.0
+    # la marche reprend depuis la pose de sortie au lieu d'y sauter : sans ce
+    # fondu, la première image d'allure après une figure coûtait 56 rad/s
+    nat.blend_from(robot.q, 0.28)
     if flip.twist:
         robot.base[5] = yaw0 + 2 * math.pi * flip.twist
     robot.pose_mode = "gait"

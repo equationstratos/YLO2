@@ -599,6 +599,14 @@
       vz: 4.20, crouch: 0.40, load: 0.12, push: 0.21, land: 0.26, recover: 0.50,
       crouchZ: 0.155, takeoffZ: 0.33, absorbZ: 0.175, travel: -0.16
     },
+    // Salto avant : `sense` = -1 retourne le chargement, la poussée et la
+    // rotation. Il faut un peu plus d'impulsion qu'en arrière : la caisse
+    // pique du nez, elle a moins de course pour ouvrir avant le poser.
+    frontflip: {
+      label: "Salto avant", mode: "pattes", turns: 1, sense: -1, twist: 0, cork: 0, air: "tuck",
+      vz: 3.10, crouch: 0.34, load: 0.10, push: 0.19, land: 0.24, recover: 0.44,
+      crouchZ: 0.165, takeoffZ: 0.32, absorbZ: 0.185, travel: 0.10
+    },
     mctwist540: {
       label: "540 McTwist", mode: "pattes", turns: 1, twist: 1.5, cork: 0.45, air: "twist",
       vz: 3.35, crouch: 0.36, load: 0.10, push: 0.20, land: 0.24, recover: 0.46,
@@ -646,6 +654,35 @@
       crouch: 0.40, push: 0.22, land: 0.28, recover: 0.50,
       vz: 4.20, crouchZ: 0.66, turns: 2, tuck: 0.16
     },
+    // Salto avant : même mécanique, sens inverse. `sense` vaut +1 pour une
+    // rotation arrière et -1 pour une rotation avant ; il retourne le
+    // chargement, la poussée et la rotation d'un seul coup.
+    wheelfrontflip: {
+      label: "Salto avant roues", mode: "roues", kind: "flip",
+      crouch: 0.34, push: 0.20, land: 0.28, recover: 0.44,
+      vz: 3.05, crouchZ: 0.70, turns: 1, sense: -1, tuck: 0.18
+    },
+    // Saltos latéraux : un tour complet autour de l'axe de roulis, d'un côté
+    // ou de l'autre. Les jambes sont figées dans le repère de la caisse
+    // pendant la rotation, exactement comme pour un salto de tangage.
+    wheelsideflipL: {
+      label: "Salto latéral gauche", mode: "roues", kind: "flip",
+      crouch: 0.34, push: 0.20, land: 0.28, recover: 0.44,
+      vz: 3.05, crouchZ: 0.70, rollTurns: 1, tuck: 0.18
+    },
+    wheelsideflipR: {
+      label: "Salto latéral droit", mode: "roues", kind: "flip",
+      crouch: 0.34, push: 0.20, land: 0.28, recover: 0.44,
+      vz: 3.05, crouchZ: 0.70, rollTurns: -1, tuck: 0.18
+    },
+    // Powerslide : la caisse pivote en travers pendant que la quantité de
+    // mouvement continue tout droit. Les pneus chassent, le robot s'incline
+    // dans le dérapage et s'arrête net — la figure qui clôt une session.
+    powerslide: {
+      label: "Slide", mode: "roues", kind: "slide",
+      entry: 0.20, slide: 0.95, settle: 0.45,
+      yawSweep: 1.35, lean: 0.26, decel: 3.4
+    },
     // McTwist : un salto arrière complet pendant que la caisse vrille d'un
     // tour et demi, avec un peu de gîte (« cork ») pour que l'axe de vrille
     // soit incliné, comme sur la figure de skate d'origine.
@@ -666,6 +703,9 @@
     } else if (f.kind === "tilt") {
       f.duration = f.arm + f.rise + f.hold + f.drop;
       f.flight = 0; f.apex = 0;
+    } else if (f.kind === "slide") {
+      f.duration = f.entry + f.slide + f.settle;
+      f.flight = 0; f.apex = 0;
     } else {
       f.duration = f.arm + f.spin + f.settle;
       f.flight = 0; f.apex = 0;
@@ -685,7 +725,8 @@
 
   const run = { fig: null, t: 0, takeoffQ: null, yaw0: 0, ground: 0,
                 holdQ: null, holdZ: 0, shiftX: 0, shiftY: 0,
-                carry: null, fakie: false, holdT: 0, release: false, prevA: {} };
+                carry: null, fakie: false, holdT: 0, release: false, prevA: {},
+                entryQ: null };
 
   function stepFigure(dt, state) {
     const f = run.fig;
@@ -700,9 +741,15 @@
     const tLand = tFly + f.land;
 
     const groundPose = function (h, shiftX) {
-      Y.LEGS.forEach(function (L) {
+      // Entrée de figure : on vient de la pose de marche, qui n'a aucune
+      // raison d'être celle de l'armement. Sans ce fondu la première image
+      // saute — le robot ne bouge pas vraiment, mais le moteur, si.
+      const k = run.entryQ ? smooth(Math.min(1, run.t / Math.max(f.crouch * 0.5, 1e-3))) : 1;
+      Y.LEGS.forEach(function (L, li) {
         const n = Y.Robot.legs[L.id];
-        n.q = Y.Motion.ik(L, L.x + (shiftX || 0), L.y + L.m * K.abadPlane, -(h - base));
+        const q = Y.Motion.ik(L, L.x + (shiftX || 0), L.y + L.m * K.abadPlane, -(h - base));
+        n.q = k >= 1 ? q
+          : [0, 1, 2].map(function (i) { return lerp(run.entryQ[li * 3 + i], q[i], k); });
         n.contact = true;
       });
     };
@@ -732,33 +779,36 @@
       });
     };
 
+    // `sense` vaut +1 pour un salto arrière, -1 pour un salto avant : il
+    // retourne la bascule d'armement, la poussée et le sens de rotation.
+    const sense = f.sense || 1;
     let phase;
     if (t < tCrouch) {
       phase = "armement";
       const s = smooth(t / tCrouch);
       state.z = lerp(state.height + base, f.crouchZ + base, s);
-      state.pitch = lerp(0, 0.06, s);
-      groundPose(state.z, lerp(0, 0.02, s));
+      state.pitch = lerp(0, 0.06 * sense, s);
+      groundPose(state.z, lerp(0, 0.02 * sense, s));
     } else if (t < tLoad) {
       phase = "bascule";
       const s = smooth((t - tCrouch) / f.load);
       state.z = f.crouchZ + base;
-      state.pitch = lerp(0.06, -0.10, s);
-      groundPose(state.z, lerp(0.02, -0.01, s));
+      state.pitch = lerp(0.06 * sense, -0.10 * sense, s);
+      groundPose(state.z, lerp(0.02 * sense, -0.01 * sense, s));
     } else if (t < tPush) {
       phase = "poussée";
       const s = smooth((t - tLoad) / f.push);
       state.z = lerp(f.crouchZ, f.takeoffZ, s) + base;
-      state.pitch = lerp(-0.10, -0.55, s);
+      state.pitch = lerp(-0.10 * sense, -0.55 * sense, s);
       state.px += f.travel * dt * 0.5;
-      groundPose(Math.min(state.z, base + K.L1 + K.L2 - 0.02), -0.01);
+      groundPose(Math.min(state.z, base + K.L1 + K.L2 - 0.02), -0.01 * sense);
       run.takeoffQ = null;
     } else if (t < tFly) {
       phase = f.twist ? "vrille" : "vol";
       const s = (t - tPush) / f.flight;
       const tf = t - tPush;
       state.z = base + f.takeoffZ + f.vz * tf - 0.5 * G_ACC * tf * tf;
-      state.pitch = -0.55 - (2 * Math.PI * f.turns - 0.55) * smoother(s);
+      state.pitch = -0.55 * sense - (2 * Math.PI * f.turns * sense - 0.55 * sense) * smoother(s);
       if (f.twist) {
         state.yaw = run.yaw0 + 2 * Math.PI * f.twist * smoother(s);
         state.roll = Math.sin(Math.PI * s) * f.cork;
@@ -1037,36 +1087,92 @@
         nat.wz = lerp(nat.wz, 0, Math.min(1, dt * 6));
       }
       place(function (L, h) { return h + WHEEL_R; });
+    } else if (f.kind === "slide") {
+      /**
+       * Powerslide : la caisse pivote en travers pendant que la quantité de
+       * mouvement continue tout droit. Les pneus chassent — la vitesse de
+       * rotation des roues n'est plus que la projection de la trajectoire sur
+       * le cap — et le robot s'incline dans le dérapage avant de s'arrêter.
+       */
+      const t1 = f.entry, t2 = t1 + f.slide;
+      const sgn = f.side || 1;
+      const sweep = f.yawSweep * sgn;
+      if (t < t1) {
+        phase = "mise en travers";
+        const s = smooth(t / t1);
+        state.yaw = run.yaw0 + sweep * 0.25 * s;
+        state.roll = lerp(0, f.lean * sgn * 0.5, s);
+        state.z = base + ride * (1 - 0.06 * s) + WHEEL_R;
+      } else if (t < t2) {
+        phase = "dérapage";
+        const s = smooth((t - t1) / f.slide);
+        state.yaw = run.yaw0 + sweep * (0.25 + 0.75 * s);
+        state.roll = f.lean * sgn * (0.5 + 0.5 * Math.sin(Math.PI * s));
+        state.z = base + ride * 0.94 + WHEEL_R;
+        // les pneus chassent en travers : la vitesse tombe vite
+        if (run.carry) {
+          const sp = Math.hypot(run.carry[0], run.carry[1]);
+          const ns = Math.max(0, sp - f.decel * dt);
+          if (sp > 1e-6) { run.carry[0] *= ns / sp; run.carry[1] *= ns / sp; }
+        }
+      } else {
+        phase = "arrêt";
+        const s = smooth((t - t2) / f.settle);
+        state.yaw = run.yaw0 + sweep;
+        state.roll = lerp(f.lean * sgn * 0.5, 0, s);
+        state.z = base + ride * (0.94 + 0.06 * s) + WHEEL_R;
+        if (run.carry) { run.carry[0] *= 1 - Math.min(1, dt * 6); run.carry[1] *= 1 - Math.min(1, dt * 6); }
+      }
+      // la roue ne tourne plus qu'à la projection de la trajectoire sur le cap
+      if (run.carry) {
+        nat.vx = run.carry[0] * Math.cos(state.yaw) + run.carry[1] * Math.sin(state.yaw);
+      }
+      place(function (L, h) { return h + WHEEL_R; });
+
     } else {                                          // saut et salto
       const t1 = f.crouch, t2 = t1 + f.push, t3 = t2 + f.flight, t4 = t3 + f.land;
       const takeoff = base + ride + WHEEL_R;
+      // `sense` vaut +1 pour une rotation arrière, -1 pour une rotation avant :
+      // il retourne le chargement, la poussée et la rotation d'un seul coup.
+      const sense = f.sense || 1;
+      const armPitch = f.turns ? -0.10 * sense : 0.04;
+      const offPitch = f.turns ? -0.50 * sense : -0.14;
+      // une figure « tourne » dès qu'elle pivote autour d'un axe : tangage
+      // (saltos avant et arrière) ou roulis (saltos latéraux)
+      const spinning = !!(f.turns || f.rollTurns);
       if (t < t1) {
         phase = "armement";
         const s = smooth(t / t1);
         state.z = base + ride * lerp(1, f.crouchZ, s) + WHEEL_R;
-        state.pitch = lerp(0, f.turns ? -0.10 : 0.04, s);
+        state.pitch = lerp(0, armPitch, s);
+        state.roll = lerp(0, -0.10 * (f.rollTurns || 0), s);
         place(function (L, h) { return h + WHEEL_R; });
       } else if (t < t2) {
         phase = "poussée";
         const s = smooth((t - t1) / f.push);
         state.z = base + ride * lerp(f.crouchZ, 1.18, s) + WHEEL_R;
-        state.pitch = lerp(f.turns ? -0.10 : 0.04, f.turns ? -0.50 : -0.14, s);
+        state.pitch = lerp(armPitch, offPitch, s);
+        state.roll = lerp(-0.10 * (f.rollTurns || 0), -0.40 * (f.rollTurns || 0), s);
         place(function (L, h) { return h + WHEEL_R; });
       } else if (t < t3) {
-        phase = f.turns ? "vol" : "envol";
+        phase = spinning ? "vol" : "envol";
         const tf = t - t2;
         const s = tf / f.flight;
         state.z = takeoff * 1.0 + f.vz * tf - 0.5 * G_ACC * tf * tf;
         if (f.turns) {
-          state.pitch = -0.50 - (2 * Math.PI * f.turns - 0.50) * smoother(s);
+          state.pitch = offPitch + (-2 * Math.PI * f.turns * sense - offPitch) * smoother(s);
           if (f.twist) {                              // vrille + gîte du McTwist
             state.yaw = run.yaw0 + 2 * Math.PI * f.twist * smoother(s);
             state.roll = Math.sin(Math.PI * s) * f.cork;
           }
+        } else if (f.rollTurns) {
+          const r0 = -0.40 * f.rollTurns;
+          state.roll = r0 + (2 * Math.PI * f.rollTurns - r0) * smoother(s);
+          state.pitch = lerp(0, 0, s);
         } else {
           state.pitch = lerp(-0.14, 0.10, smooth(s));
         }
-        if (f.turns) {
+        if (spinning) {
           // en salto, la caisse tourne : les jambes doivent être fixées dans
           // SON repère, sinon elles tournent autour d'elle à chaque image
           if (!run.takeoffQ) run.takeoffQ = captureQ();
@@ -1087,7 +1193,10 @@
         phase = "réception";
         const s = smooth((t - t3) / f.land);
         state.z = base + ride * lerp(1.0, 0.80, s) + WHEEL_R;
-        state.pitch = f.turns ? lerp(0, 0.10, s) : lerp(0.10, 0.06, s);
+        state.pitch = spinning ? lerp(0, 0.10, s) : lerp(0.10, 0.06, s);
+        // un tour de roulis ramène la caisse à l'endroit : 2π et 0, c'est la
+        // même orientation, on recale sans dérouler la rotation à l'envers
+        if (f.rollTurns) state.roll = 0;
         if (f.twist) {                                // on remet la gîte à plat
           state.yaw = run.yaw0 + 2 * Math.PI * f.twist;
           state.roll = lerp(state.roll, 0, Math.min(1, dt * 8));
@@ -1101,7 +1210,7 @@
             nat.dir = -nat.dir;
           }
         }
-        if (f.turns) {
+        if (spinning) {
           // on ouvre depuis la pose de vol vers la pose d'appui : sans ce
           // fondu, le passage vol -> sol coûte 190 rad/s en une image
           Y.LEGS.forEach(function (L) {
@@ -1140,6 +1249,7 @@
     if (t >= f.duration) {
       state.pitch = 0; state.roll = 0;
       if (f.kind === "spin") { state.yaw = run.yaw0 + 2 * Math.PI * f.turns; nat.wz = 0; }
+      if (f.kind === "slide") { state.yaw = run.yaw0 + f.yawSweep * (f.side || 1); nat.vx = 0; }
       if (f.twist) state.yaw = run.yaw0 + 2 * Math.PI * f.twist;
       nat.zBody = state.z; nat.vz = 0;
       run.carry = null;
@@ -1186,7 +1296,7 @@
       if (!f) return false;
       if ((f.mode || "pattes") !== Y.Motion.state.mode) return false;
       if (f.kind === "tilt" && this.levelUnderWheels() > 0.03) return "pente";
-      run.fig = f; run.t = 0; run.takeoffQ = null;
+      run.fig = f; run.t = 0; run.takeoffQ = null; run.entryQ = captureQ();
       run.holdQ = null; run.shiftX = 0; run.shiftY = 0;
       run.fakie = false; run.holdT = 0; run.release = false;
       // on amorce le limiteur de débattement sur la position réelle des pieds :
@@ -1196,7 +1306,7 @@
         n.foot.getWorldPosition(n.world);
         nat.figAxle[L.id] = n.world.z - Y.Motion.state.z;
       });
-      run.carry = f.twist
+      run.carry = (f.twist || f.kind === "slide")
         ? [nat.vx * Math.cos(Y.Motion.state.yaw), nat.vx * Math.sin(Y.Motion.state.yaw)]
         : null;
       run.yaw0 = Y.Motion.state.yaw;

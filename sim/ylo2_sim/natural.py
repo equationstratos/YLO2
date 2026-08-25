@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import gait as gaitmod
 from .model import DEFAULT, Leg, Model
@@ -177,6 +177,11 @@ class Natural:
     wheel_warn_max: float = 0.0
     # sens de marche des roues : un 540 se reçoit en fakie, roues en arrière
     direction: int = 1
+    # fondu de pose : après une figure, la marche reprend depuis la pose de
+    # sortie plutôt que d'y sauter d'une image (équivalent de Motion.blendFrom)
+    morph_from: Optional[List[float]] = None
+    morph_k: float = 1.0
+    morph_dur: float = 0.3
 
     def __post_init__(self) -> None:
         g = gaitmod.GAITS["trot"]
@@ -191,6 +196,22 @@ class Natural:
             self.spin.setdefault(leg.name, 0.0)
 
     # --- outils ----------------------------------------------------------
+    def blend_from(self, q: Sequence[float], seconds: float = 0.3) -> None:
+        """Reprend la marche depuis la pose `q`, fondue en `seconds`."""
+        self.morph_from = list(q)
+        self.morph_dur = max(seconds, 1e-3)
+        self.morph_k = 0.0
+
+    def _apply_morph(self, robot, dt: float) -> None:
+        if self.morph_from is None or self.morph_k >= 1.0:
+            return
+        self.morph_k = min(1.0, self.morph_k + dt / self.morph_dur)
+        e = self.morph_k * self.morph_k * (3.0 - 2.0 * self.morph_k)
+        for i in range(len(robot.q)):
+            robot.q[i] = self.morph_from[i] + (robot.q[i] - self.morph_from[i]) * e
+        if self.morph_k >= 1.0:
+            self.morph_from = None
+
     @staticmethod
     def _approach(current: float, target: float, rate: float, dt: float) -> float:
         step = rate * dt
@@ -455,6 +476,7 @@ class Natural:
                                                          self.yaw_wag))
             angles = kin.inverse(leg, *target, model=model)
             unwrap(robot.q, i, angles)
+        self._apply_morph(robot, dt)
 
     # --- mode roues, à la manière des Go2-W --------------------------------
     def step_wheels(self, robot, dt: float) -> None:
@@ -570,3 +592,4 @@ class Natural:
             unwrap(robot.q, i, angles)
             robot.contacts[i] = contact
             robot.foot_world[leg.name] = [wx, wy, h]
+        self._apply_morph(robot, dt)

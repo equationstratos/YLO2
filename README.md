@@ -373,6 +373,70 @@ toutes deux corrigées :
   « fakie, roues en arrière » tant que ça dure, et repasser sur pattes remet
   le sens à l'endroit.
 
+### Salto avant, saltos latéraux, slide
+
+Quatre figures de plus sur roues, plus un salto avant sur pattes.
+
+| | Salto avant | Salto latéral (gauche / droit) | Slide |
+| --- | --- | --- | --- |
+| Axe | tangage, sens inverse | **roulis**, un tour complet | lacet, en travers |
+| Durée | 1,88 s | 1,88 s | 1,60 s |
+| Vol / apex | 0,62 s · +0,47 m | 0,62 s · +0,47 m | — |
+| Pic articulaire | 8,0 rad/s | 6,8 rad/s | 1,5 rad/s |
+
+Le salto avant réutilise la mécanique du salto arrière : un seul champ,
+`sense`, vaut −1 et retourne d'un coup le chargement, la poussée et le sens de
+rotation. Les saltos latéraux tournent autour de l'axe de roulis — jambes
+figées dans le repère de la caisse pendant le tour, comme pour un salto de
+tangage — et se recalent à plat au poser, puisqu'un tour complet ramène à
+l'endroit.
+
+Le **slide** est le seul à ne pas décoller. La caisse pivote de 77° en travers
+pendant que la quantité de mouvement continue tout droit, le robot s'incline
+dans le dérapage, et les pneus chassent : la roue ne tourne plus qu'à la
+projection de la trajectoire sur le cap. Mesuré depuis 2,0 m/s : **0,99 m de
+glisse en ligne droite** (écart latéral 0,000 m) jusqu'à l'arrêt complet.
+
+### Session AUTO
+
+Bouton **Session AUTO** en mode roues (touche `A`) : le robot enchaîne un run
+complet dans le skatepark, figures placées là où le relief les appelle, caméra
+qui suit. Le script est une liste d'actes — *rouler jusqu'à*, *freiner*,
+*figure*, *pause* — et chacun sait quand il est fini : c'est ce qui donne le
+rythme, on n'attend pas un chrono, on attend d'être arrivé.
+
+| | Figure | Départ → arrivée | Sur quoi |
+| --- | --- | --- | --- |
+| 1 | Cabrage tenu 1,2 s | 0,75 (à l'arrêt) | entrée de parc |
+| 2 | Saut | 1,11 → 2,07 | le kicker |
+| 3 | Salto avant | 3,16 → 4,30 | le funbox |
+| 4 | Salto latéral gauche | 5,04 → 5,91 | sortie de funbox |
+| 5 | Pirouette | 7,21 (à l'arrêt) | demi-tour au pied du quarter |
+| 6 | Salto latéral droit | 6,35 → 5,27 | retour |
+| 7 | 540 McTwist | 3,42 → 1,98 | **réception en fakie** |
+| 8 | Double salto | 1,44 → 0,02 | retour fakie |
+| 9 | Slide | −0,80 → −1,85 | fin de session |
+
+Trois choses ont demandé du soin. **Une figure emporte le robot** pendant toute
+sa durée — à 0,8 m/s un salto en déplace 1,5 m — donc les approches sont lentes
+et les figures déclenchées *avant* le module, pour que le vol passe dessus et
+non devant. **Les tenues et la pirouette se posent à l'arrêt** : sans ce temps
+mort, le cabrage emportait le robot de quatre mètres et tout le run se décalait.
+Et la **direction n'est jamais tenue en compte à la main** : le script vise une
+abscisse dans le monde, et le signe de la consigne se déduit de
+`vx · direction · cos(cap)` — la pirouette retourne le nez, le 540 inverse le
+sens de marche, et cette seule ligne encaisse les deux.
+
+Relevé sur le run complet, à 100 Hz : **31,8 s, aucune butée, aucune cible hors
+de portée**, et un pic de 21,6 rad/s — **un instant sur 3 176** dépasse
+brièvement les 20 rad/s déclarés, à l'amorce d'une figure lancée en roulant.
+Le même enchaînement en script : `ylo2-sim run sim/scripts/session.py`.
+
+Un décompte corrigé en chemin : `clamp_command` saturait la consigne au maximum
+de la **marche** (1,7 m/s) dans les deux modes, alors que la couche roues en
+accepte 3,0. Les scripts étaient donc bridés là où le visualiseur ne l'était
+pas ; les relances du run atteignent maintenant vraiment leurs 2,2 m/s.
+
 En vol, le débattement des jambes est borné **relativement à la caisse** : quand
 elle monte à 3 m/s en balistique, ce sont les mouvements par rapport au tronc
 qui coûtent des rad/s, pas la translation. Pour le salto, les jambes sont
