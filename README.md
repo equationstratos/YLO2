@@ -121,8 +121,11 @@ et un rappel amorti au contact — c'est ce qui donne le poids à la réception.
 
 ## Terrains et obstacles
 
-Un sélecteur, sept terrains. La même description analytique sert à calculer la
-hauteur sous chaque pied et à construire les volumes affichés : le contact et la
+Un sélecteur, huit terrains, et un bouton **Réinitialiser** (touche `R`) qui
+replace le robot au centre, à plat, face au +X — le plus court chemin pour
+réattaquer un obstacle. Changer de terrain le déclenche aussi, sinon on peut se
+retrouver dans un mur. La même description analytique sert à calculer la hauteur
+sous chaque pied et à construire les volumes affichés : le contact et la
 géométrie sont la même chose, il n'y a pas de collision approchée.
 
 | Terrain | Relief | Ce qu'il montre |
@@ -133,7 +136,32 @@ géométrie sont la même chose, il n'y a pas de collision approchée.
 | Plateforme | marche unique de 240 mm | franchissement franc |
 | Rampe 20° | pente continue | assiette qui épouse la pente |
 | Gravats | blocs jusqu'à 90 mm | appuis à des hauteurs différentes |
+| **Skatepark** | mini-plaza : kicker, funbox, ledge, deux quarter pipes | reliefs enchaînés, en pattes comme en roues |
 | Poutres | traverses de 140 mm | enjambement |
+
+### Le skatepark
+
+![skatepark](docs/preview-skatepark.png)
+
+Une mini-plaza dans l'esprit des skateparks en béton de Californie, réduite au
+gabarit du robot — un funbox de skate fait 40 cm de haut, celui-ci 180 mm :
+
+| Élément | Cote | Position |
+| --- | --- | --- |
+| Kicker d'entrée | plan à 100 mm | x 0,95 → 1,55 |
+| Funbox | bank, plateau de 180 mm, bank | x 2,10 → 4,30 |
+| Ledge de grind | 200 mm, le long du funbox | y 1,20 → 1,58 |
+| Quarter pipes | transition de 450 mm + plateforme | x 5,30 et x −1,30, face à face |
+
+Les transitions sont de vrais quarts de cercle : le profil part tangent au sol
+et finit vertical, découpé en 24 tranches qui restent au-dessus de la courbe.
+Le robot les monte en partie — en roues il atteint la plateforme haute à
+450 mm — mais le haut d'un quarter est vertical, donc hors gabarit par
+construction.
+
+Mesuré à 0,6 m/s en pattes : **0,2 % des instants dépassent 20 rad/s**, contre
+11,1 % sur l'escalier de 130 mm. Le parc est plus roulant que les marches,
+parce que ce sont des plans inclinés et non des ressauts.
 
 Quatre mécanismes s'enclenchent tout seuls, comme sur un vrai contrôleur :
 
@@ -265,6 +293,20 @@ l'ordre où ils s'affichent.
 | Ce qui se passe | châssis dressé à **83°**, sur les deux roues arrière | couché à **80°** sur les deux roues du côté droit | 540° sur place, caisse inclinée à 11° | vol de 0,47 s, apex +0,27 m | tour complet, vol 0,60 s, apex +0,44 m | deux tours, vol 0,86 s, apex +0,90 m | un tour de tangage **et** 540° de vrille, gîte de 26°, vol 0,68 s |
 | Pic articulaire | 5,2 rad/s | 3,6 rad/s | 14,5 rad/s | 11,0 rad/s | 7,9 rad/s | 7,6 rad/s | 8,0 rad/s |
 
+**Les deux tenues se maintiennent jusqu'au prochain appui sur le bouton.** Le
+chrono de la figure ne s'écoule pas pendant la tenue : le robot reste dressé
+indéfiniment, le bouton affiche « Reposer », et c'est le second appui qui
+déclenche la reprise. En script Python, `robot.figure("wheelie",
+hold_seconds=4.0)` dit combien de temps on la tient.
+
+Une tenue fait pivoter la caisse autour d'une ligne de contact : ça suppose que
+cette ligne est horizontale. Sur une transition de quarter pipe ou en plein
+escalier elle ne l'est pas — forcer la géométrie coûtait jusqu'à 132 rad/s sur
+la première image. La figure **refuse** donc de démarrer quand le dénivelé sous
+les quatre roues dépasse 30 mm : le bandeau le dit, et côté Python c'est une
+`ValueError` qui nomme le dénivelé trouvé. Sur le plateau du funbox, qui est
+plat, le cabrage part à 5,2 rad/s comme sur sol plat.
+
 **Les deux tenues basculent la caisse autour de l'essieu resté au sol.** La
 première version du cabrage pilotait la hauteur de chaque essieu séparément :
 pour lever le nez il fallait allonger les jambes avant d'autant, ce qui
@@ -300,6 +342,14 @@ au lieu de 72 %) et une reprise allongée. Le McTwist superpose au salto une
 vrille d'un tour et demi avec un peu de gîte, pour que l'axe de vrille soit
 incliné comme sur la figure de skate d'origine ; la gîte est ramenée à plat
 pendant la réception, sans quoi une roue toucherait avant les autres.
+
+À la reprise, le générateur d'allure repart d'appuis neufs. Il raisonne en
+appuis plantés dans le monde, et après un 540 — qui tourne le robot d'un
+demi-tour et le déplace — ces repères dataient d'avant et n'étaient plus sous
+les hanches : le premier pas visait des cibles aberrantes, la butée d'abduction
+s'en mêlait et **les pattes s'entremêlaient**. Relevé après correction, deux
+secondes après la figure : abduction maximale 0,02 rad, contre 1,09 rad (la
+butée est à 1,22) auparavant.
 
 **Le 540 se reçoit en fakie.** Un tour et demi de vrille, c'est un demi-tour
 net : le robot retombe face à l'arrière de sa trajectoire. Deux conséquences,

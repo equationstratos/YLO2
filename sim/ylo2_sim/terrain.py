@@ -65,6 +65,60 @@ def _ramp(angle_deg=20.0) -> List[Box]:
     return out
 
 
+def _quarter_pipe(base, radius, half_width, direction, deck=0.9) -> List[Box]:
+    """Transition de quarter pipe : un quart de cercle en tranches.
+
+    Le profil h(u) = R - sqrt(R² - u²) part tangent au sol et finit vertical,
+    comme une vraie transition. `direction` vaut +1 si le mur est du côté des
+    x croissants. Chaque tranche prend la hauteur de son bord le plus haut :
+    l'escalier reste au-dessus de la courbe, jamais dedans.
+    """
+    out, n = [], 24
+    for i in range(n):
+        u0, u1 = i / n * radius, (i + 1) / n * radius
+        h = radius - math.sqrt(max(0.0, radius * radius - u1 * u1))
+        a = base + u0 if direction > 0 else base - u1
+        b = base + u1 if direction > 0 else base - u0
+        out.append(Box(a, b + 0.001, -half_width, half_width, h))
+    if deck > 0:                                    # plateforme derrière le coping
+        if direction > 0:
+            out.append(Box(base + radius, base + radius + deck,
+                           -half_width, half_width, radius))
+        else:
+            out.append(Box(base - radius - deck, base - radius,
+                           -half_width, half_width, radius))
+    return out
+
+
+def _bank(x0, x1, y0, y1, h0, h1) -> List[Box]:
+    """Plan incliné en tranches : un bank, ou le flanc d'un funbox."""
+    out, n = [], 14
+    for i in range(n):
+        a = x0 + (x1 - x0) * i / n
+        b = x0 + (x1 - x0) * (i + 1) / n
+        out.append(Box(a, b + 0.001, y0, y1, h0 + (h1 - h0) * (i + 1) / n))
+    return out
+
+
+def _skatepark() -> List[Box]:
+    """Mini-plaza dans l'esprit des skateparks en béton de Californie.
+
+    Un funbox central bordé d'un ledge, un kicker à l'entrée, et deux quarter
+    pipes qui se font face comme les extrémités d'une mini-ramp. Les cotes
+    sont réduites au gabarit du robot : un funbox de skate fait 40 cm de haut,
+    celui-ci 180 mm, dans ce que passe une patte de 445 mm.
+    """
+    out: List[Box] = []
+    out += _bank(0.95, 1.55, -0.75, 0.75, 0.0, 0.10)          # kicker d'entrée
+    out += _bank(2.10, 2.70, -0.95, 0.95, 0.0, 0.18)          # montée du funbox
+    out.append(Box(2.70, 3.70, -0.95, 0.95, 0.18))            # plateau
+    out += _bank(3.70, 4.30, -0.95, 0.95, 0.18, 0.0)          # descente
+    out.append(Box(2.00, 4.40, 1.20, 1.58, 0.20))             # ledge de grind
+    out += _quarter_pipe(5.30, 0.45, 1.70, +1)
+    out += _quarter_pipe(-1.30, 0.45, 1.70, -1)
+    return out
+
+
 @dataclass
 class Terrain:
     name: str = "Sol plat"
@@ -100,6 +154,7 @@ PRESETS: Dict[str, Terrain] = {
     "plateforme": Terrain("Plateforme", "plateforme", 0.24, [Box(1.5, 4.0, -1.2, 1.2, 0.24)]),
     "rampe": Terrain("Rampe 20°", "rampe", 0.05, _ramp(20.0)),
     "gravats": Terrain("Gravats", "gravats", 0.09, _rubble(1.0, 5.0, 1.0, 0.28, 0.09)),
+    "skatepark": Terrain("Skatepark", "skatepark", 0.18, _skatepark()),
     "poutres": Terrain("Poutres", "poutres", 0.14,
                        [Box(1.4 + i * 0.7, 1.4 + i * 0.7 + 0.25, -1.2, 1.2, 0.14) for i in range(5)]),
 }

@@ -214,6 +214,11 @@ canvas{position:absolute;inset:0;display:block;width:100%;height:100%;touch-acti
   font-family:var(--mono);font-size:11px;letter-spacing:.09em;text-transform:uppercase;
 }
 .stunt:hover{background:#221B0C}
+.reset{
+  padding:5px 10px;border:1px solid var(--line);border-radius:2px;color:var(--dim);
+  font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;
+}
+.reset:hover{color:var(--ink);border-color:var(--faint)}
 .stunt[aria-pressed="true"]{background:var(--warn);color:#171203;font-weight:600}
 .flipbar{position:relative;height:3px;background:var(--line);margin-top:8px;border-radius:2px;overflow:hidden;display:none}
 .flipbar.on{display:block}
@@ -373,6 +378,7 @@ input[type=range]::-moz-range-thumb{
               <button data-mode="roues" aria-pressed="false">Roues</button>
             </div>
             <select id="terrain" aria-label="Terrain"></select>
+            <button class="reset" id="recenter" title="Replace le robot au centre du terrain, à plat">Réinitialiser</button>
           </div>
         </div>
         <div class="card card-phase">

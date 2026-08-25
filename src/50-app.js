@@ -383,7 +383,9 @@
     { file: "roues_figures.py", name: "Figures sur roues",
       desc: "Cabrage vertical, tenue sur deux roues, saltos et McTwist, puis freinage." },
     { file: "roues_escalier.py", name: "Escalier en roues",
-      desc: "La patte soulève la roue marche après marche, comme un Go2-W." }
+      desc: "La patte soulève la roue marche après marche, comme un Go2-W." },
+    { file: "skatepark.py", name: "Skatepark",
+      desc: "La mini-plaza en pattes puis en roues, recentrage et cabrage tenu." }
   ];
 
   function buildSimPane() {
@@ -649,8 +651,7 @@
     });
     sel.addEventListener("change", function () {
       Y.Terrain.set(sel.value);
-      Y.Natural.reset();
-      clearTraces();
+      recenter();                              // sinon le robot peut se retrouver dans un mur
       const t = Y.Terrain.current;
       flash(t.name + (t.maxStep ? " · marche " + Math.round(t.maxStep * 1000) + " mm" : ""));
     });
@@ -673,11 +674,35 @@
     }
     if (Y.Stunt.active) {
       const same = Y.Stunt.active === name;
+      // une tenue se relâche proprement : on la repose au lieu de la couper
+      if (same && Y.Stunt.sustaining()) { Y.Stunt.release(); return; }
       Y.Stunt.stop();
       if (same) return;
     }
-    Y.Stunt.start(name);
+    const ok = Y.Stunt.start(name);
+    if (ok === "pente") {
+      flash("Tenue impossible ici : les quatre roues ne sont pas de niveau");
+      return;
+    }
     clearTraces();
+  }
+
+  /** Remet le robot au centre, à plat, face au +X : pratique sur obstacles. */
+  function recenter() {
+    if (Y.Stunt.active) Y.Stunt.stop();
+    M.state.px = 0; M.state.py = 0; M.state.yaw = 0;
+    M.state.roll = 0; M.state.pitch = 0; M.state.yawWag = 0;
+    M.state.phase = 0;
+    // la garde au sol n'est pas la même sur pattes et sur roues : en roues
+    // la caisse est portée par l'essieu, à un rayon au-dessus du sol
+    const ground = Y.Terrain.heightAt(0, 0);
+    M.state.z = M.state.mode === "roues"
+      ? ground + M.state.height * 0.92 + Y.Natural.wheelRadius
+      : ground + M.state.height;
+    Y.Natural.reset();
+    M.blendFrom(0.3);
+    clearTraces();
+    flash("Robot replacé au centre");
   }
 
   function buildStuntButtons() {
@@ -694,8 +719,9 @@
           " · " + Math.round(Math.abs(f.angle) * 180 / Math.PI) + "° de bascule"
         : (f.turns ? f.turns + " tour" + (f.turns > 1 ? "s" : "") : "sans rotation") +
           (f.twist ? " + " + (f.twist * 360) + "° de vrille" : "")) +
-        (f.flight ? " · vol " + f.flight.toFixed(2) + " s · apex +" + f.apex.toFixed(2) + " m"
-                  : " · " + f.duration.toFixed(1) + " s au sol");
+        (f.sustain ? " · tenue jusqu'au prochain appui sur le bouton"
+         : f.flight ? " · vol " + f.flight.toFixed(2) + " s · apex +" + f.apex.toFixed(2) + " m"
+                    : " · " + f.duration.toFixed(1) + " s au sol");
       b.addEventListener("click", function () { launchStunt(id); });
       row.appendChild(b);
     });
@@ -963,7 +989,8 @@
       const srcLabel = { internal: "générateur interne", file: "trajectoire Python", live: "serveur local" }[src];
       let lines = "Source <span class='src'>" + srcLabel + "</span><br>";
       if (Y.Stunt.active) {
-        lines += "Figure <b>" + Y.Stunt.label() + "</b> · " + Y.Stunt.phase + "<br>" +
+        lines += "Figure <b>" + Y.Stunt.label() + "</b> · " + Y.Stunt.phase +
+          (Y.Stunt.sustaining() ? " <span class='src'>maintenue</span>" : "") + "<br>" +
           "Hauteur de caisse <b>" + (M.state.z * 1000).toFixed(0) + " mm</b> · rotation <b>" +
           Math.abs(M.state.pitch * 180 / Math.PI).toFixed(0) + "°</b><br>";
         const bar = document.querySelector("#flipbar i");
@@ -1067,7 +1094,8 @@
       document.querySelectorAll("#stunts button").forEach(function (b) {
         const on = st.active === b.dataset.stunt;
         b.setAttribute("aria-pressed", String(on));
-        b.textContent = on ? "Annuler" : Y.Stunt.figures[b.dataset.stunt].label;
+        const f = Y.Stunt.figures[b.dataset.stunt];
+        b.textContent = on ? (f.sustain ? "Reposer" : "Annuler") : f.label;
       });
       document.getElementById("flipbar").classList.toggle("on", !!st.active);
     });
@@ -1083,6 +1111,7 @@
         document.getElementById("pane-" + id).dataset.open = String(id === b.dataset.tab);
       });
     });
+    document.getElementById("recenter").addEventListener("click", recenter);
     document.getElementById("btnRail").addEventListener("click", function () { openPanel("rail"); });
     document.getElementById("btnDetail").addEventListener("click", function () { openPanel("detail"); });
 
@@ -1101,6 +1130,7 @@
       if (e.key === "g" || e.key === "G") launchStunt(figs[4]);
       if (e.key === "h" || e.key === "H") launchStunt(figs[5]);
       if (e.key === "s" || e.key === "S") brake();
+      if (e.key === "r" || e.key === "R") recenter();
     });
 
     // changer de source téléporte le robot : on repart d'une trace vierge

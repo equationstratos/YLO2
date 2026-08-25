@@ -616,12 +616,12 @@
     wheelie: {
       label: "Cabrage", mode: "roues", kind: "tilt", axis: "pitch",
       arm: 0.30, rise: 0.60, hold: 1.40, drop: 0.65,
-      angle: -1.45, stand: 0.34, wobble: 0.030
+      angle: -1.45, stand: 0.34, wobble: 0.030, sustain: true
     },
     sidestand: {
       label: "Sur deux roues", mode: "roues", kind: "tilt", axis: "roll",
       arm: 0.30, rise: 0.70, hold: 1.60, drop: 0.75,
-      angle: 1.40, stand: 0.30, wobble: 0.035
+      angle: 1.40, stand: 0.30, wobble: 0.035, sustain: true
     },
     pirouette: {
       label: "Pirouette", mode: "roues", kind: "spin",
@@ -685,7 +685,7 @@
 
   const run = { fig: null, t: 0, takeoffQ: null, yaw0: 0, ground: 0,
                 holdQ: null, holdZ: 0, shiftX: 0, shiftY: 0,
-                carry: null, fakie: false };
+                carry: null, fakie: false, holdT: 0, release: false, prevA: {} };
 
   function stepFigure(dt, state) {
     const f = run.fig;
@@ -796,7 +796,17 @@
       state.z = base + state.height;
       if (f.twist) state.yaw = run.yaw0 + 2 * Math.PI * f.twist;
       nat.zBody = state.z; nat.vz = 0;
-      Y.LEGS.forEach(function (L) { nat.plant[L.id] = null; });
+      // Le générateur d'allure raisonne en appuis plantés dans le monde. Après
+      // une figure — surtout un 540, qui tourne le robot d'un demi-tour et le
+      // déplace — ces repères datent d'avant et ne sont plus sous les hanches :
+      // le premier pas visait alors des cibles aberrantes, la butée d'abduction
+      // s'en mêlait et les pattes s'entremêlaient. On repart d'une ardoise
+      // vierge, et on fond la pose pour que la reprise ne saute pas.
+      Y.LEGS.forEach(function (L) {
+        nat.plant[L.id] = null; nat.lift[L.id] = null; nat.land[L.id] = null;
+        nat.prevFoot[L.id] = null; nat.clear[L.id] = 0;
+      });
+      Y.Motion.blendFrom(0.28);
       Y.Stunt.stop();
     }
   }
@@ -903,11 +913,27 @@
           const zr = sr * a[1] + cr * a[2];
           return [cp * a[0] + sp * zr, yr, -sp * a[0] + cp * zr];
         };
+        // Cibles d'essieu de l'image, bornées en vitesse. Sur sol plat la
+        // bascule est bien plus lente que la borne et rien ne change ; sur un
+        // relief — le quarter pipe du skatepark — c'est ce qui évite qu'entrer
+        // en tenue coûte 41 rad/s d'un coup.
+        const axles = {};
+        Y.LEGS.forEach(function (L) {
+          const want = axleOf(L, k);
+          const prev = run.prevA[L.id];
+          if (prev) {
+            for (let i = 0; i < 3; i++) {
+              want[i] = clamp(want[i], prev[i] - 1.6 * dt, prev[i] + 1.6 * dt);
+            }
+          }
+          run.prevA[L.id] = want;
+          axles[L.id] = want;
+        });
         // la caisse se replace pour que l'essieu porteur reste au sol
         let ax = 0, ay = 0, az2 = 0, fx = 0, fy = 0, n0 = 0;
         Y.LEGS.forEach(function (L) {
           if (!onGround(L)) return;
-          const o = rot(axleOf(L, k));
+          const o = rot(axles[L.id]);
           ax += o[0]; ay += o[1]; az2 += o[2];
           fx += L.x; fy += L.y + L.m * K.abadPlane; n0++;
         });
@@ -921,7 +947,7 @@
         run.shiftX = sx; run.shiftY = sy2;
         Y.LEGS.forEach(function (L, li) {
           const n = Y.Robot.legs[L.id];
-          const a = axleOf(L, k);
+          const a = axles[L.id];
           if (onGround(L)) assign(n, Y.Motion.ik(L, a[0], a[1], a[2]));
           else assign(n, [run.holdQ[li * 3], run.holdQ[li * 3 + 1], run.holdQ[li * 3 + 2]]);
           const o = rot(a);
@@ -945,6 +971,7 @@
           run.holdQ = captureQ();
           run.holdZ = base + WHEEL_R - state.z;
           run.shiftX = 0; run.shiftY = 0;
+          run.prevA = {};
         }
         if (t < t2) {
           phase = f.axis === "roll" ? "bascule" : "cabrage";
@@ -952,8 +979,11 @@
           tilt(k, f.angle * k);
         } else if (t < t3) {
           phase = "tenue";
-          const sh = (t - t2) / f.hold;
-          tilt(1, f.angle + Math.sin(sh * Math.PI * 5) * f.wobble);
+          run.holdT += dt;
+          // tenue maintenue : tant qu'on n'a pas redemandé, le chrono de la
+          // figure ne s'écoule pas — le robot reste dressé indéfiniment
+          if (f.sustain && !run.release) run.t = t2;
+          tilt(1, f.angle + Math.sin(run.holdT * 11) * f.wobble);
         } else {
           const sd = smooth((t - t3) / f.drop);
           if (sd < 0.65) {                          // on redescend, appui tenu
@@ -1131,19 +1161,64 @@
       return { label: f.label, flight: f.flight, apex: f.apex, duration: f.duration,
         turns: f.turns, twist: f.twist, vz: f.vz };
     },
+    /**
+     * Dénivelé sous les quatre roues, en mètres.
+     *
+     * Une tenue fait pivoter la caisse autour d'une ligne de contact : ça
+     * suppose que cette ligne est horizontale. Sur une transition de quarter
+     * pipe ou en plein escalier elle ne l'est pas, et forcer la géométrie
+     * coûtait jusqu'à 132 rad/s sur la première image.
+     */
+    levelUnderWheels: function () {
+      const st = Y.Motion.state;
+      const cy0 = Math.cos(st.yaw), sy0 = Math.sin(st.yaw);
+      let lo = Infinity, hi = -Infinity;
+      Y.LEGS.forEach(function (L) {
+        const nx = L.x, ny = L.y + L.m * K.abadPlane;
+        const h = terrainAt(st.px + cy0 * nx - sy0 * ny, st.py + sy0 * nx + cy0 * ny);
+        lo = Math.min(lo, h); hi = Math.max(hi, h);
+      });
+      return hi - lo;
+    },
+
     start: function (name) {
       const f = FIGURES[name];
       if (!f) return false;
       if ((f.mode || "pattes") !== Y.Motion.state.mode) return false;
+      if (f.kind === "tilt" && this.levelUnderWheels() > 0.03) return "pente";
       run.fig = f; run.t = 0; run.takeoffQ = null;
       run.holdQ = null; run.shiftX = 0; run.shiftY = 0;
-      run.fakie = false;
+      run.fakie = false; run.holdT = 0; run.release = false;
+      // on amorce le limiteur de débattement sur la position réelle des pieds :
+      // sinon la première image saute d'un rayon de roue et coûte 57 rad/s
+      Y.LEGS.forEach(function (L) {
+        const n = Y.Robot.legs[L.id];
+        n.foot.getWorldPosition(n.world);
+        nat.figAxle[L.id] = n.world.z - Y.Motion.state.z;
+      });
       run.carry = f.twist
         ? [nat.vx * Math.cos(Y.Motion.state.yaw), nat.vx * Math.sin(Y.Motion.state.yaw)]
         : null;
       run.yaw0 = Y.Motion.state.yaw;
-      Y.LEGS.forEach(function (L) { nat.figAxle[L.id] = null; });
-      run.ground = terrainAt(Y.Motion.state.px, Y.Motion.state.py);
+      // Sol de référence : sous le centre de caisse en général, mais sous les
+      // roues porteuses pour une tenue — c'est sur elles que tout s'appuie.
+      const st = Y.Motion.state;
+      if (f.kind === "tilt") {
+        const on = f.axis === "roll"
+          ? function (L) { return L.m < 0; }
+          : function (L) { return L.f < 0; };
+        const cy0 = Math.cos(st.yaw), sy0 = Math.sin(st.yaw);
+        let h = 0, n0 = 0;
+        Y.LEGS.forEach(function (L) {
+          if (!on(L)) return;
+          const nx = L.x, ny = L.y + L.m * K.abadPlane;
+          h += terrainAt(st.px + cy0 * nx - sy0 * ny, st.py + sy0 * nx + cy0 * ny);
+          n0++;
+        });
+        run.ground = h / n0;
+      } else {
+        run.ground = terrainAt(st.px, st.py);
+      }
       this.active = name; this.phase = "armement"; this.progress = 0;
       this.emit();
       return true;
@@ -1151,6 +1226,19 @@
     stop: function () {
       run.fig = null; this.active = null; this.phase = ""; this.progress = 0;
       this.emit();
+    },
+
+    /** Une tenue est-elle en cours, en attente qu'on la relâche ? */
+    sustaining: function () {
+      return !!(run.fig && run.fig.sustain && !run.release && this.phase === "tenue");
+    },
+
+    /** Relâche la tenue : le robot repose ses roues et se stabilise. */
+    release: function () {
+      if (!run.fig || !run.fig.sustain || run.release) return false;
+      run.release = true;
+      run.t = run.fig.arm + run.fig.rise + run.fig.hold;   // on enchaîne la reprise
+      return true;
     },
     step: function (dt, state) {
       if (!run.fig) return false;

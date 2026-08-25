@@ -169,14 +169,52 @@ def _pose_for(leg: Leg, pose: str) -> Tuple[float, float, float]:
     return (base[0] * leg.mirror, base[1], base[2])       # l'abduction se reflète
 
 
+def level_under_wheels(robot) -> float:
+    """Dénivelé sous les quatre roues, en mètres.
+
+    Une tenue fait pivoter la caisse autour d'une ligne de contact : ça
+    suppose que cette ligne est horizontale. Sur une transition de quarter
+    pipe ou en plein escalier elle ne l'est pas, et forcer la géométrie
+    coûtait jusqu'à 132 rad/s sur la première image.
+    """
+    cy, sy = math.cos(robot.base[5]), math.sin(robot.base[5])
+    heights = []
+    for leg in robot.model.legs:
+        nx, ny = leg.x, leg.y + leg.mirror * robot.model.abad_plane
+        heights.append(robot.terrain.height_at(robot.base[0] + cy * nx - sy * ny,
+                                               robot.base[1] + sy * nx + cy * ny))
+    return max(heights) - min(heights)
+
+
 def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
     """Figure sur roues : hauteur d'axe imposée à chaque roue, caisse pilotée."""
     from . import gait as gaitmod
 
+    if fig.kind == "tilt":
+        spread = level_under_wheels(robot)
+        if spread > 0.03:
+            raise ValueError(
+                "%s demande un sol de niveau sous les quatre roues : "
+                "%.0f mm de dénivelé ici" % (fig.label, spread * 1000))
+
     model = robot.model
     dt = robot.dt
     nat = robot.natural
-    base = robot.terrain.height_at(robot.base[0], robot.base[1])
+    # Sol de référence : sous le centre de caisse en général, mais sous les
+    # roues porteuses pour une tenue — c'est sur elles que tout s'appuie.
+    if fig.kind == "tilt":
+        cy0, sy0 = math.cos(robot.base[5]), math.sin(robot.base[5])
+        heights = []
+        for leg in robot.model.legs:
+            grounded = (leg.mirror < 0) if fig.axis == "roll" else (leg.front < 0)
+            if not grounded:
+                continue
+            nx, ny = leg.x, leg.y + leg.mirror * robot.model.abad_plane
+            heights.append(robot.terrain.height_at(robot.base[0] + cy0 * nx - sy0 * ny,
+                                                   robot.base[1] + sy0 * nx + cy0 * ny))
+        base = sum(heights) / len(heights)
+    else:
+        base = robot.terrain.height_at(robot.base[0], robot.base[1])
     ride = robot.height * 0.92
     radius = gaitmod.WHEEL_RADIUS
     yaw0 = robot.base[5]
@@ -187,8 +225,12 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
     carry = ((nat.vx * math.cos(yaw0), nat.vx * math.sin(yaw0))
              if fig.twist else None)
     fakie = [False]
-    for leg in model.legs:
-        nat.fig_axle[leg.name] = None
+    prev_a: Dict[str, List[float]] = {}
+    # On amorce le limiteur de débattement sur la position réelle des pieds :
+    # sinon la toute première image saute d'un rayon de roue (le pied est au
+    # sol, l'essieu se veut à 75 mm) et coûte 57 rad/s.
+    for i, leg in enumerate(model.legs):
+        nat.fig_axle[leg.name] = kin.forward(leg, robot.q[i * 3:i * 3 + 3], model)[2]
 
     def place(axle, contact_of=None) -> None:
         cy, sy = math.cos(robot.base[5]), math.sin(robot.base[5])
@@ -284,12 +326,27 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
                     zr = sr * a[1] + cr * a[2]
                     return (cp * a[0] + sp * zr, yr, -sp * a[0] + cp * zr)
 
+                # Cibles d'essieu de l'image, bornées en vitesse. Sur sol plat
+                # la bascule est bien plus lente que la borne et rien ne change ;
+                # sur un relief — le quarter pipe du skatepark — c'est ce qui
+                # évite qu'entrer en tenue coûte 41 rad/s d'un coup.
+                axles = {}
+                for leg in model.legs:
+                    want = list(axle_of(leg, k))
+                    prev = prev_a.get(leg.name)
+                    if prev is not None:
+                        for j in range(3):
+                            want[j] = min(max(want[j], prev[j] - 1.6 * dt),
+                                          prev[j] + 1.6 * dt)
+                    prev_a[leg.name] = want
+                    axles[leg.name] = want
+
                 ax = ay = az2 = fx = fy = 0.0
                 n0 = 0
                 for leg in model.legs:
                     if not on_ground(leg):
                         continue
-                    o = rot(axle_of(leg, k))
+                    o = rot(axles[leg.name])
                     ax += o[0]; ay += o[1]; az2 += o[2]
                     fx += leg.x; fy += leg.y + leg.mirror * model.abad_plane; n0 += 1
                 ax /= n0; ay /= n0; az2 /= n0; fx /= n0; fy /= n0
@@ -300,7 +357,7 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
                 robot.base[1] += sy3 * (sx - hold["sx"]) + cy2 * (sy2 - hold["sy"])
                 hold["sx"], hold["sy"] = sx, sy2
                 for i, leg in enumerate(model.legs):
-                    a = axle_of(leg, k)
+                    a = axles[leg.name]
                     if on_ground(leg):
                         unwrap(robot.q, i, kin.inverse(leg, *a, model=model))
                     else:
@@ -325,6 +382,7 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
                     hold["q"] = list(robot.q)
                     hold["z"] = base + radius - robot.base[2]
                     hold["sx"] = hold["sy"] = 0.0
+                    prev_a.clear()
                 if t < t2:
                     k = _smooth((t - t1) / fig.rise)
                     tilt(k, fig.angle * k)
@@ -603,6 +661,7 @@ def perform(robot, flip: Figure = DEFAULT_FLIP) -> Dict[str, float]:
         nat.land[leg.name] = None
         nat.prev_foot[leg.name] = None
         nat.lift[leg.name] = None
+        nat.clear[leg.name] = 0.0
     if flip.twist:
         robot.base[5] = yaw0 + 2 * math.pi * flip.twist
     robot.pose_mode = "gait"

@@ -53,6 +53,44 @@
     return out;
   }
 
+  /**
+   * Transition de quarter pipe : un quart de cercle de rayon R découpé en
+   * tranches. Le profil h(u) = R - sqrt(R² - u²) part tangent au sol et
+   * finit vertical, comme une vraie transition de skatepark. `dir` vaut +1
+   * si le mur est du côté des x croissants.
+   */
+  function quarterPipe(base, R, halfWidth, dir, deck) {
+    const out = [];
+    const n = 24;
+    for (let i = 0; i < n; i++) {
+      const u0 = i / n * R, u1 = (i + 1) / n * R;
+      const h = R - Math.sqrt(Math.max(0, R * R - u1 * u1));
+      const a = dir > 0 ? base + u0 : base - u1;
+      const b = dir > 0 ? base + u1 : base - u0;
+      // la tranche prend la hauteur de son bord le plus haut : l'escalier
+      // reste au-dessus de la courbe, jamais dedans
+      out.push(box(a, b + 0.001, -halfWidth, halfWidth, h));
+    }
+    // plateforme derrière le coping : on y monte, on y repart
+    const d = deck === undefined ? 0.9 : deck;
+    if (d > 0) {
+      out.push(dir > 0 ? box(base + R, base + R + d, -halfWidth, halfWidth, R)
+                       : box(base - R - d, base - R, -halfWidth, halfWidth, R));
+    }
+    return out;
+  }
+
+  /** Plan incliné en tranches : un bank, ou le flanc d'un funbox. */
+  function bank(x0, x1, y0, y1, h0, h1) {
+    const out = [];
+    const n = 14;
+    for (let i = 0; i < n; i++) {
+      const a = x0 + (x1 - x0) * i / n, b = x0 + (x1 - x0) * (i + 1) / n;
+      out.push(box(a, b + 0.001, y0, y1, h0 + (h1 - h0) * (i + 1) / n));
+    }
+    return out;
+  }
+
   const PRESETS = [
     { id: "plat", name: "Sol plat", desc: "Référence, sans relief.", boxes: [] },
 
@@ -88,6 +126,30 @@
     { id: "gravats", name: "Gravats", maxStep: 0.09,
       desc: "Blocs irréguliers jusqu'à 90 mm : le pied se pose à des hauteurs différentes à chaque pas.",
       boxes: rubble(1.0, 5.0, 1.0, 0.28, 0.09) },
+
+    // Mini-plaza dans l'esprit des skateparks en béton de Californie : un
+    // funbox central bordé d'un ledge, un kicker à l'entrée, et deux quarter
+    // pipes qui se font face comme les extrémités d'une mini-ramp. Les cotes
+    // sont réduites au gabarit du robot — un funbox de skate fait 40 cm de
+    // haut, celui-ci 180 mm, dans ce que passe une patte de 445 mm.
+    { id: "skatepark", name: "Skatepark", maxStep: 0.18,
+      desc: "Mini-plaza : kicker, funbox de 180 mm, ledge et deux quarter pipes de 450 mm. " +
+            "Les transitions se montent en partie — le haut du quarter est vertical, hors gabarit.",
+      boxes: (function () {
+        const out = [];
+        // kicker d'entrée : un petit tremplin de 100 mm
+        bank(0.95, 1.55, -0.75, 0.75, 0, 0.10).forEach(function (b) { out.push(b); });
+        // funbox : bank de montée, plateau, bank de descente
+        bank(2.10, 2.70, -0.95, 0.95, 0, 0.18).forEach(function (b) { out.push(b); });
+        out.push(box(2.70, 3.70, -0.95, 0.95, 0.18));                    // plateau
+        bank(3.70, 4.30, -0.95, 0.95, 0.18, 0).forEach(function (b) { out.push(b); });
+        // ledge de grind le long du funbox, à hauteur du plateau
+        out.push(box(2.00, 4.40, 1.20, 1.58, 0.20));
+        // quarter pipes face à face, à chaque bout de la plaza
+        quarterPipe(5.30, 0.45, 1.70, +1).forEach(function (b) { out.push(b); });
+        quarterPipe(-1.30, 0.45, 1.70, -1).forEach(function (b) { out.push(b); });
+        return out;
+      })() },
 
     { id: "poutres", name: "Poutres", maxStep: 0.14,
       desc: "Traverses de 140 mm espacées de 700 mm, à enjamber.",
@@ -155,11 +217,16 @@
       mesh.position.set((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, b.h / 2);
       mesh.castShadow = true; mesh.receiveShadow = true;
       group.add(mesh);
-      // nez de marche : une arête claire, comme la bande antidérapante d'un escalier
-      const nose = new T.Mesh(new T.BoxGeometry(0.03, d, 0.008), edge);
-      nose.position.set(b.x0 + 0.015, (b.y0 + b.y1) / 2, b.h + 0.004);
-      nose.receiveShadow = true;
-      group.add(nose);
+      // Nez de marche : une arête claire, comme la bande antidérapante d'un
+      // escalier. Seulement sur une vraie marche — les rampes et les
+      // transitions sont découpées en tranches fines, et les strier toutes
+      // les faisait ressembler à de la tôle ondulée au lieu de béton lisse.
+      if (w >= 0.10 && b.h > 0.02) {
+        const nose = new T.Mesh(new T.BoxGeometry(0.03, d, 0.008), edge);
+        nose.position.set(b.x0 + 0.015, (b.y0 + b.y1) / 2, b.h + 0.004);
+        nose.receiveShadow = true;
+        group.add(nose);
+      }
     });
   }
 

@@ -60,9 +60,11 @@ ou via `ylo2-sim run`.
 | --- | --- |
 | `set_style("souple"\|"felin"\|"brut")` | style de locomotion |
 | `set_gait("trot")` | allure : `stand`, `walk`, `trot`, `pace`, `bound`, `canter`, `gallop` |
-| `set_terrain("escalier")` | terrain : `plat`, `escalier`, `marches_hautes`, `plateforme`, `rampe`, `gravats`, `poutres` |
+| `set_terrain("escalier")` | terrain : `plat`, `escalier`, `marches_hautes`, `plateforme`, `rampe`, `gravats`, `skatepark`, `poutres` |
 | `set_mode("roues")` | train de propulsion : `pattes` ou `roues` |
 | `figure(nom)` | pattes : `backflip`, `doubleflip`, `mctwist540` · roues : `wheelie`, `sidestand`, `pirouette`, `wheeljump`, `wheelflip`, `wheeldoubleflip`, `wheeltwist540` |
+| `recenter()` | replace le robot au centre, à plat, face au +X — le bouton « Réinitialiser » du visualiseur |
+| `figure(nom, hold_seconds=…)` | allonge la tenue d'un `wheelie` ou d'un `sidestand`, qui se maintiennent dans le visualiseur |
 | `natural.direction` | sens de marche des roues, `+1` ou `-1`. Un `wheeltwist540` le bascule : le robot repart en fakie, roues en arrière |
 | `figures()` | catalogue du train de propulsion courant |
 | `brake(secondes)` | arrêt franc, consignes à zéro |

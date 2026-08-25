@@ -9,6 +9,7 @@ vitesses articulaires, enveloppe de travail, stabilité statique.
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from . import gait as gaitmod
@@ -147,13 +148,25 @@ class Robot:
         catalogue = stunts.WHEEL_FIGURES if self.mode == "roues" else stunts.FIGURES
         return sorted(catalogue)
 
-    def figure(self, name: str = "backflip") -> Dict[str, Any]:
-        """Figure du mode courant : pattes (saltos) ou roues (cabrage, saut…)."""
+    def figure(self, name: str = "backflip",
+               hold_seconds: Optional[float] = None) -> Dict[str, Any]:
+        """Figure du mode courant : pattes (saltos) ou roues (cabrage, saut…).
+
+        `hold_seconds` allonge la tenue d'un cabrage ou d'une tenue latérale.
+        Dans le visualiseur ces deux figures se maintiennent jusqu'au prochain
+        appui sur le bouton ; en script, on dit combien de temps on la tient.
+        """
         if self.mode == "roues":
             if name not in stunts.WHEEL_FIGURES:
                 raise KeyError("figure roues inconnue : %s (parmi %s)"
                                % (name, sorted(stunts.WHEEL_FIGURES)))
-            info = stunts.perform_wheels(self, stunts.WHEEL_FIGURES[name])
+            fig = stunts.WHEEL_FIGURES[name]
+            if hold_seconds is not None:
+                if fig.kind != "tilt":
+                    raise ValueError("hold_seconds ne vaut que pour une tenue "
+                                     "(cabrage, sidestand), pas pour %s" % name)
+                fig = replace(fig, hold=hold_seconds)
+            info = stunts.perform_wheels(self, fig)
             self._note("%s : %.2f s" % (info["figure"], info["duration_s"]))
             self.stunt = info
             return info
@@ -194,8 +207,45 @@ class Robot:
         for leg in self.model.legs:
             self.natural.plant[leg.name] = None
             self.natural.land[leg.name] = None
+            self.natural.prev_foot[leg.name] = None
             self.natural.wheel_z[leg.name] = None
         self._note("terrain : %s" % self.terrain.name)
+        return self
+
+    def recenter(self) -> "Robot":
+        """Replace le robot au centre du terrain, à plat, face au +X.
+
+        Équivalent du bouton « Réinitialiser » du visualiseur : pratique pour
+        réattaquer un obstacle sans relancer toute la simulation.
+        """
+        self.base[0] = self.base[1] = 0.0
+        self.base[3] = self.base[4] = self.base[5] = 0.0
+        # la garde au sol n'est pas la même sur pattes et sur roues : en roues
+        # la caisse est portée par l'essieu, à un rayon au-dessus du sol
+        ground = self.terrain.height_at(0.0, 0.0)
+        self.base[2] = (ground + self.height * 0.92 + gaitmod.WHEEL_RADIUS
+                        if self.mode == "roues" else ground + self.height)
+        nat = self.natural
+        nat.vx = nat.vy = nat.wz = nat.ax = 0.0
+        nat.direction = 1
+        nat.z_body, nat.vz, nat.air = self.base[2], 0.0, False
+        for leg in self.model.legs:
+            nat.plant[leg.name] = None
+            nat.lift[leg.name] = None
+            nat.land[leg.name] = None
+            nat.prev_foot[leg.name] = None
+            nat.wheel_z[leg.name] = None
+            nat.wstep[leg.name] = None
+            nat.clear[leg.name] = 0.0
+        # on repose la pose sur place avant de reprendre la mesure : un
+        # recentrage est une téléportation, pas un mouvement du robot, et
+        # comptait sinon comme un pic de 41 rad/s
+        if self.mode == "roues":
+            nat.step_wheels(self, 0.0)
+        else:
+            nat.step(self, 0.0)
+        self._recorded_q = list(self.q)
+        self._note("robot replacé au centre")
         return self
 
     def set_mode(self, mode: str) -> "Robot":

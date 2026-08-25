@@ -410,6 +410,26 @@ class TestWheels(unittest.TestCase):
         self.assertIn(robot.gait.name, ("walk", "trot"))
 
 
+class TestSkatepark(unittest.TestCase):
+    def test_the_plaza_is_symmetric_and_rideable(self):
+        park = terrain.get("skatepark")
+        self.assertAlmostEqual(park.height_at(3.2, 0.0), 0.18)      # plateau du funbox
+        self.assertAlmostEqual(park.height_at(3.0, 1.4), 0.20)      # ledge de grind
+        # les deux quarter pipes se font face, même profil de part et d'autre
+        for u in (0.10, 0.25, 0.40):
+            self.assertAlmostEqual(park.height_at(5.30 + u, 0.0),
+                                   park.height_at(-1.30 - u, 0.0), places=6)
+        self.assertAlmostEqual(park.height_at(6.00, 0.0), 0.45)     # plateforme haute
+        self.assertEqual(park.height_at(0.0, 0.0), 0.0)             # le centre est dégagé
+
+    def test_the_park_is_gentler_than_the_stairs(self):
+        def peak(key, vx):
+            robot = Robot(rate=100, terrain=key)
+            robot.walk(vx=vx, seconds=10.0)
+            return robot.report()["peak_joint_velocity_rad_s"]
+        self.assertLess(peak("skatepark", 0.6), peak("escalier", 0.6))
+
+
 class TestWheelFigures(unittest.TestCase):
     def _run(self, name):
         robot = Robot(rate=200, mode="roues")
@@ -507,6 +527,48 @@ class TestWheelFigures(unittest.TestCase):
         self.assertEqual(robot.natural.direction, 1)
         robot.walk(vx=1.2, seconds=1.0)
         self.assertGreater(robot.natural.vx, 1.0)
+
+    def test_tilt_hold_is_as_long_as_asked(self):
+        short = Robot(rate=100, mode="roues").figure("wheelie", hold_seconds=0.5)
+        long_ = Robot(rate=100, mode="roues").figure("wheelie", hold_seconds=4.0)
+        self.assertAlmostEqual(long_["duration_s"] - short["duration_s"], 3.5, places=2)
+        with self.assertRaises(ValueError):                        # pas une tenue
+            Robot(rate=50, mode="roues").figure("wheelflip", hold_seconds=2.0)
+
+    def test_a_tilt_needs_level_ground(self):
+        robot = Robot(rate=100, mode="roues", terrain="escalier")
+        robot.walk(vx=1.0, seconds=6.0)
+        robot.brake(1.5)
+        self.assertGreater(stunts.level_under_wheels(robot), 0.03)
+        with self.assertRaises(ValueError):                        # en plein escalier
+            robot.figure("wheelie")
+        robot.recenter()                                           # de retour à plat
+        robot.figure("wheelie", hold_seconds=0.5)
+        self.assertLess(robot.report()["peak_joint_velocity_rad_s"], DEFAULT.velocity_max)
+
+    def test_recenter_puts_the_robot_back_without_a_false_spike(self):
+        for mode in ("pattes", "roues"):
+            robot = Robot(rate=100, mode=mode, terrain="skatepark")
+            robot.walk(vx=0.6, seconds=8.0)
+            before = robot.report()["peak_joint_velocity_rad_s"]
+            robot.recenter()
+            self.assertEqual((robot.base[0], robot.base[1], robot.base[5]), (0.0, 0.0, 0.0))
+            self.assertEqual(robot.natural.direction, 1)
+            robot.hold(0.5)
+            # une téléportation n'est pas un mouvement : elle ne doit rien coûter
+            self.assertAlmostEqual(robot.report()["peak_joint_velocity_rad_s"], before,
+                                   places=2, msg=mode)
+            # et la caisse est à la bonne garde pour le train en place
+            ride = robot.height * 0.92 + gait.WHEEL_RADIUS if mode == "roues" else robot.height
+            self.assertAlmostEqual(robot.base[2], ride, delta=0.02, msg=mode)
+
+    def test_wheel_figures_start_cold_without_a_spike(self):
+        """Une figure lancée dès l'entrée en roues ne doit pas sauter d'un rayon."""
+        for name in stunts.WHEEL_FIGURES:
+            robot = Robot(rate=200, mode="roues")
+            robot.figure(name)
+            self.assertLess(robot.report()["peak_joint_velocity_rad_s"],
+                            DEFAULT.velocity_max, name)
 
     def test_pirouette_turns_540(self):
         robot, info = self._run("pirouette")
