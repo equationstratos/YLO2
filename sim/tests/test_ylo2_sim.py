@@ -413,14 +413,29 @@ class TestWheels(unittest.TestCase):
 class TestSkatepark(unittest.TestCase):
     def test_the_plaza_is_symmetric_and_rideable(self):
         park = terrain.get("skatepark")
-        self.assertAlmostEqual(park.height_at(3.2, 0.0), 0.18)      # plateau du funbox
-        self.assertAlmostEqual(park.height_at(3.0, 1.4), 0.20)      # ledge de grind
+        self.assertAlmostEqual(park.height_at(4.8, 0.0), 0.18)      # plateau du funbox
+        self.assertAlmostEqual(park.height_at(4.5, 1.9), 0.20)      # ledge de grind
+        self.assertEqual(park.height_at(4.5, 1.2), 0.0)             # dégagement du ledge
         # les deux quarter pipes se font face, même profil de part et d'autre
         for u in (0.10, 0.25, 0.40):
-            self.assertAlmostEqual(park.height_at(5.30 + u, 0.0),
-                                   park.height_at(-1.30 - u, 0.0), places=6)
-        self.assertAlmostEqual(park.height_at(6.00, 0.0), 0.45)     # plateforme haute
+            self.assertAlmostEqual(park.height_at(7.80 + u, 0.0),
+                                   park.height_at(-2.60 - u, 0.0), places=6)
+        self.assertAlmostEqual(park.height_at(8.40, 0.0), 0.45)     # plateforme haute
         self.assertEqual(park.height_at(0.0, 0.0), 0.0)             # le centre est dégagé
+
+    def test_the_modules_are_spaced_out(self):
+        """Il faut de l'élan avant chaque obstacle et de quoi se replacer après."""
+        park = terrain.get("skatepark")
+        flat, run = [], 0.0
+        x = -2.0
+        while x < 7.8:                                  # entre les deux quarters
+            if park.height_at(x, 0.0) < 0.001:
+                run += 0.02
+            else:
+                flat.append(run); run = 0.0
+            x += 0.02
+        flat.append(run)
+        self.assertGreater(min(g for g in flat if g > 0.1), 1.4)    # 1,4 m au moins
 
     def test_the_park_is_gentler_than_the_stairs(self):
         def peak(key, vx):

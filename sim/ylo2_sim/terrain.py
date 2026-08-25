@@ -107,15 +107,18 @@ def _skatepark() -> List[Box]:
     pipes qui se font face comme les extrémités d'une mini-ramp. Les cotes
     sont réduites au gabarit du robot : un funbox de skate fait 40 cm de haut,
     celui-ci 180 mm, dans ce que passe une patte de 445 mm.
+
+    Les modules sont largement espacés : il faut de l'élan avant chaque
+    obstacle et de quoi se replacer après. Au moins 1,5 m de plat entre deux.
     """
     out: List[Box] = []
-    out += _bank(0.95, 1.55, -0.75, 0.75, 0.0, 0.10)          # kicker d'entrée
-    out += _bank(2.10, 2.70, -0.95, 0.95, 0.0, 0.18)          # montée du funbox
-    out.append(Box(2.70, 3.70, -0.95, 0.95, 0.18))            # plateau
-    out += _bank(3.70, 4.30, -0.95, 0.95, 0.18, 0.0)          # descente
-    out.append(Box(2.00, 4.40, 1.20, 1.58, 0.20))             # ledge de grind
-    out += _quarter_pipe(5.30, 0.45, 1.70, +1)
-    out += _quarter_pipe(-1.30, 0.45, 1.70, -1)
+    out += _bank(1.40, 2.10, -0.75, 0.75, 0.0, 0.10)          # kicker d'entrée
+    out += _bank(3.60, 4.30, -0.95, 0.95, 0.0, 0.18)          # montée du funbox
+    out.append(Box(4.30, 5.30, -0.95, 0.95, 0.18))            # plateau
+    out += _bank(5.30, 6.00, -0.95, 0.95, 0.18, 0.0)          # descente
+    out.append(Box(3.40, 6.20, 1.70, 2.10, 0.20))             # ledge de grind
+    out += _quarter_pipe(7.80, 0.45, 1.90, +1)
+    out += _quarter_pipe(-2.60, 0.45, 1.90, -1)
     return out
 
 

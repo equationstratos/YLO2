@@ -807,7 +807,7 @@
         nat.prevFoot[L.id] = null; nat.clear[L.id] = 0;
       });
       Y.Motion.blendFrom(0.28);
-      Y.Stunt.stop();
+      Y.Stunt.stop(true);
     }
   }
 
@@ -1144,7 +1144,7 @@
       nat.zBody = state.z; nat.vz = 0;
       run.carry = null;
       Y.LEGS.forEach(function (L) { nat.wheelZ[L.id] = null; nat.wstep[L.id] = null; });
-      Y.Stunt.stop();
+      Y.Stunt.stop(true);
     }
   }
 
@@ -1223,7 +1223,27 @@
       this.emit();
       return true;
     },
-    stop: function () {
+    /**
+     * Termine la figure. `done` est vrai quand elle est allée à son terme —
+     * elle a alors déjà remis le robot d'aplomb elle-même.
+     *
+     * Une interruption, elle, peut survenir en pleine bascule : sans remise
+     * à plat le générateur d'allure repartait d'un tronc à 83°.
+     */
+    stop: function (done) {
+      if (run.fig && !done) {
+        const st = Y.Motion.state;
+        st.roll = 0; st.pitch = 0;
+        st.z = terrainAt(st.px, st.py) + (st.mode === "roues"
+          ? st.height * 0.92 + WHEEL_R : st.height);
+        nat.zBody = st.z; nat.vz = 0;
+        Y.LEGS.forEach(function (L) {
+          nat.plant[L.id] = null; nat.lift[L.id] = null; nat.land[L.id] = null;
+          nat.prevFoot[L.id] = null; nat.clear[L.id] = 0;
+          nat.wheelZ[L.id] = null; nat.wstep[L.id] = null; nat.figAxle[L.id] = null;
+        });
+        Y.Motion.blendFrom(0.3);
+      }
       run.fig = null; this.active = null; this.phase = ""; this.progress = 0;
       this.emit();
     },

@@ -137,17 +137,20 @@
             "Les transitions se montent en partie — le haut du quarter est vertical, hors gabarit.",
       boxes: (function () {
         const out = [];
+        // Les modules sont largement espacés : il faut de l'élan avant chaque
+        // obstacle et de quoi se replacer après, sinon on enchaîne sans jamais
+        // rouler. Au moins 1,5 m de plat entre deux modules.
         // kicker d'entrée : un petit tremplin de 100 mm
-        bank(0.95, 1.55, -0.75, 0.75, 0, 0.10).forEach(function (b) { out.push(b); });
+        bank(1.40, 2.10, -0.75, 0.75, 0, 0.10).forEach(function (b) { out.push(b); });
         // funbox : bank de montée, plateau, bank de descente
-        bank(2.10, 2.70, -0.95, 0.95, 0, 0.18).forEach(function (b) { out.push(b); });
-        out.push(box(2.70, 3.70, -0.95, 0.95, 0.18));                    // plateau
-        bank(3.70, 4.30, -0.95, 0.95, 0.18, 0).forEach(function (b) { out.push(b); });
-        // ledge de grind le long du funbox, à hauteur du plateau
-        out.push(box(2.00, 4.40, 1.20, 1.58, 0.20));
-        // quarter pipes face à face, à chaque bout de la plaza
-        quarterPipe(5.30, 0.45, 1.70, +1).forEach(function (b) { out.push(b); });
-        quarterPipe(-1.30, 0.45, 1.70, -1).forEach(function (b) { out.push(b); });
+        bank(3.60, 4.30, -0.95, 0.95, 0, 0.18).forEach(function (b) { out.push(b); });
+        out.push(box(4.30, 5.30, -0.95, 0.95, 0.18));                    // plateau
+        bank(5.30, 6.00, -0.95, 0.95, 0.18, 0).forEach(function (b) { out.push(b); });
+        // ledge de grind le long du funbox, avec 750 mm de dégagement
+        out.push(box(3.40, 6.20, 1.70, 2.10, 0.20));
+        // quarter pipes face à face, aux deux bouts de la plaza
+        quarterPipe(7.80, 0.45, 1.90, +1).forEach(function (b) { out.push(b); });
+        quarterPipe(-2.60, 0.45, 1.90, -1).forEach(function (b) { out.push(b); });
         return out;
       })() },
 

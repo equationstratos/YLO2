@@ -620,7 +620,12 @@
     M.blendFrom(0.4);
     M.state.mode = k;
     Y.Robot.setWheels(k === "roues");
-    if (k === "roues" && Y.Stunt.active) Y.Stunt.stop();
+    // Une figure appartient à son train : elle ne survit pas au changement,
+    // dans un sens comme dans l'autre. Sans ça une tenue maintenue continuait
+    // de piloter le robot après le passage en pattes — dressé à 83° sur des
+    // roues devenues invisibles — et son bouton « Reposer », reconstruit pour
+    // l'autre mode, n'existait plus pour la relâcher.
+    if (Y.Stunt.active) Y.Stunt.stop();
     Y.Natural.reset();
     clearTraces();
     document.querySelectorAll("#modes button").forEach(function (b) {

@@ -148,10 +148,15 @@ gabarit du robot — un funbox de skate fait 40 cm de haut, celui-ci 180 mm :
 
 | Élément | Cote | Position |
 | --- | --- | --- |
-| Kicker d'entrée | plan à 100 mm | x 0,95 → 1,55 |
-| Funbox | bank, plateau de 180 mm, bank | x 2,10 → 4,30 |
-| Ledge de grind | 200 mm, le long du funbox | y 1,20 → 1,58 |
-| Quarter pipes | transition de 450 mm + plateforme | x 5,30 et x −1,30, face à face |
+| Kicker d'entrée | plan à 100 mm | x 1,40 → 2,10 |
+| Funbox | bank, plateau de 180 mm, bank | x 3,60 → 6,00 |
+| Ledge de grind | 200 mm, le long du funbox | x 3,40 → 6,20, y 1,70 → 2,10 |
+| Quarter pipes | transition de 450 mm + plateforme | x 7,80 et x −2,60, face à face |
+
+Les modules sont largement espacés : **au moins 1,5 m de plat entre deux**, plus
+2,6 m derrière la ligne de départ et 750 mm de dégagement entre le funbox et le
+ledge. Il faut de l'élan avant chaque obstacle et de quoi se replacer après,
+sinon on les enchaîne sans jamais rouler.
 
 Les transitions sont de vrais quarts de cercle : le profil part tangent au sol
 et finit vertical, découpé en 24 tranches qui restent au-dessus de la courbe.
@@ -159,8 +164,8 @@ Le robot les monte en partie — en roues il atteint la plateforme haute à
 450 mm — mais le haut d'un quarter est vertical, donc hors gabarit par
 construction.
 
-Mesuré à 0,6 m/s en pattes : **0,2 % des instants dépassent 20 rad/s**, contre
-11,1 % sur l'escalier de 130 mm. Le parc est plus roulant que les marches,
+Mesuré à 0,6 m/s en pattes : **0,1 % des instants dépassent 20 rad/s**, contre
+11,7 % sur l'escalier de 130 mm. Le parc est plus roulant que les marches,
 parce que ce sont des plans inclinés et non des ressauts.
 
 Quatre mécanismes s'enclenchent tout seuls, comme sur un vrai contrôleur :
