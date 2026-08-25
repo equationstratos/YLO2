@@ -843,7 +843,12 @@
     Y.Stunt.progress = clamp(t / f.duration, 0, 1);
 
     if (t >= f.duration) {
-      state.pitch = 0; state.roll = 0;
+      // sur une pente, « à plat » c'est l'assiette de la pente : remettre zéro
+      // arracherait le robot de la courbe qu'il vient d'épouser
+      const dL = K.legX;
+      state.pitch = Math.atan2(terrainAt(state.px - cy * dL, state.py - sy * dL)
+                             - terrainAt(state.px + cy * dL, state.py + sy * dL), 2 * dL);
+      state.roll = 0;
       state.z = base + state.height;
       if (f.twist) state.yaw = run.yaw0 + 2 * Math.PI * f.twist;
       nat.zBody = state.z; nat.vz = 0;
@@ -1157,6 +1162,20 @@
         run.groundRef = lerp(run.groundRef, here, Math.min(1, dt * 12));
         return run.groundRef;
       };
+      /**
+       * Assiette de la pente sous le robot, le long de son cap.
+       *
+       * Une transition de quarter pipe est une courbe : s'y recevoir à plat
+       * revient à planter le nez dedans. On échantillonne le relief devant et
+       * derrière, à l'empattement, exactement comme la couche roues le fait
+       * avec ses appuis — la caisse épouse alors la courbure.
+       */
+      const slopePitch = function () {
+        const d = K.legX;
+        const ahead = terrainAt(state.px + cy * d, state.py + sy * d);
+        const behind = terrainAt(state.px - cy * d, state.py - sy * d);
+        return Math.atan2(behind - ahead, 2 * d);
+      };
       const bodyZ = function (k) {
         const want = groundRef() + ride * k + WHEEL_R;
         if (run.entryZ === null) return want;
@@ -1225,7 +1244,9 @@
         // point haut, et la réception absorbe le reste de la chute.
         if (run.landZ0 === null) run.landZ0 = state.z;
         state.z = lerp(run.landZ0, groundRef() + ride * 0.80 + WHEEL_R, s);
-        state.pitch = spinning ? lerp(0, 0.10, s) : lerp(0.10, 0.06, s);
+        // on se reçoit dans l'axe de la pente : la réception épouse la courbure
+        const absorb = spinning ? lerp(0, 0.10, s) : lerp(0.10, 0.06, s);
+        state.pitch = lerp(absorb, slopePitch() + absorb * 0.4, s);
         // un tour de roulis ramène la caisse à l'endroit : 2π et 0, c'est la
         // même orientation, on recale sans dérouler la rotation à l'envers
         if (f.rollTurns) state.roll = 0;
@@ -1269,7 +1290,8 @@
         phase = "stabilisation";
         const s = smooth((t - t4) / f.recover);
         state.z = groundRef() + ride * lerp(0.80, 1.0, s) + WHEEL_R;
-        state.pitch = lerp(0.10, 0, s);
+        // puis on rejoint l'assiette de la pente, pas l'horizontale
+        state.pitch = lerp(state.pitch, slopePitch(), Math.min(1, dt * 6));
         state.roll = lerp(state.roll, 0, Math.min(1, dt * 8));
         place(function (L, h) { return h + WHEEL_R; });
       }

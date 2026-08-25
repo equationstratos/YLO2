@@ -401,46 +401,65 @@ glisse en ligne droite** (écart latéral 0,000 m) jusqu'à l'arrêt complet.
 
 Bouton **Session AUTO** en mode roues (touche `A`) : le robot enchaîne un run
 complet dans le skatepark, figures placées là où le relief les appelle, caméra
-qui suit. Le script est une liste d'actes — *rouler jusqu'à*, *freiner*,
-*figure*, *pause* — et chacun sait quand il est fini : c'est ce qui donne le
-rythme, on n'attend pas un chrono, on attend d'être arrivé.
+qui suit. Le script est une liste d'actes — *poser*, *rouler jusqu'à*,
+*rejoindre*, *pivoter*, *freiner*, *figure*, *pause* — et chacun sait quand il
+est fini : c'est ce qui donne le rythme, on n'attend pas un chrono, on attend
+d'être arrivé.
 
-| | Figure | Lancée par | Décollage | Départ → arrivée |
-| --- | --- | --- | --- | --- |
-| 1 | Cabrage tenu 1,1 s | — (à l'arrêt) | — | 0,58 |
-| 2 | Saut | **le kicker** | x 1,82, sol 64 mm | 1,33 → 2,97 |
-| 3 | Salto avant | **le funbox** | x 4,32, sol **180 mm** (la lèvre) | 3,90 → 5,35 |
-| 4 | Pirouette | — (demi-tour à l'arrêt) | — | 7,19 |
-| 5 | Salto latéral | **la descente du funbox** | x 5,39, sol 154 mm | 5,77 → 4,44 |
-| 6 | 540 McTwist | **le kicker, à l'envers** | x 2,12 | 2,77 → 0,49, **fakie** |
-| 7 | Slide | — | — | −0,38 → −1,47 |
+Le run **part du point le plus haut du parc** — la plateforme du quarter
+arrière, à 450 mm — et va jusqu'à celle du quarter avant.
 
-Quatre des sept sont **lancées par une rampe**. Une figure décolle 0,76 s après
-son déclenchement — armement plus poussée — soit 0,76 m à 1,4 m/s d'élan : les
-déclenchements sont donc placés trois quarts de mètre avant la lèvre visée,
-pour que **la poussée tombe dessus**. Le salto avant quitte le sol exactement
-sur la lèvre du funbox, à 180 mm, et culmine à 0,99 m.
+| | Acte | Lancé par | Départ → arrivée |
+| --- | --- | --- | --- |
+| 1 | Drop-in depuis la plateforme à 450 mm | — | −3,50 → −3,01 |
+| 2 | **Salto avant** | **la transition du quarter** (sol 270 mm) | −3,01 → −2,48 |
+| 3 | **Saut** | **le kicker** | 1,30 → 2,99 |
+| 4 | **Sur deux roues, tout le long du ledge** | — (tenue **en roulant**) | 2,93 → 6,51 |
+| 5 | **540 McTwist** | **la lèvre du quarter avant** | 7,25 → 8,55, sur la plateforme |
+| 6 | Slide | — | 3,44 → 2,74 |
 
-Ça a demandé trois corrections dans les figures elles-mêmes :
+Trois mécaniques ont dû être ajoutées pour ça :
 
-- **l'armement et la poussée suivent le relief réel** sous le robot, plus celui
-  du déclenchement. C'est ce qui permet de monter *avec* la rampe au lieu de
-  rester à la hauteur du plat ;
-- **le vol part de la hauteur réellement atteinte** au décollage, et la
-  réception vise le sol qui est sous le robot à ce moment-là — on part d'une
-  lèvre à 180 mm et on retombe sur le plat ;
-- une rampe est découpée en tranches de 50 mm : suivre leur escalier brut
-  faisait sauter la caisse de 13 mm d'une image à l'autre, donc le sol de
-  référence est **filtré**.
+- **la réception épouse la courbure.** Une transition est une courbe : s'y
+  recevoir à plat revient à planter le nez dedans. Le relief est échantillonné
+  devant et derrière, à l'empattement — exactement comme la couche roues le
+  fait avec ses appuis — et la caisse rejoint cette assiette pendant la
+  réception puis la stabilisation. En fin de figure, « à plat » veut dire
+  l'assiette de la pente, pas l'horizontale ;
+- **une tenue peut se faire en roulant.** Le cabrage et la tenue latérale
+  gardaient leur vitesse : il suffisait de la commander. Le robot remonte donc
+  le ledge sur ses deux roues droites, de x 2,93 à 6,51 — l'obstacle va de
+  3,40 à 6,20, il est longé sur toute sa longueur ;
+- **la session sait se placer et braquer.** Trois actes de plus — `place`
+  (poser le robot d'aplomb en haut d'une rampe), `goto` (rejoindre un point en
+  braquant, pour changer de voie) et `face` (pivoter jusqu'à un cap). Sans ce
+  dernier, `goto` arrivait au point mais en visant sa cible : « avancer » le
+  long du ledge partait de travers, et à plus de 90° le robot le remontait à
+  reculons.
 
-Une figure court ensuite 2,6 à 3,2 m — l'ordre de grandeur de l'écart entre
-deux modules. C'est ce qui limite la ligne à six figures plus le slide, comme
-une vraie ligne de skate.
+Le ledge se longe **dans le sens de la marche** : y revenir en arrière
+imposait un demi-tour dont l'arc mordait sur l'obstacle — 195 rad/s.
 
-Relevé sur le run complet : **25,6 s, pic 12,9 rad/s, aucune butée, aucune
-cible hors de portée** — tout le run tient sous les 20 rad/s déclarés, ce qui
-n'était pas le cas avant ce passage. Le même enchaînement en script :
-`ylo2-sim run sim/scripts/session.py`.
+Relevé sur le run complet : **36,8 s, pic 17,7 rad/s, aucune butée, aucune
+cible hors de portée** — tout tient sous les 20 rad/s déclarés. Deux réglages
+ont été nécessaires pour y arriver : le drop-in se fait à 1,0 m/s (à 1,2 le
+décollage sur la courbe coûtait 20,7 rad/s), et le slide se termine sur le
+plat entre le kicker et le funbox — il finissait avant sur la rampe du
+kicker, et le robot restait planté de travers à 14°. Le même
+enchaînement en script : `ylo2-sim run sim/scripts/session.py`.
+
+Un acte *rouler jusqu'à* s'arrête maintenant au **dépassement** de la cible,
+plus dans une fenêtre de 60 mm. La fenêtre tenait tant que le pas était court ;
+à 2 m/s et 15 images par seconde le robot avance de 130 mm par image et
+l'enjambe, l'acte repartait alors en va-et-vient jusqu'à sa garde de 12 s, et
+le slide final se déclenchait un mètre et demi trop loin — sur la rampe du
+kicker, justement.
+
+Une réserve : le 540 se reçoit **sur la plateforme** du quarter avant, pas sur
+la courbe. Le robot monte la transition, décolle près de la lèvre, et retombe
+au-dessus — c'est ce que la géométrie donne à cette vitesse. La réception
+épouse quand même le relief sous elle, simplement ce relief est plat à cet
+endroit.
 
 Un décompte corrigé en chemin : `clamp_command` saturait la consigne au maximum
 de la **marche** (1,7 m/s) dans les deux modes, alors que la couche roues en

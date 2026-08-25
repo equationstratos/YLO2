@@ -280,6 +280,20 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
     def entry_blend(t: float) -> float:
         return _smooth(min(1.0, t / max(fig.crouch * 0.6, 1e-3)))
 
+    def slope_pitch() -> float:
+        """Assiette de la pente sous le robot, le long de son cap.
+
+        Une transition de quarter pipe est une courbe : s'y recevoir à plat
+        revient à planter le nez dedans. On échantillonne le relief devant et
+        derrière, à l'empattement, comme la couche roues le fait avec ses
+        appuis — la caisse épouse alors la courbure.
+        """
+        d = robot.model.leg_offset_x
+        cy2, sy2 = math.cos(robot.base[5]), math.sin(robot.base[5])
+        ahead = robot.terrain.height_at(robot.base[0] + cy2 * d, robot.base[1] + sy2 * d)
+        behind = robot.terrain.height_at(robot.base[0] - cy2 * d, robot.base[1] - sy2 * d)
+        return math.atan2(behind - ahead, 2 * d)
+
     def body_z(k: float, t: float) -> float:
         """Hauteur de caisse, fondue depuis celle d'où l'on vient."""
         want = ground_ref() + ride * k + radius
@@ -608,7 +622,10 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
                     land_z0[0] = robot.base[2]
                 target_z = ground_ref() + ride * 0.80 + radius
                 robot.base[2] = land_z0[0] + (target_z - land_z0[0]) * s
-                robot.base[4] = (0.10 * s) if spinning else (0.10 - 0.04 * s)
+                # on se reçoit dans l'axe de la pente : la réception épouse
+                # la courbure au lieu de planter le nez dedans
+                absorb = (0.10 * s) if spinning else (0.10 - 0.04 * s)
+                robot.base[4] = absorb + (slope_pitch() + absorb * 0.4 - absorb) * s
                 # un tour de roulis ramène la caisse à l'endroit : 2π et 0,
                 # c'est la même orientation, on recale sans dérouler à l'envers
                 if fig.roll_turns:
@@ -645,14 +662,17 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
             else:
                 s = _smooth((t - t4) / fig.recover)
                 robot.base[2] = ground_ref() + ride * (0.80 + 0.20 * s) + radius
-                robot.base[4] = 0.10 * (1 - s)
+                # puis on rejoint l'assiette de la pente, pas l'horizontale
+                robot.base[4] += (slope_pitch() - robot.base[4]) * min(1.0, dt * 6)
                 robot.base[3] *= 1 - min(1.0, dt * 8)
                 place(lambda leg, h: h + radius)
 
         robot._advance_recorded()
 
     robot.base[3] = 0.0
-    robot.base[4] = 0.0
+    # sur une pente, « à plat » c'est l'assiette de la pente : remettre zéro
+    # arracherait le robot de la courbe qu'il vient d'épouser
+    robot.base[4] = slope_pitch()
     if fig.kind == "spin":
         robot.base[5] = yaw0 + math.tau * fig.turns
         nat.wz = 0.0

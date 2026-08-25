@@ -472,14 +472,23 @@ class TestSession(unittest.TestCase):
         self.assertEqual(report["unreachable_targets"], 0)
         self.assertLess(report["peak_joint_velocity_rad_s"], DEFAULT.velocity_max)
 
-        # tout le run tient entre les deux quarter pipes
+        # le run part de la plateforme du quarter arrière et va jusqu'à celle
+        # du quarter avant : il tient entre les deux extrémités du parc
         xs = [f["base"][0] for f in robot.frames]
-        self.assertGreater(min(xs), -2.60)
-        self.assertLess(max(xs), 7.80)
+        self.assertGreater(min(xs), -3.95)
+        self.assertLess(max(xs), 9.15)
+        # le robot est bien passé par le haut de la rampe la plus haute
+        park = terrain.get("skatepark")
+        self.assertLess(min(xs), -3.40)
+        self.assertAlmostEqual(park.height_at(min(xs), 0.0), 0.45)
+        # et il a longé le ledge sur deux roues, sur toute sa longueur
+        beside = [f["base"][0] for f in robot.frames if f["base"][1] > 1.0]
+        self.assertLess(min(beside), 3.40)
+        self.assertGreater(max(beside), 6.20)
         # la ligne, dans l'ordre
         self.assertEqual(played, [
-            "Cabrage", "Saut", "Salto avant roues", "Pirouette",
-            "Salto latéral droit", "540 McTwist roues", "Slide"])
+            "Salto avant roues", "Saut", "Sur deux roues",
+            "540 McTwist roues", "Slide"])
         self.assertAlmostEqual(robot.natural.vx, 0.0, places=2)   # fini à l'arrêt
 
     def test_the_ramps_launch_the_figures(self):
