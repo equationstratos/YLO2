@@ -625,6 +625,22 @@
       label: "Salto roues", mode: "roues", kind: "flip",
       crouch: 0.34, push: 0.20, land: 0.26, recover: 0.42,
       vz: 2.95, crouchZ: 0.72, turns: 1, tuck: 0.20
+    },
+    // Sur roues, la détente vient des seules jambes : pour deux tours il faut
+    // la même impulsion que sur pattes (4,2 m/s), donc un accroupissement plus
+    // franc et une phase de reprise allongée.
+    wheeldoubleflip: {
+      label: "Double salto roues", mode: "roues", kind: "flip",
+      crouch: 0.40, push: 0.22, land: 0.28, recover: 0.50,
+      vz: 4.20, crouchZ: 0.66, turns: 2, tuck: 0.16
+    },
+    // McTwist : un salto arrière complet pendant que la caisse vrille d'un
+    // tour et demi, avec un peu de gîte (« cork ») pour que l'axe de vrille
+    // soit incliné, comme sur la figure de skate d'origine.
+    wheeltwist540: {
+      label: "540 McTwist roues", mode: "roues", kind: "flip",
+      crouch: 0.36, push: 0.20, land: 0.26, recover: 0.46,
+      vz: 3.35, crouchZ: 0.70, turns: 1, twist: 1.5, cork: 0.45, tuck: 0.18
     }
   };
 
@@ -899,6 +915,10 @@
         state.z = takeoff * 1.0 + f.vz * tf - 0.5 * G_ACC * tf * tf;
         if (f.turns) {
           state.pitch = -0.50 - (2 * Math.PI * f.turns - 0.50) * smoother(s);
+          if (f.twist) {                              // vrille + gîte du McTwist
+            state.yaw = run.yaw0 + 2 * Math.PI * f.twist * smoother(s);
+            state.roll = Math.sin(Math.PI * s) * f.cork;
+          }
         } else {
           state.pitch = lerp(-0.14, 0.10, smooth(s));
         }
@@ -924,6 +944,10 @@
         const s = smooth((t - t3) / f.land);
         state.z = base + ride * lerp(1.0, 0.80, s) + WHEEL_R;
         state.pitch = f.turns ? lerp(0, 0.10, s) : lerp(0.10, 0.06, s);
+        if (f.twist) {                                // on remet la gîte à plat
+          state.yaw = run.yaw0 + 2 * Math.PI * f.twist;
+          state.roll = lerp(state.roll, 0, Math.min(1, dt * 8));
+        }
         if (f.turns) {
           // on ouvre depuis la pose de vol vers la pose d'appui : sans ce
           // fondu, le passage vol -> sol coûte 190 rad/s en une image
@@ -952,6 +976,7 @@
         const s = smooth((t - t4) / f.recover);
         state.z = base + ride * lerp(0.80, 1.0, s) + WHEEL_R;
         state.pitch = lerp(0.10, 0, s);
+        state.roll = lerp(state.roll, 0, Math.min(1, dt * 8));
         place(function (L, h) { return h + WHEEL_R; });
       }
     }
@@ -962,6 +987,7 @@
     if (t >= f.duration) {
       state.pitch = 0; state.roll = 0;
       if (f.kind === "spin") { state.yaw = run.yaw0 + 2 * Math.PI * f.turns; nat.wz = 0; }
+      if (f.twist) state.yaw = run.yaw0 + 2 * Math.PI * f.twist;
       nat.zBody = state.z; nat.vz = 0;
       Y.LEGS.forEach(function (L) { nat.wheelZ[L.id] = null; nat.wstep[L.id] = null; });
       Y.Stunt.stop();

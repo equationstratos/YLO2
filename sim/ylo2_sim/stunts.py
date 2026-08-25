@@ -47,6 +47,8 @@ class WheelFigure:
     pitch: float = -0.55
     lift: float = 0.34
     turns: float = 0.0
+    twist: float = 0.0          # tours de lacet (540 McTwist : 1,5)
+    cork: float = 0.0           # gîte pendant la vrille (rad)
     lean: float = 0.20
     vz: float = 0.0
     crouch_z: float = 0.80
@@ -79,6 +81,17 @@ WHEEL_FIGURES: Dict[str, WheelFigure] = {
     "wheelflip": WheelFigure("wheelflip", "Salto roues", "flip", crouch=0.34, push=0.20,
                              land=0.26, recover=0.42, vz=2.95, crouch_z=0.72,
                              turns=1.0, tuck=0.20),
+    # Deux tours sur roues : même impulsion que sur pattes (4,2 m/s), donc
+    # accroupissement plus franc et reprise allongée.
+    "wheeldoubleflip": WheelFigure("wheeldoubleflip", "Double salto roues", "flip",
+                                   crouch=0.40, push=0.22, land=0.28, recover=0.50,
+                                   vz=4.20, crouch_z=0.66, turns=2.0, tuck=0.16),
+    # McTwist : salto complet pendant que la caisse vrille d'un tour et demi,
+    # avec un peu de gîte pour incliner l'axe de vrille.
+    "wheeltwist540": WheelFigure("wheeltwist540", "540 McTwist roues", "flip",
+                                 crouch=0.36, push=0.20, land=0.26, recover=0.46,
+                                 vz=3.35, crouch_z=0.70, turns=1.0, twist=1.5,
+                                 cork=0.45, tuck=0.18),
 }
 
 
@@ -277,6 +290,9 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
                 robot.base[2] = base + ride + radius + fig.vz * tf - 0.5 * G_ACC * tf * tf
                 if fig.turns:
                     robot.base[4] = -0.50 - (math.tau * fig.turns - 0.50) * _smoother(s)
+                    if fig.twist:                        # vrille + gîte du McTwist
+                        robot.base[5] = yaw0 + math.tau * fig.twist * _smoother(s)
+                        robot.base[3] = math.sin(math.pi * s) * fig.cork
                     if not takeoff_q:
                         takeoff_q.extend(robot.q)
                     if s < 0.45:
@@ -294,6 +310,9 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
                 s = _smooth((t - t3) / fig.land)
                 robot.base[2] = base + ride * (1.0 - 0.20 * s) + radius
                 robot.base[4] = (0.10 * s) if fig.turns else (0.10 - 0.04 * s)
+                if fig.twist:                            # on remet la gîte à plat
+                    robot.base[5] = yaw0 + math.tau * fig.twist
+                    robot.base[3] *= 1 - min(1.0, dt * 8)
                 if fig.turns:                            # ouverture depuis la pose de vol
                     cy2, sy2 = math.cos(robot.base[5]), math.sin(robot.base[5])
                     for i, leg in enumerate(model.legs):
@@ -316,6 +335,7 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
                 s = _smooth((t - t4) / fig.recover)
                 robot.base[2] = base + ride * (0.80 + 0.20 * s) + radius
                 robot.base[4] = 0.10 * (1 - s)
+                robot.base[3] *= 1 - min(1.0, dt * 8)
                 place(lambda leg, h: h + radius)
 
         robot._advance_recorded()
@@ -325,6 +345,8 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
     if fig.kind == "spin":
         robot.base[5] = yaw0 + math.tau * fig.turns
         nat.wz = 0.0
+    if fig.twist:
+        robot.base[5] = yaw0 + math.tau * fig.twist
     nat.z_body, nat.vz = robot.base[2], 0.0
     for leg in model.legs:
         nat.wheel_z[leg.name] = None
@@ -338,7 +360,7 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
         "apex_m": round(fig.apex, 3),
         "takeoff_vz_ms": fig.vz,
         "rotation_deg": round(360.0 * fig.turns if fig.kind == "flip" else 0.0, 1),
-        "twist_deg": round(360.0 * fig.turns if fig.kind == "spin" else 0.0, 1),
+        "twist_deg": round(360.0 * (fig.turns if fig.kind == "spin" else fig.twist), 1),
         "travel_m": 0.0,
     }
 

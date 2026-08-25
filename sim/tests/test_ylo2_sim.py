@@ -422,7 +422,9 @@ class TestWheelFigures(unittest.TestCase):
         legs = Robot(rate=50)
         self.assertIn("backflip", legs.figures())
         wheels = Robot(rate=50, mode="roues")
-        self.assertEqual(wheels.figures(), ["pirouette", "wheelflip", "wheelie", "wheeljump"])
+        self.assertEqual(wheels.figures(),
+                         ["pirouette", "wheeldoubleflip", "wheelflip", "wheelie",
+                          "wheeljump", "wheeltwist540"])
         with self.assertRaises(KeyError):
             wheels.figure("backflip")
 
@@ -440,6 +442,23 @@ class TestWheelFigures(unittest.TestCase):
         self.assertLess(min(pitches), -0.4)                        # nez en l'air
         lifted = [f for f in robot.frames if sum(f["contact"]) == 2]
         self.assertGreater(len(lifted), 100)                       # deux roues au sol
+
+    def test_wheel_double_flip_turns_twice(self):
+        robot, info = self._run("wheeldoubleflip")
+        self.assertEqual(info["rotation_deg"], 720.0)
+        pitches = [f["base"][4] for f in robot.frames]
+        self.assertLess(min(pitches), -2 * math.tau + 0.3)         # deux tours complets
+        self.assertGreater(info["apex_m"], 0.85)                   # détente à 4,2 m/s
+
+    def test_wheel_mctwist_flips_and_twists(self):
+        robot, info = self._run("wheeltwist540")
+        self.assertEqual(info["rotation_deg"], 360.0)
+        self.assertEqual(info["twist_deg"], 540.0)
+        yaws = [f["base"][5] for f in robot.frames]
+        self.assertAlmostEqual(yaws[-1] - yaws[0], 1.5 * math.tau, places=2)
+        rolls = [abs(f["base"][3]) for f in robot.frames]
+        self.assertGreater(max(rolls), 0.3)                        # la gîte du McTwist
+        self.assertLess(abs(robot.base[3]), 0.02)                  # remis à plat
 
     def test_pirouette_turns_540(self):
         robot, info = self._run("pirouette")

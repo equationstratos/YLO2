@@ -254,11 +254,22 @@ roues, montée, palier et descente, avec un pic articulaire de 14,5 rad/s.
 
 ### Figures sur roues
 
-| | Cabrage | Pirouette | Saut | Salto roues |
-| --- | --- | --- | --- | --- |
-| Durée | 2,40 s | 1,77 s | 1,53 s | 1,82 s |
-| Ce qui se passe | train avant levé de 34°, tenue sur deux roues | 540° sur place, caisse inclinée à 11° | vol de 0,47 s, apex +0,27 m | tour complet, vol 0,60 s, apex +0,44 m |
-| Pic articulaire | 5,6 rad/s | 14,5 rad/s | 11,0 rad/s | 7,9 rad/s |
+Boutons du bandeau en mode roues, ou touches `B`, `D`, `T`, `F`, `G`, `H` dans
+l'ordre où ils s'affichent.
+
+| | Cabrage | Pirouette | Saut | Salto roues | Double salto roues | 540 McTwist roues |
+| --- | --- | --- | --- | --- | --- | --- |
+| Durée | 2,40 s | 1,77 s | 1,53 s | 1,82 s | 2,26 s | 1,96 s |
+| Ce qui se passe | train avant levé de 34°, tenue sur deux roues | 540° sur place, caisse inclinée à 11° | vol de 0,47 s, apex +0,27 m | tour complet, vol 0,60 s, apex +0,44 m | deux tours, vol 0,86 s, apex +0,90 m | un tour de tangage **et** 540° de vrille, gîte de 26°, vol 0,68 s |
+| Pic articulaire | 5,6 rad/s | 14,5 rad/s | 11,0 rad/s | 7,9 rad/s | 7,6 rad/s | 8,0 rad/s |
+
+Les deux dernières reprennent sur roues les figures du mode pattes. Le double
+salto demande la même impulsion que sur pattes — 4,2 m/s au décollage, contre
+2,95 pour un tour simple — donc un accroupissement plus franc (66 % de la garde
+au lieu de 72 %) et une reprise allongée. Le McTwist superpose au salto une
+vrille d'un tour et demi avec un peu de gîte, pour que l'axe de vrille soit
+incliné comme sur la figure de skate d'origine ; la gîte est ramenée à plat
+pendant la réception, sans quoi une roue toucherait avant les autres.
 
 En vol, le débattement des jambes est borné **relativement à la caisse** : quand
 elle monte à 3 m/s en balistique, ce sont les mouvements par rapport au tronc

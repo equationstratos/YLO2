@@ -381,7 +381,7 @@
     { file: "roues.py", name: "Roues motrices",
       desc: "Vitesse sur le plat, limite face à une marche, retour sur pattes." },
     { file: "roues_figures.py", name: "Figures sur roues",
-      desc: "Cabrage, pirouette, saut, salto roues, puis freinage jusqu'à l'arrêt." },
+      desc: "Cabrage, pirouette, saut, les deux saltos et le McTwist, puis freinage." },
     { file: "roues_escalier.py", name: "Escalier en roues",
       desc: "La patte soulève la roue marche après marche, comme un Go2-W." }
   ];
@@ -1094,6 +1094,8 @@
       if (e.key === "d" || e.key === "D") launchStunt(figs[1]);
       if (e.key === "t" || e.key === "T") launchStunt(figs[2]);
       if (e.key === "f" || e.key === "F") launchStunt(figs[3] || figs[0]);
+      if (e.key === "g" || e.key === "G") launchStunt(figs[4]);
+      if (e.key === "h" || e.key === "H") launchStunt(figs[5]);
       if (e.key === "s" || e.key === "S") brake();
     });
 

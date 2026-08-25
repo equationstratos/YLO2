@@ -1,4 +1,4 @@
-"""Figures sur roues : cabrage, pirouette, saut, salto, puis freinage."""
+"""Figures sur roues : cabrage, pirouette, saut, saltos, McTwist, freinage."""
 from ylo2_sim import Robot, main
 
 
@@ -6,10 +6,11 @@ def build(robot: Robot) -> None:
     robot.set_mode("roues")
     robot.walk(vx=1.2, seconds=2.0)
 
-    for name in ("wheelie", "pirouette", "wheeljump", "wheelflip"):
+    for name in ("wheelie", "pirouette", "wheeljump", "wheelflip",
+                 "wheeldoubleflip", "wheeltwist540"):
         info = robot.figure(name)
         robot.walk(vx=1.2, seconds=1.2)
-        print("%-12s %.2f s" % (info["figure"], info["duration_s"])
+        print("%-20s %.2f s" % (info["figure"], info["duration_s"])
               + (" · vol %.2f s · apex +%.2f m" % (info["flight_s"], info["apex_m"])
                  if info["flight_s"] else "")
               + (" · %.0f° de tangage" % info["rotation_deg"] if info["rotation_deg"] else "")
