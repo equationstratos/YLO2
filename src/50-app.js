@@ -381,7 +381,7 @@
     { file: "roues.py", name: "Roues motrices",
       desc: "Vitesse sur le plat, limite face à une marche, retour sur pattes." },
     { file: "roues_figures.py", name: "Figures sur roues",
-      desc: "Cabrage, pirouette, saut, les deux saltos et le McTwist, puis freinage." },
+      desc: "Cabrage vertical, tenue sur deux roues, saltos et McTwist, puis freinage." },
     { file: "roues_escalier.py", name: "Escalier en roues",
       desc: "La patte soulève la roue marche après marche, comme un Go2-W." }
   ];
@@ -689,8 +689,11 @@
       b.className = "stunt";
       b.dataset.stunt = id;
       b.textContent = f.label;
-      b.title = (f.turns ? f.turns + " tour" + (f.turns > 1 ? "s" : "") : "sans rotation") +
-        (f.twist ? " + " + (f.twist * 360) + "° de vrille" : "") +
+      b.title = (f.kind === "tilt"
+        ? (f.axis === "roll" ? "tenue sur les deux roues droites" : "train avant en l'air") +
+          " · " + Math.round(Math.abs(f.angle) * 180 / Math.PI) + "° de bascule"
+        : (f.turns ? f.turns + " tour" + (f.turns > 1 ? "s" : "") : "sans rotation") +
+          (f.twist ? " + " + (f.twist * 360) + "° de vrille" : "")) +
         (f.flight ? " · vol " + f.flight.toFixed(2) + " s · apex +" + f.apex.toFixed(2) + " m"
                   : " · " + f.duration.toFixed(1) + " s au sol");
       b.addEventListener("click", function () { launchStunt(id); });

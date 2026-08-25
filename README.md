@@ -15,6 +15,8 @@ par un générateur d'allure dans le navigateur, soit par des **scripts Python**
 
 ![cabrage sur roues](docs/preview-cabrage.png)
 
+![tenue sur deux roues](docs/preview-deux-roues.png)
+
 ## Trois pièces
 
 | | Où | Quoi |
@@ -257,13 +259,41 @@ roues, montée, palier et descente, avec un pic articulaire de 14,5 rad/s.
 Boutons du bandeau en mode roues, ou touches `B`, `D`, `T`, `F`, `G`, `H` dans
 l'ordre où ils s'affichent.
 
-| | Cabrage | Pirouette | Saut | Salto roues | Double salto roues | 540 McTwist roues |
-| --- | --- | --- | --- | --- | --- | --- |
-| Durée | 2,40 s | 1,77 s | 1,53 s | 1,82 s | 2,26 s | 1,96 s |
-| Ce qui se passe | train avant levé de 34°, tenue sur deux roues | 540° sur place, caisse inclinée à 11° | vol de 0,47 s, apex +0,27 m | tour complet, vol 0,60 s, apex +0,44 m | deux tours, vol 0,86 s, apex +0,90 m | un tour de tangage **et** 540° de vrille, gîte de 26°, vol 0,68 s |
-| Pic articulaire | 5,6 rad/s | 14,5 rad/s | 11,0 rad/s | 7,9 rad/s | 7,6 rad/s | 8,0 rad/s |
+| | Cabrage | Sur deux roues | Pirouette | Saut | Salto roues | Double salto roues | 540 McTwist roues |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Durée | 2,95 s | 3,35 s | 1,77 s | 1,53 s | 1,82 s | 2,26 s | 1,96 s |
+| Ce qui se passe | châssis dressé à **83°**, sur les deux roues arrière | couché à **80°** sur les deux roues du côté droit | 540° sur place, caisse inclinée à 11° | vol de 0,47 s, apex +0,27 m | tour complet, vol 0,60 s, apex +0,44 m | deux tours, vol 0,86 s, apex +0,90 m | un tour de tangage **et** 540° de vrille, gîte de 26°, vol 0,68 s |
+| Pic articulaire | 5,2 rad/s | 3,6 rad/s | 14,5 rad/s | 11,0 rad/s | 7,9 rad/s | 7,6 rad/s | 8,0 rad/s |
 
-Les deux dernières reprennent sur roues les figures du mode pattes. Le double
+**Les deux tenues basculent la caisse autour de l'essieu resté au sol.** La
+première version du cabrage pilotait la hauteur de chaque essieu séparément :
+pour lever le nez il fallait allonger les jambes avant d'autant, ce qui
+plafonnait vers 30° et laissait le châssis loin de la verticale. Maintenant
+c'est le tronc entier qui pivote sur la ligne de contact, et les **pattes
+porteuses se replient** pour amener la caisse à l'aplomb de leur essieu — sans
+ce repliement le tronc partirait en arrière de l'appui et le robot tomberait.
+C'est ce que fait le vrai robot : il ne se contente pas de pivoter, il se
+ramasse au-dessus de ses roues.
+
+Contrôles au milieu de la tenue :
+
+| | Cabrage | Sur deux roues |
+| --- | --- | --- |
+| Roues d'appui | LH + RH, pneus à 0,0000 m | RF + RH, pneus à 0,0000 m |
+| Roues levées | +494 mm | +410 mm |
+| Hauteur de caisse | 0,415 m | 0,375 m |
+| Écart caisse ↔ ligne d'appui | 8 mm | 9 mm |
+| Glissement du tronc | 185 mm vers l'arrière | 165 mm vers la droite |
+| Butées, cibles hors de portée | aucune, 0 | aucune, 0 |
+
+L'écart de 8 et 9 mm est ce qui compte : la caisse est bien **au-dessus** de
+sa ligne d'appui, pas derrière. Le tronc suit réellement la bascule au lieu de
+pivoter sur place, et revient à moins d'un millimètre de sa trajectoire
+nominale une fois reposé. La tenue reste une posture d'équilibre — comme sur
+un Go2-W, ce sont les roues qui la rattrapent en permanence ; le simulateur
+n'asservit pas cet équilibre, il place la géométrie qui le rend possible.
+
+Les deux dernières figures reprennent sur roues celles du mode pattes. Le double
 salto demande la même impulsion que sur pattes — 4,2 m/s au décollage, contre
 2,95 pour un tour simple — donc un accroupissement plus franc (66 % de la garde
 au lieu de 72 %) et une reprise allongée. Le McTwist superpose au salto une

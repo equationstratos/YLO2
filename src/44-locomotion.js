@@ -606,10 +606,20 @@
 
   /* --- figures sur roues, dans l'esprit des démonstrations Go2-W --- */
   const WHEEL_FIGURES = {
+    // Tenues sur deux roues. La caisse bascule autour de l'essieu resté au
+    // sol pendant que les pattes porteuses se replient pour la mettre à
+    // l'aplomb de cet appui. En pilotant les hauteurs d'essieu une par une,
+    // comme le faisait la première version, il aurait fallu allonger les
+    // jambes de toute la hauteur gagnée : ça plafonnait vers 30°.
     wheelie: {
-      label: "Cabrage", mode: "roues", kind: "wheelie",
-      arm: 0.25, rise: 0.40, hold: 1.30, drop: 0.45,
-      pitch: -0.55, lift: 0.34
+      label: "Cabrage", mode: "roues", kind: "tilt", axis: "pitch",
+      arm: 0.30, rise: 0.60, hold: 1.40, drop: 0.65,
+      angle: -1.45, stand: 0.34, wobble: 0.030
+    },
+    sidestand: {
+      label: "Sur deux roues", mode: "roues", kind: "tilt", axis: "roll",
+      arm: 0.30, rise: 0.70, hold: 1.60, drop: 0.75,
+      angle: 1.40, stand: 0.30, wobble: 0.035
     },
     pirouette: {
       label: "Pirouette", mode: "roues", kind: "spin",
@@ -651,7 +661,7 @@
       f.flight = 2 * f.vz / G_ACC;
       f.apex = f.vz * f.vz / (2 * G_ACC);
       f.duration = f.crouch + f.push + f.flight + f.land + f.recover;
-    } else if (f.kind === "wheelie") {
+    } else if (f.kind === "tilt") {
       f.duration = f.arm + f.rise + f.hold + f.drop;
       f.flight = 0; f.apex = 0;
     } else {
@@ -671,7 +681,8 @@
     f.duration = f.crouch + f.load + f.push + f.flight + f.land + f.recover;
   });
 
-  const run = { fig: null, t: 0, takeoffQ: null, yaw0: 0, ground: 0 };
+  const run = { fig: null, t: 0, takeoffQ: null, yaw0: 0, ground: 0,
+                holdQ: null, holdZ: 0, shiftX: 0, shiftY: 0 };
 
   function stepFigure(dt, state) {
     const f = run.fig;
@@ -837,38 +848,130 @@
 
     let phase = "";
 
-    if (f.kind === "wheelie") {
+    if (f.kind === "tilt") {
       const t1 = f.arm, t2 = t1 + f.rise, t3 = t2 + f.hold;
-      if (t < t1) {                                   // charge l'arrière
+      // essieux qui restent au sol : l'arrière pour le cabrage, le côté
+      // droit pour la tenue latérale
+      const onGround = f.axis === "roll"
+        ? function (L) { return L.m < 0; }
+        : function (L) { return L.f < 0; };
+
+      /**
+       * Position de l'essieu d'une patte dans le repère caisse.
+       *
+       * Les pattes levées gardent la pose figée à l'armement : leur essieu
+       * ne bouge pas d'un iota dans ce repère. Les pattes porteuses, elles,
+       * se replient pour amener la caisse **à l'aplomb** de leur essieu —
+       * sinon le tronc bascule derrière l'appui et le robot tomberait en
+       * arrière. C'est ce que fait le robot réel : il ne se contente pas de
+       * pivoter, il se ramasse au-dessus de ses roues.
+       */
+      const axleOf = function (L, k) {
+        const ny = L.y + L.m * K.abadPlane;
+        if (!onGround(L)) return [L.x, ny, run.holdZ];
+        // cible : essieu droit sous l'origine caisse une fois basculé
+        const a1 = f.axis === "roll"
+          ? [L.x, -Math.sin(f.angle) * f.stand, -Math.cos(f.angle) * f.stand]
+          : [Math.sin(f.angle) * f.stand, ny, -Math.cos(f.angle) * f.stand];
+        return [lerp(L.x, a1[0], k), lerp(ny, a1[1], k), lerp(run.holdZ, a1[2], k)];
+      };
+
+      /**
+       * Basculement autour de l'essieu d'appui, qui reste posé au millimètre.
+       * `k` mène le repliement, `angle` l'inclinaison de la caisse.
+       */
+      const tilt = function (k, angle) {
+        const roll = f.axis === "roll" ? angle : 0;
+        const pitch = f.axis === "roll" ? 0 : angle;
+        state.roll = roll; state.pitch = pitch;
+        const cr = Math.cos(roll), sr = Math.sin(roll);
+        const cp = Math.cos(pitch), sp = Math.sin(pitch);
+        // un point de la caisse, vu dans le repère horizontal
+        const rot = function (a) {
+          const yr = cr * a[1] - sr * a[2];
+          const zr = sr * a[1] + cr * a[2];
+          return [cp * a[0] + sp * zr, yr, -sp * a[0] + cp * zr];
+        };
+        // la caisse se replace pour que l'essieu porteur reste au sol
+        let ax = 0, ay = 0, az2 = 0, fx = 0, fy = 0, n0 = 0;
+        Y.LEGS.forEach(function (L) {
+          if (!onGround(L)) return;
+          const o = rot(axleOf(L, k));
+          ax += o[0]; ay += o[1]; az2 += o[2];
+          fx += L.x; fy += L.y + L.m * K.abadPlane; n0++;
+        });
+        ax /= n0; ay /= n0; az2 /= n0; fx /= n0; fy /= n0;
+        state.z = base + WHEEL_R - az2;
+        // glissement par rapport à la trajectoire « à plat » : en se dressant,
+        // le robot se replace réellement au-dessus de son appui
+        const sx = fx - ax, sy2 = fy - ay;
+        state.px += cy * (sx - run.shiftX) - sy * (sy2 - run.shiftY);
+        state.py += sy * (sx - run.shiftX) + cy * (sy2 - run.shiftY);
+        run.shiftX = sx; run.shiftY = sy2;
+        Y.LEGS.forEach(function (L, li) {
+          const n = Y.Robot.legs[L.id];
+          const a = axleOf(L, k);
+          if (onGround(L)) assign(n, Y.Motion.ik(L, a[0], a[1], a[2]));
+          else assign(n, [run.holdQ[li * 3], run.holdQ[li * 3 + 1], run.holdQ[li * 3 + 2]]);
+          const o = rot(a);
+          n.contact = onGround(L);
+          n.footWorld = [state.px + cy * o[0] - sy * o[1],
+                         state.py + sy * o[0] + cy * o[1],
+                         state.z + o[2] - WHEEL_R];
+          if (n.wheel) n.wheel.rotation.y = nat.spin[L.id];
+          nat.figAxle[L.id] = null;
+        });
+      };
+
+      if (t < t1) {                                 // charge sur l'appui
         phase = "charge";
-        const s = smooth(t / t1);
-        state.z = base + ride * (1 - 0.12 * s) + WHEEL_R;
-        state.pitch = lerp(0, 0.06, s);
+        const sc = smooth(t / t1);
+        state.z = base + ride * (1 - 0.12 * sc) + WHEEL_R;
+        state.pitch = 0; state.roll = 0;
         place(function (L, h) { return h + WHEEL_R; });
-      } else if (t < t2) {                            // le train avant se lève
-        phase = "cabrage";
-        const s = smooth((t - t1) / f.rise);
-        state.pitch = lerp(0.06, f.pitch, s);
-        state.z = base + ride * (0.88 + 0.16 * s) + WHEEL_R;
-        place(function (L, h) {
-          return L.f > 0 ? h + WHEEL_R + f.lift * s : h + WHEEL_R;
-        }, function (L) { return L.f < 0; });
-      } else if (t < t3) {                            // tenue sur deux roues
-        phase = "tenue";
-        const s = (t - t2) / f.hold;
-        state.pitch = f.pitch + Math.sin(s * Math.PI * 6) * 0.035;
-        state.z = base + ride * 1.04 + WHEEL_R;
-        place(function (L, h) {
-          return L.f > 0 ? h + WHEEL_R + f.lift : h + WHEEL_R;
-        }, function (L) { return L.f < 0; });
-      } else {                                        // reposé
-        phase = "reprise";
-        const s = smooth((t - t3) / f.drop);
-        state.pitch = lerp(f.pitch, 0, s);
-        state.z = base + ride * (1.04 - 0.04 * s) + WHEEL_R;
-        place(function (L, h) {
-          return L.f > 0 ? h + WHEEL_R + f.lift * (1 - s) : h + WHEEL_R;
-        }, function (L) { return L.f < 0 || s > 0.8; });
+      } else {
+        if (!run.holdQ) {                           // on fige la pose une fois
+          run.holdQ = captureQ();
+          run.holdZ = base + WHEEL_R - state.z;
+          run.shiftX = 0; run.shiftY = 0;
+        }
+        if (t < t2) {
+          phase = f.axis === "roll" ? "bascule" : "cabrage";
+          const k = smooth((t - t1) / f.rise);
+          tilt(k, f.angle * k);
+        } else if (t < t3) {
+          phase = "tenue";
+          const sh = (t - t2) / f.hold;
+          tilt(1, f.angle + Math.sin(sh * Math.PI * 5) * f.wobble);
+        } else {
+          const sd = smooth((t - t3) / f.drop);
+          if (sd < 0.65) {                          // on redescend, appui tenu
+            phase = "reprise";
+            const k = 1 - sd / 0.65;
+            tilt(k, f.angle * k);
+          } else {                                  // puis fondu vers l'appui normal
+            phase = "reprise";
+            const u = smooth((sd - 0.65) / 0.35);
+            state.roll = 0; state.pitch = 0;
+            state.z = base + ride * lerp(0.88, 1.0, u) + WHEEL_R;
+            Y.LEGS.forEach(function (L, li) {
+              const n = Y.Robot.legs[L.id];
+              const nx = L.x, ny = L.y + L.m * K.abadPlane;
+              const wx = state.px + cy * nx - sy * ny;
+              const wy = state.py + sy * nx + cy * ny;
+              const h = terrainAt(wx, wy);
+              const target = constrain(L, [nx, ny, h + WHEEL_R - state.z]);
+              const g = Y.Motion.ik(L, target[0], target[1], target[2]);
+              assign(n, [0, 1, 2].map(function (i) {
+                return lerp(run.holdQ[li * 3 + i], g[i], u);
+              }));
+              n.contact = true;
+              n.footWorld = [wx, wy, h];
+              if (n.wheel) n.wheel.rotation.y = nat.spin[L.id];
+              nat.figAxle[L.id] = null;
+            });
+          }
+        }
       }
     } else if (f.kind === "spin") {
       const t1 = f.arm, t2 = t1 + f.spin;
@@ -1012,6 +1115,7 @@
       if (!f) return false;
       if ((f.mode || "pattes") !== Y.Motion.state.mode) return false;
       run.fig = f; run.t = 0; run.takeoffQ = null;
+      run.holdQ = null; run.shiftX = 0; run.shiftY = 0;
       run.yaw0 = Y.Motion.state.yaw;
       Y.LEGS.forEach(function (L) { nat.figAxle[L.id] = null; });
       run.ground = terrainAt(Y.Motion.state.px, Y.Motion.state.py);

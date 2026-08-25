@@ -33,7 +33,11 @@ class WheelFigure:
 
     name: str
     label: str
-    kind: str                   # wheelie, spin, jump, flip
+    kind: str                   # tilt, spin, jump, flip
+    axis: str = "pitch"         # tilt : axe du basculement (pitch ou roll)
+    angle: float = -1.45        # tilt : angle tenu (rad)
+    stand: float = 0.34         # tilt : hauteur de caisse au-dessus de l'appui
+    wobble: float = 0.030       # tilt : oscillation de tenue (rad)
     arm: float = 0.25
     rise: float = 0.40
     hold: float = 1.30
@@ -44,8 +48,6 @@ class WheelFigure:
     push: float = 0.16
     land: float = 0.26
     recover: float = 0.34
-    pitch: float = -0.55
-    lift: float = 0.34
     turns: float = 0.0
     twist: float = 0.0          # tours de lacet (540 McTwist : 1,5)
     cork: float = 0.0           # gîte pendant la vrille (rad)
@@ -65,7 +67,7 @@ class WheelFigure:
 
     @property
     def duration(self) -> float:
-        if self.kind == "wheelie":
+        if self.kind == "tilt":
             return self.arm + self.rise + self.hold + self.drop
         if self.kind == "spin":
             return self.arm + self.spin + self.settle
@@ -73,7 +75,15 @@ class WheelFigure:
 
 
 WHEEL_FIGURES: Dict[str, WheelFigure] = {
-    "wheelie": WheelFigure("wheelie", "Cabrage", "wheelie"),
+    # Tenues sur deux roues : la caisse bascule autour de l'essieu resté au
+    # sol pendant que les pattes porteuses se replient pour la mettre à
+    # l'aplomb de cet appui.
+    "wheelie": WheelFigure("wheelie", "Cabrage", "tilt", axis="pitch",
+                           arm=0.30, rise=0.60, hold=1.40, drop=0.65,
+                           angle=-1.45, stand=0.34, wobble=0.030),
+    "sidestand": WheelFigure("sidestand", "Sur deux roues", "tilt", axis="roll",
+                             arm=0.30, rise=0.70, hold=1.60, drop=0.75,
+                             angle=1.40, stand=0.30, wobble=0.035),
     "pirouette": WheelFigure("pirouette", "Pirouette", "spin", arm=0.22, spin=1.20,
                              settle=0.35, turns=1.5, lean=0.20),
     "wheeljump": WheelFigure("wheeljump", "Saut", "jump", crouch=0.30, push=0.16,
@@ -171,6 +181,7 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
     radius = gaitmod.WHEEL_RADIUS
     yaw0 = robot.base[5]
     takeoff_q: List[float] = []
+    hold: Dict[str, object] = {"q": None, "z": 0.0, "sx": 0.0, "sy": 0.0}
     for leg in model.legs:
         nat.fig_axle[leg.name] = None
 
@@ -222,32 +233,120 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
             nat.spin[leg.name] = (nat.spin[leg.name]
                                   + (nat.vx - nat.wz * ny) / radius * dt) % math.tau
 
-        if fig.kind == "wheelie":
+        if fig.kind == "tilt":
             t1, t2, t3 = fig.arm, fig.arm + fig.rise, fig.arm + fig.rise + fig.hold
-            if t < t1:
-                s = _smooth(t / t1)
-                robot.base[2] = base + ride * (1 - 0.12 * s) + radius
-                robot.base[4] = 0.06 * s
-                place(lambda leg, h: h + radius)
-            elif t < t2:
-                s = _smooth((t - t1) / fig.rise)
-                robot.base[4] = 0.06 + (fig.pitch - 0.06) * s
-                robot.base[2] = base + ride * (0.88 + 0.16 * s) + radius
-                place(lambda leg, h, s=s: h + radius + (fig.lift * s if leg.front > 0 else 0.0),
-                      lambda leg: leg.front < 0)
-            elif t < t3:
-                s = (t - t2) / fig.hold
-                robot.base[4] = fig.pitch + math.sin(s * math.pi * 6) * 0.035
-                robot.base[2] = base + ride * 1.04 + radius
-                place(lambda leg: 0, None) if False else place(
-                    lambda leg, h: h + radius + (fig.lift if leg.front > 0 else 0.0),
-                    lambda leg: leg.front < 0)
+            if fig.axis == "roll":
+                def on_ground(leg):
+                    return leg.mirror < 0
             else:
-                s = _smooth((t - t3) / fig.drop)
-                robot.base[4] = fig.pitch * (1 - s)
-                robot.base[2] = base + ride * (1.04 - 0.04 * s) + radius
-                place(lambda leg, h, s=s: h + radius + (fig.lift * (1 - s) if leg.front > 0 else 0.0),
-                      lambda leg, s=s: leg.front < 0 or s > 0.8)
+                def on_ground(leg):
+                    return leg.front < 0
+
+            def axle_of(leg, k):
+                """Essieu d'une patte dans le repère caisse.
+
+                Les pattes levées gardent la pose figée à l'armement ; les
+                pattes porteuses se replient pour amener la caisse à
+                l'aplomb de leur essieu, sans quoi le tronc bascule derrière
+                l'appui et le robot tomberait en arrière.
+                """
+                ny = leg.y + leg.mirror * model.abad_plane
+                if not on_ground(leg):
+                    return (leg.x, ny, hold["z"])
+                if fig.axis == "roll":
+                    a1 = (leg.x, -math.sin(fig.angle) * fig.stand,
+                          -math.cos(fig.angle) * fig.stand)
+                else:
+                    a1 = (math.sin(fig.angle) * fig.stand, ny,
+                          -math.cos(fig.angle) * fig.stand)
+                a0 = (leg.x, ny, hold["z"])
+                return tuple(a0[j] + (a1[j] - a0[j]) * k for j in range(3))
+
+            def tilt(k, angle):
+                """Bascule autour de l'essieu d'appui, qui reste posé."""
+                roll = angle if fig.axis == "roll" else 0.0
+                pitch = 0.0 if fig.axis == "roll" else angle
+                robot.base[3], robot.base[4] = roll, pitch
+                cr, sr = math.cos(roll), math.sin(roll)
+                cp, sp = math.cos(pitch), math.sin(pitch)
+
+                def rot(a):
+                    yr = cr * a[1] - sr * a[2]
+                    zr = sr * a[1] + cr * a[2]
+                    return (cp * a[0] + sp * zr, yr, -sp * a[0] + cp * zr)
+
+                ax = ay = az2 = fx = fy = 0.0
+                n0 = 0
+                for leg in model.legs:
+                    if not on_ground(leg):
+                        continue
+                    o = rot(axle_of(leg, k))
+                    ax += o[0]; ay += o[1]; az2 += o[2]
+                    fx += leg.x; fy += leg.y + leg.mirror * model.abad_plane; n0 += 1
+                ax /= n0; ay /= n0; az2 /= n0; fx /= n0; fy /= n0
+                robot.base[2] = base + radius - az2
+                sx, sy2 = fx - ax, fy - ay
+                cy2, sy3 = math.cos(robot.base[5]), math.sin(robot.base[5])
+                robot.base[0] += cy2 * (sx - hold["sx"]) - sy3 * (sy2 - hold["sy"])
+                robot.base[1] += sy3 * (sx - hold["sx"]) + cy2 * (sy2 - hold["sy"])
+                hold["sx"], hold["sy"] = sx, sy2
+                for i, leg in enumerate(model.legs):
+                    a = axle_of(leg, k)
+                    if on_ground(leg):
+                        unwrap(robot.q, i, kin.inverse(leg, *a, model=model))
+                    else:
+                        for j in range(3):
+                            robot.q[i * 3 + j] = hold["q"][i * 3 + j]
+                    o = rot(a)
+                    robot.contacts[i] = on_ground(leg)
+                    robot.foot_world[leg.name] = [
+                        robot.base[0] + cy2 * o[0] - sy3 * o[1],
+                        robot.base[1] + sy3 * o[0] + cy2 * o[1],
+                        robot.base[2] + o[2] - radius,
+                    ]
+                    nat.fig_axle[leg.name] = None
+
+            if t < t1:
+                sc = _smooth(t / t1)
+                robot.base[2] = base + ride * (1 - 0.12 * sc) + radius
+                robot.base[3] = robot.base[4] = 0.0
+                place(lambda leg, h: h + radius)
+            else:
+                if hold["q"] is None:
+                    hold["q"] = list(robot.q)
+                    hold["z"] = base + radius - robot.base[2]
+                    hold["sx"] = hold["sy"] = 0.0
+                if t < t2:
+                    k = _smooth((t - t1) / fig.rise)
+                    tilt(k, fig.angle * k)
+                elif t < t3:
+                    sh = (t - t2) / fig.hold
+                    tilt(1.0, fig.angle + math.sin(sh * math.pi * 5) * fig.wobble)
+                else:
+                    sd = _smooth((t - t3) / fig.drop)
+                    if sd < 0.65:
+                        k = 1 - sd / 0.65
+                        tilt(k, fig.angle * k)
+                    else:
+                        u = _smooth((sd - 0.65) / 0.35)
+                        robot.base[3] = robot.base[4] = 0.0
+                        robot.base[2] = base + ride * (0.88 + 0.12 * u) + radius
+                        cy2, sy3 = math.cos(robot.base[5]), math.sin(robot.base[5])
+                        for i, leg in enumerate(model.legs):
+                            nx, ny = leg.x, leg.y + leg.mirror * model.abad_plane
+                            wx = robot.base[0] + cy2 * nx - sy3 * ny
+                            wy = robot.base[1] + sy3 * nx + cy2 * ny
+                            h = robot.terrain.height_at(wx, wy)
+                            target = constrain(model, leg,
+                                               (nx, ny, h + radius - robot.base[2]))
+                            g = kin.inverse(leg, *target, model=model)
+                            q0 = hold["q"]
+                            unwrap(robot.q, i,
+                                   [q0[i * 3 + j] + (g[j] - q0[i * 3 + j]) * u
+                                    for j in range(3)])
+                            robot.contacts[i] = True
+                            robot.foot_world[leg.name] = [wx, wy, h]
+                            nat.fig_axle[leg.name] = None
         elif fig.kind == "spin":
             t1, t2 = fig.arm, fig.arm + fig.spin
             if t < t1:
@@ -361,6 +460,7 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
         "takeoff_vz_ms": fig.vz,
         "rotation_deg": round(360.0 * fig.turns if fig.kind == "flip" else 0.0, 1),
         "twist_deg": round(360.0 * (fig.turns if fig.kind == "spin" else fig.twist), 1),
+        "tilt_deg": round(math.degrees(abs(fig.angle)) if fig.kind == "tilt" else 0.0, 1),
         "travel_m": 0.0,
     }
 

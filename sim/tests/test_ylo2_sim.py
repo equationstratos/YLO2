@@ -423,8 +423,8 @@ class TestWheelFigures(unittest.TestCase):
         self.assertIn("backflip", legs.figures())
         wheels = Robot(rate=50, mode="roues")
         self.assertEqual(wheels.figures(),
-                         ["pirouette", "wheeldoubleflip", "wheelflip", "wheelie",
-                          "wheeljump", "wheeltwist540"])
+                         ["pirouette", "sidestand", "wheeldoubleflip", "wheelflip",
+                          "wheelie", "wheeljump", "wheeltwist540"])
         with self.assertRaises(KeyError):
             wheels.figure("backflip")
 
@@ -436,12 +436,42 @@ class TestWheelFigures(unittest.TestCase):
             self.assertLess(report["peak_joint_velocity_rad_s"], DEFAULT.velocity_max, name)
             self.assertLess(abs(robot.base[4]), 0.05, name)        # repose à plat
 
-    def test_wheelie_lifts_the_front(self):
+    def test_wheelie_stands_the_chassis_up(self):
         robot, _ = self._run("wheelie")
         pitches = [f["base"][4] for f in robot.frames]
-        self.assertLess(min(pitches), -0.4)                        # nez en l'air
+        self.assertLess(min(pitches), -1.4)                        # quasi vertical
         lifted = [f for f in robot.frames if sum(f["contact"]) == 2]
         self.assertGreater(len(lifted), 100)                       # deux roues au sol
+        self.assertEqual(self._grounded(robot), {"lh", "rh"})      # le train arrière
+        self._check_wheels_on_the_ground(robot)
+
+    def test_sidestand_balances_on_the_right_wheels(self):
+        robot, _ = self._run("sidestand")
+        rolls = [f["base"][3] for f in robot.frames]
+        self.assertGreater(max(rolls), 1.35)                       # sur la tranche
+        self.assertEqual(self._grounded(robot), {"rf", "rh"})      # le côté droit
+        self._check_wheels_on_the_ground(robot)
+        self.assertLess(abs(robot.base[3]), 0.02)                  # remis à plat
+
+    def _grounded(self, robot):
+        """Roues en contact au milieu de la tenue."""
+        frame = robot.frames[int(len(robot.frames) * 0.5)]
+        return {leg.name for i, leg in enumerate(robot.model.legs) if frame["contact"][i]}
+
+    def _check_wheels_on_the_ground(self, robot):
+        """Le basculement est rigide : les roues d'appui touchent exactement."""
+        frame = robot.frames[int(len(robot.frames) * 0.5)]
+        roll, pitch = frame["base"][3], frame["base"][4]
+        cr, sr = math.cos(roll), math.sin(roll)
+        cp, sp = math.cos(pitch), math.sin(pitch)
+        for i, leg in enumerate(robot.model.legs):
+            p = kin.forward(leg, frame["q"][i * 3:i * 3 + 3], robot.model)
+            z = frame["base"][2] + (-sp * p[0] + cp * (sr * p[1] + cr * p[2]))
+            tyre = z - gait.WHEEL_RADIUS
+            if frame["contact"][i]:
+                self.assertAlmostEqual(tyre, 0.0, places=3, msg=leg.name)
+            else:
+                self.assertGreater(tyre, 0.25, leg.name)           # franchement en l'air
 
     def test_wheel_double_flip_turns_twice(self):
         robot, info = self._run("wheeldoubleflip")
