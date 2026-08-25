@@ -244,28 +244,31 @@
           footVisual.add(tag(ball, "foot", [0, 0, -0.18]));
         }
 
-        // roue motrice, à la manière des Go2-W : l'axe remplace le pied et le
-        // contact se fait au bas du pneu, soit un rayon sous l'axe
+        // Roue motrice, à la manière des Go2-W. L'essieu est porté par la
+        // jambe : il reste parallèle à l'axe du genou, donc à Y local. Le
+        // moyeu est confondu avec l'origine du repère « foot », que la
+        // cinématique inverse place à un rayon au-dessus du sol — la roue ne
+        // doit surtout pas être décalée le long de la jambe, sinon elle
+        // flotte de la valeur de ce décalage projetée à la verticale.
         const wheelR = 0.075;
         const wheel = new T.Group();
-        wheel.position.set(0, L.m * 0.012, wheelR);
-        const tyre = new T.Mesh(new T.TorusGeometry(wheelR * 0.82, wheelR * 0.18, 12, 28),
+        wheel.position.set(0, L.m * 0.012, 0);
+        // tore : son axe est Z, on le bascule sur Y pour l'aligner sur l'essieu
+        const tyre = new T.Mesh(new T.TorusGeometry(wheelR * 0.82, wheelR * 0.18, 14, 30),
           Y.Mat.get("wheel"));
         tyre.rotation.x = Math.PI / 2;
-        const rim = new T.Mesh(new T.CylinderGeometry(wheelR * 0.7, wheelR * 0.7, 0.026, 20),
+        // cylindres : leur axe est déjà Y, il ne faut pas les tourner
+        const rim = new T.Mesh(new T.CylinderGeometry(wheelR * 0.72, wheelR * 0.72, 0.030, 24),
           Y.Mat.get("rim"));
-        rim.rotation.x = Math.PI / 2;
-        const hubCap = new T.Mesh(new T.CylinderGeometry(wheelR * 0.24, wheelR * 0.24, 0.034, 14),
+        const hubCap = new T.Mesh(new T.CylinderGeometry(wheelR * 0.26, wheelR * 0.26, 0.042, 16),
           Y.Mat.get("abad"));
-        hubCap.rotation.x = Math.PI / 2;
-        for (let k = 0; k < 5; k++) {                 // rayons
-          const spoke = new T.Mesh(new T.BoxGeometry(wheelR * 1.25, 0.012, 0.016),
+        for (let k = 0; k < 6; k++) {                 // rayons, dans le plan XZ
+          const spoke = new T.Mesh(new T.BoxGeometry(wheelR * 1.3, 0.014, 0.018),
             Y.Mat.get("rim"));
-          spoke.rotation.y = k * Math.PI / 5;
+          spoke.rotation.y = k * Math.PI / 6;
           wheel.add(spoke);
         }
         wheel.add(tyre, rim, hubCap);
-        wheel.rotation.z = 0;
         wheel.visible = false;
         tag(wheel, "wheels", [0, L.m * 0.3, -0.1]);
         foot.add(wheel);
