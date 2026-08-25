@@ -470,27 +470,37 @@ class TestSession(unittest.TestCase):
 
         self.assertEqual(report["limit_violations"], {})
         self.assertEqual(report["unreachable_targets"], 0)
-        # Un instant sur trois mille dépasse brièvement les 20 rad/s déclarés,
-        # à l'amorce d'une figure lancée en roulant. On borne ce qu'on
-        # constate plutôt que de prétendre au propre.
-        self.assertLess(report["peak_joint_velocity_rad_s"], 23.0)
-        prev, over = None, 0
-        for frame in robot.frames:
-            if prev is not None:
-                speed = max(abs(a - b) for a, b in zip(frame["q"], prev)) / robot.dt
-                over += speed > DEFAULT.velocity_max
-            prev = frame["q"]
-        self.assertLess(over / len(robot.frames), 0.005)          # moins de 0,5 %
+        self.assertLess(report["peak_joint_velocity_rad_s"], DEFAULT.velocity_max)
+
         # tout le run tient entre les deux quarter pipes
         xs = [f["base"][0] for f in robot.frames]
         self.assertGreater(min(xs), -2.60)
         self.assertLess(max(xs), 7.80)
-        # les neuf figures ont bien été jouées, dans l'ordre
+        # la ligne, dans l'ordre
         self.assertEqual(played, [
-            "Cabrage", "Saut", "Salto avant roues", "Salto latéral gauche",
-            "Pirouette", "Salto latéral droit", "540 McTwist roues",
-            "Double salto roues", "Slide"])
-        self.assertAlmostEqual(robot.natural.vx, 0.0, places=2)    # fini à l'arrêt
+            "Cabrage", "Saut", "Salto avant roues", "Pirouette",
+            "Salto latéral droit", "540 McTwist roues", "Slide"])
+        self.assertAlmostEqual(robot.natural.vx, 0.0, places=2)   # fini à l'arrêt
+
+    def test_the_ramps_launch_the_figures(self):
+        """Les figures aériennes décollent d'une rampe, pas du plat."""
+        park = terrain.get("skatepark")
+        for name, lip, approach in (("wheeljump", 2.10, 1.34),
+                                    ("wheelfrontflip", 4.30, 3.95)):
+            fig = stunts.WHEEL_FIGURES[name]
+            robot = Robot(rate=200, mode="roues", terrain="skatepark")
+            robot.recenter()
+            while robot.base[0] < approach:
+                robot.walk(vx=1.4, seconds=0.01)
+            start = len(robot.frames)
+            robot.figure(name)
+            # image où la poussée se termine : c'est là que le robot quitte le sol
+            k = start + int((fig.crouch + fig.push) / robot.dt)
+            x = robot.frames[k]["base"][0]
+            self.assertGreater(park.height_at(x, 0.0), 0.05, name)   # sur la rampe
+            self.assertLess(abs(x - lip), 0.35, name)                # près de la lèvre
+            self.assertLess(robot.report()["peak_joint_velocity_rad_s"],
+                            DEFAULT.velocity_max, name)
 
 
 class TestWheelFigures(unittest.TestCase):

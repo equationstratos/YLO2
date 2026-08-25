@@ -27,36 +27,37 @@
    * kicker 1,40 → 2,10 · funbox 3,60 → 6,00 · quarter à 7,80 et −2,60.
    */
   const RUN = [
-    { act: "roll", to: 0.55, v: 1.6, say: "mise en route" },
+    // Une figure décolle 0,76 s après le déclenchement (armement + poussée) :
+    // à 1,4 m/s d'élan, ça fait 0,76 m. Les déclenchements sont donc placés
+    // trois quarts de mètre avant la lèvre visée, pour que la POUSSÉE tombe
+    // dessus et que ce soit la rampe qui lance le robot — comme en skate.
+    //
+    // Lèvres du parc : kicker 2,10 · funbox 4,30 · descente du funbox 5,30
+    // (une lèvre quand on la remonte en sens inverse) · kicker 2,10 encore
+    // au retour. Une figure court ensuite 2,6 à 3,2 m : c'est de l'ordre de
+    // l'écart entre deux modules, et c'est ce qui limite la ligne à six
+    // figures — comme une vraie ligne de skate.
+    { act: "roll", to: 0.40, v: 1.4, say: "mise en route" },
     { act: "brake", say: "pose avant le cabrage" },
-    { act: "fig", id: "wheelie", hold: 1.2, say: "cabrage d'entrée" },
+    { act: "fig", id: "wheelie", hold: 1.1, say: "cabrage d'entrée" },
 
-    { act: "roll", to: 1.15, v: 0.8, say: "approche du kicker" },
-    { act: "fig", id: "wheeljump", say: "saut sur le kicker" },
+    { act: "roll", to: 1.34, v: 1.4, say: "élan vers le kicker" },
+    { act: "fig", id: "wheeljump", say: "saut lancé par le kicker" },
 
-    { act: "roll", to: 2.60, v: 2.2, say: "relance" },
-    { act: "roll", to: 3.20, v: 0.8, say: "approche du funbox" },
-    { act: "fig", id: "wheelfrontflip", say: "salto avant par-dessus le funbox" },
-
-    { act: "roll", to: 5.10, v: 0.8, say: "sortie de funbox" },
-    { act: "fig", id: "wheelsideflipL", say: "salto latéral gauche" },
+    { act: "roll", to: 3.95, v: 1.4, say: "élan vers le funbox" },
+    { act: "fig", id: "wheelfrontflip", say: "salto avant lancé par le funbox" },
 
     { act: "roll", to: 6.90, v: 1.8, say: "relance vers le quarter" },
     { act: "brake", say: "pose au pied du quarter" },
     { act: "fig", id: "pirouette", say: "pirouette — demi-tour" },
 
-    { act: "roll", to: 6.30, v: 0.8, say: "retour" },
-    { act: "fig", id: "wheelsideflipR", say: "salto latéral droit" },
+    { act: "roll", to: 5.72, v: 1.4, say: "élan vers la descente du funbox" },
+    { act: "fig", id: "wheelsideflipR", say: "salto latéral lancé par le funbox" },
 
-    { act: "roll", to: 4.60, v: 2.2, say: "relance" },
-    { act: "roll", to: 3.40, v: 0.8, say: "approche" },
-    { act: "fig", id: "wheeltwist540", say: "540 McTwist — réception en fakie" },
+    { act: "roll", to: 2.72, v: 1.4, say: "élan vers le kicker, à l'envers" },
+    { act: "fig", id: "wheeltwist540", say: "540 McTwist lancé par le kicker — fakie" },
 
-    { act: "roll", to: 1.70, v: 1.4, say: "retour fakie" },
-    { act: "roll", to: 1.40, v: 0.8, say: "approche" },
-    { act: "fig", id: "wheeldoubleflip", say: "double salto" },
-
-    { act: "roll", to: -0.80, v: 2.4, say: "lancement du slide" },
+    { act: "roll", to: -0.40, v: 2.2, say: "lancement du slide" },
     { act: "fig", id: "powerslide", say: "slide final" },
     { act: "pause", hold: 1.4, say: "fin de session" }
   ];

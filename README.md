@@ -405,32 +405,42 @@ qui suit. Le script est une liste d'actes — *rouler jusqu'à*, *freiner*,
 *figure*, *pause* — et chacun sait quand il est fini : c'est ce qui donne le
 rythme, on n'attend pas un chrono, on attend d'être arrivé.
 
-| | Figure | Départ → arrivée | Sur quoi |
-| --- | --- | --- | --- |
-| 1 | Cabrage tenu 1,2 s | 0,75 (à l'arrêt) | entrée de parc |
-| 2 | Saut | 1,11 → 2,07 | le kicker |
-| 3 | Salto avant | 3,16 → 4,30 | le funbox |
-| 4 | Salto latéral gauche | 5,04 → 5,91 | sortie de funbox |
-| 5 | Pirouette | 7,21 (à l'arrêt) | demi-tour au pied du quarter |
-| 6 | Salto latéral droit | 6,35 → 5,27 | retour |
-| 7 | 540 McTwist | 3,42 → 1,98 | **réception en fakie** |
-| 8 | Double salto | 1,44 → 0,02 | retour fakie |
-| 9 | Slide | −0,80 → −1,85 | fin de session |
+| | Figure | Lancée par | Décollage | Départ → arrivée |
+| --- | --- | --- | --- | --- |
+| 1 | Cabrage tenu 1,1 s | — (à l'arrêt) | — | 0,58 |
+| 2 | Saut | **le kicker** | x 1,82, sol 64 mm | 1,33 → 2,97 |
+| 3 | Salto avant | **le funbox** | x 4,32, sol **180 mm** (la lèvre) | 3,90 → 5,35 |
+| 4 | Pirouette | — (demi-tour à l'arrêt) | — | 7,19 |
+| 5 | Salto latéral | **la descente du funbox** | x 5,39, sol 154 mm | 5,77 → 4,44 |
+| 6 | 540 McTwist | **le kicker, à l'envers** | x 2,12 | 2,77 → 0,49, **fakie** |
+| 7 | Slide | — | — | −0,38 → −1,47 |
 
-Trois choses ont demandé du soin. **Une figure emporte le robot** pendant toute
-sa durée — à 0,8 m/s un salto en déplace 1,5 m — donc les approches sont lentes
-et les figures déclenchées *avant* le module, pour que le vol passe dessus et
-non devant. **Les tenues et la pirouette se posent à l'arrêt** : sans ce temps
-mort, le cabrage emportait le robot de quatre mètres et tout le run se décalait.
-Et la **direction n'est jamais tenue en compte à la main** : le script vise une
-abscisse dans le monde, et le signe de la consigne se déduit de
-`vx · direction · cos(cap)` — la pirouette retourne le nez, le 540 inverse le
-sens de marche, et cette seule ligne encaisse les deux.
+Quatre des sept sont **lancées par une rampe**. Une figure décolle 0,76 s après
+son déclenchement — armement plus poussée — soit 0,76 m à 1,4 m/s d'élan : les
+déclenchements sont donc placés trois quarts de mètre avant la lèvre visée,
+pour que **la poussée tombe dessus**. Le salto avant quitte le sol exactement
+sur la lèvre du funbox, à 180 mm, et culmine à 0,99 m.
 
-Relevé sur le run complet, à 100 Hz : **31,8 s, aucune butée, aucune cible hors
-de portée**, et un pic de 21,6 rad/s — **un instant sur 3 176** dépasse
-brièvement les 20 rad/s déclarés, à l'amorce d'une figure lancée en roulant.
-Le même enchaînement en script : `ylo2-sim run sim/scripts/session.py`.
+Ça a demandé trois corrections dans les figures elles-mêmes :
+
+- **l'armement et la poussée suivent le relief réel** sous le robot, plus celui
+  du déclenchement. C'est ce qui permet de monter *avec* la rampe au lieu de
+  rester à la hauteur du plat ;
+- **le vol part de la hauteur réellement atteinte** au décollage, et la
+  réception vise le sol qui est sous le robot à ce moment-là — on part d'une
+  lèvre à 180 mm et on retombe sur le plat ;
+- une rampe est découpée en tranches de 50 mm : suivre leur escalier brut
+  faisait sauter la caisse de 13 mm d'une image à l'autre, donc le sol de
+  référence est **filtré**.
+
+Une figure court ensuite 2,6 à 3,2 m — l'ordre de grandeur de l'écart entre
+deux modules. C'est ce qui limite la ligne à six figures plus le slide, comme
+une vraie ligne de skate.
+
+Relevé sur le run complet : **25,6 s, pic 12,9 rad/s, aucune butée, aucune
+cible hors de portée** — tout le run tient sous les 20 rad/s déclarés, ce qui
+n'était pas le cas avant ce passage. Le même enchaînement en script :
+`ylo2-sim run sim/scripts/session.py`.
 
 Un décompte corrigé en chemin : `clamp_command` saturait la consigne au maximum
 de la **marche** (1,7 m/s) dans les deux modes, alors que la couche roues en

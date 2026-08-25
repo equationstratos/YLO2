@@ -409,7 +409,7 @@
     { file: "skatepark.py", name: "Skatepark",
       desc: "La mini-plaza en pattes puis en roues, recentrage et cabrage tenu." },
     { file: "session.py", name: "Session",
-      desc: "Le run complet : neuf figures placées sur le relief, slide final." }
+      desc: "Le run complet : quatre figures lancées par les rampes, slide final." }
   ];
 
   function buildSimPane() {

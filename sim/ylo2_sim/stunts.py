@@ -257,12 +257,56 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
                if (fig.twist or fig.kind == "slide") else None)
     carry = carry_v
     fakie = [False]
+    land_z0 = [None]
+    takeoff_z = [None]
+    ref = [None]
+    entry_z = [robot.base[2]]
+    entry_att = (robot.base[3], robot.base[4])
+
+    def ground_ref() -> float:
+        """Sol de référence de la caisse, suivi mais filtré.
+
+        Il suit le relief RÉEL sous le robot — c'est ce qui permet de prendre
+        l'élan sur une rampe, de monter avec elle et de sauter depuis sa
+        lèvre — mais une rampe est découpée en tranches de 50 mm, et suivre
+        leur escalier brut faisait sauter la caisse de 13 mm par image.
+        """
+        here = robot.terrain.height_at(robot.base[0], robot.base[1])
+        if ref[0] is None:
+            ref[0] = here
+        ref[0] += (here - ref[0]) * min(1.0, dt * 12)
+        return ref[0]
+
+    def entry_blend(t: float) -> float:
+        return _smooth(min(1.0, t / max(fig.crouch * 0.6, 1e-3)))
+
+    def body_z(k: float, t: float) -> float:
+        """Hauteur de caisse, fondue depuis celle d'où l'on vient."""
+        want = ground_ref() + ride * k + radius
+        return entry_z[0] + (want - entry_z[0]) * entry_blend(t)
+
+    def fade_attitude(t: float) -> None:
+        """Fond l'assiette depuis celle de la marche.
+
+        La couche roues incline la caisse selon la pente et le dévers ; une
+        figure repart de zéro. Sans ce fondu, remettre l'assiette à plat d'une
+        image tournait tout le repère des jambes d'un coup — 32 rad/s.
+        """
+        e = entry_blend(t)
+        robot.base[3] = entry_att[0] + (robot.base[3] - entry_att[0]) * e
+        robot.base[4] = entry_att[1] + (robot.base[4] - entry_att[1]) * e
     prev_a: Dict[str, List[float]] = {}
     # On amorce le limiteur de débattement sur la position réelle des pieds :
     # sinon la toute première image saute d'un rayon de roue (le pied est au
     # sol, l'essieu se veut à 75 mm) et coûte 57 rad/s.
+    # Le limiteur compare des hauteurs dans le repère HORIZONTAL, pas dans
+    # celui de la caisse : sous 8° d'assiette les deux diffèrent de 26 mm, et
+    # le rattrapage en une image coûtait 35 rad/s.
+    _cr, _sr = math.cos(robot.base[3]), math.sin(robot.base[3])
+    _cp, _sp = math.cos(robot.base[4]), math.sin(robot.base[4])
     for i, leg in enumerate(model.legs):
-        nat.fig_axle[leg.name] = kin.forward(leg, robot.q[i * 3:i * 3 + 3], model)[2]
+        _p = kin.forward(leg, robot.q[i * 3:i * 3 + 3], model)
+        nat.fig_axle[leg.name] = -_sp * _p[0] + _cp * (_sr * _p[1] + _cr * _p[2])
 
     def place(axle, contact_of=None) -> None:
         cy, sy = math.cos(robot.base[5]), math.sin(robot.base[5])
@@ -513,21 +557,25 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
             spinning = bool(fig.turns or fig.roll_turns)
             if t < t1:
                 s = _smooth(t / t1)
-                robot.base[2] = base + ride * (1 + (fig.crouch_z - 1) * s) + radius
+                robot.base[2] = body_z(1 + (fig.crouch_z - 1) * s, t)
                 robot.base[4] = arm_p * s
                 robot.base[3] = -0.10 * fig.roll_turns * s
+                fade_attitude(t)
                 place(lambda leg, h: h + radius)
             elif t < t2:
                 s = _smooth((t - t1) / fig.push)
-                robot.base[2] = base + ride * (fig.crouch_z + (1.18 - fig.crouch_z) * s) + radius
+                robot.base[2] = body_z(fig.crouch_z + (1.18 - fig.crouch_z) * s, t)
                 robot.base[4] = arm_p + (off_p - arm_p) * s
                 robot.base[3] = (-0.10 * fig.roll_turns
                                  + (-0.30 * fig.roll_turns) * s)
+                fade_attitude(t)
                 place(lambda leg, h: h + radius)
+                takeoff_z[0] = robot.base[2]         # la lèvre : d'où part le vol
             elif t < t3:
                 tf = t - t2
                 s = tf / fig.flight
-                robot.base[2] = base + ride + radius + fig.vz * tf - 0.5 * G_ACC * tf * tf
+                top = takeoff_z[0] if takeoff_z[0] is not None else base + ride + radius
+                robot.base[2] = top + fig.vz * tf - 0.5 * G_ACC * tf * tf
                 if spinning:
                     if fig.turns:
                         robot.base[4] = off_p + (-math.tau * fig.turns * sense - off_p) * _smoother(s)
@@ -553,7 +601,13 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
                     place(lambda leg, h, hang=hang: robot.base[2] - hang, lambda leg: False)
             elif t < t4:
                 s = _smooth((t - t3) / fig.land)
-                robot.base[2] = base + ride * (1.0 - 0.20 * s) + radius
+                # On se reçoit sur le sol qui est SOUS le robot, pas sur celui
+                # d'où il a décollé : c'est ce qui permet de partir de la lèvre
+                # d'une rampe et de retomber sur le plat.
+                if land_z0[0] is None:
+                    land_z0[0] = robot.base[2]
+                target_z = ground_ref() + ride * 0.80 + radius
+                robot.base[2] = land_z0[0] + (target_z - land_z0[0]) * s
                 robot.base[4] = (0.10 * s) if spinning else (0.10 - 0.04 * s)
                 # un tour de roulis ramène la caisse à l'endroit : 2π et 0,
                 # c'est la même orientation, on recale sans dérouler à l'envers
@@ -590,7 +644,7 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
                     place(lambda leg, h: h + radius, lambda leg, s=s: s > 0.4)
             else:
                 s = _smooth((t - t4) / fig.recover)
-                robot.base[2] = base + ride * (0.80 + 0.20 * s) + radius
+                robot.base[2] = ground_ref() + ride * (0.80 + 0.20 * s) + radius
                 robot.base[4] = 0.10 * (1 - s)
                 robot.base[3] *= 1 - min(1.0, dt * 8)
                 place(lambda leg, h: h + radius)
@@ -607,6 +661,8 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
         nat.vx = 0.0
     if fig.twist:
         robot.base[5] = yaw0 + math.tau * fig.twist
+    robot.base[2] = (robot.terrain.height_at(robot.base[0], robot.base[1])
+                     + ride + radius)
     nat.z_body, nat.vz = robot.base[2], 0.0
     nat.blend_from(robot.q, 0.28)
     for leg in model.legs:

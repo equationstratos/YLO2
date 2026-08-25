@@ -4,9 +4,10 @@ Même enchaînement que le bouton « Session AUTO » du visualiseur. Les cotes
 renvoient au terrain `skatepark` : kicker 1,40 → 2,10, funbox 3,60 → 6,00,
 quarter pipes à 7,80 et -2,60.
 
-Une figure emporte le robot pendant toute sa durée : à 0,8 m/s un salto en
-déplace 1,5 m. Les approches sont donc lentes et les figures déclenchées
-avant le module, pour que le vol passe dessus et non devant.
+Une figure décolle 0,54 s après le déclenchement (armement + poussée) : à
+1,8 m/s d'élan, ça fait 0,97 m. Les déclenchements sont donc placés presque
+un mètre avant la lèvre visée, pour que la POUSSÉE tombe dessus et que ce
+soit la rampe qui lance le robot — comme en skate.
 """
 import math
 
@@ -14,18 +15,13 @@ from ylo2_sim import Robot, main
 
 # (abscisse d'approche, vitesse d'approche, figure) — None = simple relance
 RUN = [
-    (0.55, 1.6, None), (None, None, "STOP"), (None, None, "wheelie"),
-    (1.15, 0.8, "wheeljump"),
-    (2.60, 2.2, None),
-    (3.20, 0.8, "wheelfrontflip"),
-    (5.10, 0.8, "wheelsideflipL"),
+    (0.40, 1.4, None), (None, None, "STOP"), (None, None, "wheelie"),
+    (1.34, 1.4, "wheeljump"),          # lèvre du kicker à 2,10
+    (3.95, 1.4, "wheelfrontflip"),     # lèvre du funbox à 4,30
     (6.90, 1.8, None), (None, None, "STOP"), (None, None, "pirouette"),
-    (6.30, 0.8, "wheelsideflipR"),
-    (4.60, 2.2, None),
-    (3.40, 0.8, "wheeltwist540"),
-    (1.70, 1.4, None),
-    (1.40, 0.8, "wheeldoubleflip"),
-    (-0.80, 2.4, "powerslide"),
+    (5.72, 1.4, "wheelsideflipR"),     # descente du funbox, lèvre à 5,30
+    (2.72, 1.4, "wheeltwist540"),      # kicker à 2,10, en sens inverse
+    (-0.40, 2.2, "powerslide"),
 ]
 
 
@@ -60,7 +56,7 @@ def build(robot: Robot) -> None:
         if figure is None:
             continue
         start = robot.base[0]
-        kwargs = {"hold_seconds": 1.2} if figure == "wheelie" else {}
+        kwargs = {"hold_seconds": 1.1} if figure == "wheelie" else {}
         try:
             info = robot.figure(figure, **kwargs)
         except ValueError as refus:            # tenue sur sol non plat
@@ -69,6 +65,9 @@ def build(robot: Robot) -> None:
         print("%-20s  x %5.2f -> %5.2f  (%.2f s)"
               % (info["figure"], start, robot.base[0], info["duration_s"]))
 
+    # le slide s'arrête tout seul, mais la consigne date de la relance :
+    # sans la remettre à zéro, la tenue finale relance le robot
+    robot.command(vx=0.0, vy=0.0, wz=0.0)
     robot.brake(1.0)
     robot.hold(1.2)
     report = robot.report()

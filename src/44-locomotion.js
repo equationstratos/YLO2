@@ -726,7 +726,8 @@
   const run = { fig: null, t: 0, takeoffQ: null, yaw0: 0, ground: 0,
                 holdQ: null, holdZ: 0, shiftX: 0, shiftY: 0,
                 carry: null, fakie: false, holdT: 0, release: false, prevA: {},
-                entryQ: null };
+                entryQ: null, landZ0: null, takeoffZ: null,
+                groundRef: null, entryZ: null };
 
   function stepFigure(dt, state) {
     const f = run.fig;
@@ -1140,25 +1141,51 @@
       // une figure « tourne » dès qu'elle pivote autour d'un axe : tangage
       // (saltos avant et arrière) ou roulis (saltos latéraux)
       const spinning = !!(f.turns || f.rollTurns);
+      /**
+       * Sol de référence de la caisse pendant les phases au sol.
+       *
+       * Il suit le relief RÉEL sous le robot — c'est ce qui permet de prendre
+       * l'élan sur une rampe, de monter avec elle et de sauter depuis sa
+       * lèvre — mais filtré : une rampe est découpée en tranches de 50 mm, et
+       * suivre leur escalier brut faisait sauter la caisse de 13 mm d'une
+       * image à l'autre. Le premier appel se cale sur la hauteur d'où l'on
+       * vient, pour que l'entrée en figure ne claque pas non plus.
+       */
+      const groundRef = function () {
+        const here = terrainAt(state.px, state.py);
+        if (run.groundRef === null) run.groundRef = here;
+        run.groundRef = lerp(run.groundRef, here, Math.min(1, dt * 12));
+        return run.groundRef;
+      };
+      const bodyZ = function (k) {
+        const want = groundRef() + ride * k + WHEEL_R;
+        if (run.entryZ === null) return want;
+        const e = smooth(Math.min(1, t / Math.max(f.crouch * 0.6, 1e-3)));
+        return lerp(run.entryZ, want, e);
+      };
+
       if (t < t1) {
         phase = "armement";
         const s = smooth(t / t1);
-        state.z = base + ride * lerp(1, f.crouchZ, s) + WHEEL_R;
+        state.z = bodyZ(lerp(1, f.crouchZ, s));
         state.pitch = lerp(0, armPitch, s);
         state.roll = lerp(0, -0.10 * (f.rollTurns || 0), s);
         place(function (L, h) { return h + WHEEL_R; });
       } else if (t < t2) {
         phase = "poussée";
         const s = smooth((t - t1) / f.push);
-        state.z = base + ride * lerp(f.crouchZ, 1.18, s) + WHEEL_R;
+        state.z = bodyZ(lerp(f.crouchZ, 1.18, s));
         state.pitch = lerp(armPitch, offPitch, s);
         state.roll = lerp(-0.10 * (f.rollTurns || 0), -0.40 * (f.rollTurns || 0), s);
         place(function (L, h) { return h + WHEEL_R; });
+        run.takeoffZ = state.z;                 // la lèvre : d'où part le vol
       } else if (t < t3) {
         phase = spinning ? "vol" : "envol";
         const tf = t - t2;
         const s = tf / f.flight;
-        state.z = takeoff * 1.0 + f.vz * tf - 0.5 * G_ACC * tf * tf;
+        // vol balistique depuis la hauteur réellement atteinte au décollage
+        state.z = (run.takeoffZ === null ? takeoff : run.takeoffZ)
+          + f.vz * tf - 0.5 * G_ACC * tf * tf;
         if (f.turns) {
           state.pitch = offPitch + (-2 * Math.PI * f.turns * sense - offPitch) * smoother(s);
           if (f.twist) {                              // vrille + gîte du McTwist
@@ -1192,7 +1219,12 @@
       } else if (t < t4) {
         phase = "réception";
         const s = smooth((t - t3) / f.land);
-        state.z = base + ride * lerp(1.0, 0.80, s) + WHEEL_R;
+        // On se reçoit sur le sol qui est SOUS le robot, pas sur celui d'où
+        // il a décollé. C'est ce qui permet de partir de la lèvre d'une rampe
+        // et de retomber sur le plat : le vol reste balistique depuis le
+        // point haut, et la réception absorbe le reste de la chute.
+        if (run.landZ0 === null) run.landZ0 = state.z;
+        state.z = lerp(run.landZ0, groundRef() + ride * 0.80 + WHEEL_R, s);
         state.pitch = spinning ? lerp(0, 0.10, s) : lerp(0.10, 0.06, s);
         // un tour de roulis ramène la caisse à l'endroit : 2π et 0, c'est la
         // même orientation, on recale sans dérouler la rotation à l'envers
@@ -1236,7 +1268,7 @@
       } else {
         phase = "stabilisation";
         const s = smooth((t - t4) / f.recover);
-        state.z = base + ride * lerp(0.80, 1.0, s) + WHEEL_R;
+        state.z = groundRef() + ride * lerp(0.80, 1.0, s) + WHEEL_R;
         state.pitch = lerp(0.10, 0, s);
         state.roll = lerp(state.roll, 0, Math.min(1, dt * 8));
         place(function (L, h) { return h + WHEEL_R; });
@@ -1251,6 +1283,7 @@
       if (f.kind === "spin") { state.yaw = run.yaw0 + 2 * Math.PI * f.turns; nat.wz = 0; }
       if (f.kind === "slide") { state.yaw = run.yaw0 + f.yawSweep * (f.side || 1); nat.vx = 0; }
       if (f.twist) state.yaw = run.yaw0 + 2 * Math.PI * f.twist;
+      state.z = terrainAt(state.px, state.py) + ride + WHEEL_R;
       nat.zBody = state.z; nat.vz = 0;
       run.carry = null;
       Y.LEGS.forEach(function (L) { nat.wheelZ[L.id] = null; nat.wstep[L.id] = null; });
@@ -1298,7 +1331,8 @@
       if (f.kind === "tilt" && this.levelUnderWheels() > 0.03) return "pente";
       run.fig = f; run.t = 0; run.takeoffQ = null; run.entryQ = captureQ();
       run.holdQ = null; run.shiftX = 0; run.shiftY = 0;
-      run.fakie = false; run.holdT = 0; run.release = false;
+      run.fakie = false; run.holdT = 0; run.release = false; run.landZ0 = null; run.takeoffZ = null;
+      run.groundRef = null; run.entryZ = Y.Motion.state.z;
       // on amorce le limiteur de débattement sur la position réelle des pieds :
       // sinon la première image saute d'un rayon de roue et coûte 57 rad/s
       Y.LEGS.forEach(function (L) {
