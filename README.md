@@ -13,6 +13,8 @@ par un générateur d'allure dans le navigateur, soit par des **scripts Python**
 
 ![roues motrices](docs/preview-roues.png)
 
+![cabrage sur roues](docs/preview-cabrage.png)
+
 ## Trois pièces
 
 | | Où | Quoi |
@@ -237,9 +239,32 @@ cabrage à l'accélération, inclinaison dans les virages, roues qui tournent à
 ω = v / R avec différentiel de virage. Sur le plat, il couvre 15 m en 8 s là où
 les pattes en font 8 — et sans presque bouger les articulations.
 
-Ce qu'il ne fait pas : monter une marche plus haute que la roue. Le bandeau
-affiche alors un avertissement et invite à repasser sur pattes, exactement
-comme un Go2-W bascule en mode marche devant un obstacle.
+**Arrêt.** Le bouton **Statique** sert de frein en mode roues (touche `S`) : il
+remet les consignes à zéro et le robot s'arrête franchement — la décélération
+est plus vive que l'accélération (4,5 contre 2,4 m/s²), et la vitesse est
+remise exactement à zéro sous 2 cm/s pour qu'il ne reste pas de dérive.
+
+**Obstacles en roues.** Une roue de 75 mm ne monte pas une marche de 130 mm :
+la patte la soulève par-dessus. Chaque patte surveille le relief 22 cm devant
+sa roue et, quand la marche dépasse 45 % du rayon, elle exécute un
+franchissement de 0,34 s — deux pattes au maximum en même temps, jamais deux
+diagonales opposées, et seulement sous 1,5 m/s. C'est ce que fait un Go2-W
+devant un escalier. Résultat mesuré : l'escalier de huit marches est franchi en
+roues, montée, palier et descente, avec un pic articulaire de 14,5 rad/s.
+
+### Figures sur roues
+
+| | Cabrage | Pirouette | Saut | Salto roues |
+| --- | --- | --- | --- | --- |
+| Durée | 2,40 s | 1,77 s | 1,53 s | 1,82 s |
+| Ce qui se passe | train avant levé de 34°, tenue sur deux roues | 540° sur place, caisse inclinée à 11° | vol de 0,47 s, apex +0,27 m | tour complet, vol 0,60 s, apex +0,44 m |
+| Pic articulaire | 5,6 rad/s | 14,5 rad/s | 11,0 rad/s | 7,9 rad/s |
+
+En vol, le débattement des jambes est borné **relativement à la caisse** : quand
+elle monte à 3 m/s en balistique, ce sont les mouvements par rapport au tronc
+qui coûtent des rad/s, pas la translation. Pour le salto, les jambes sont
+figées dans le repère du tronc pendant la rotation, puis ouvertes vers l'appui
+par un fondu — sans quoi le passage vol → sol coûtait 190 rad/s en une image.
 
 ## Simulation Python
 
@@ -274,6 +299,8 @@ reçoit les consignes. Détails, API et scripts : [`sim/README.md`](sim/README.m
 | `Espace` | Bascule trot / statique |
 | `B` · `D` · `T` | Salto arrière · double salto · 540 McTwist |
 | `W` | Bascule pattes / roues |
+| `S` | Arrêt (frein en roues) |
+| `F` | Quatrième figure du mode courant |
 | `Échap` | Désélectionner |
 
 Bandeau : vue éclatée (fige la machine et étiquette les sous-ensembles), axes

@@ -369,6 +369,38 @@ class TestWheels(unittest.TestCase):
         robot.walk(vx=1.0, seconds=4.0)
         self.assertGreater(robot.natural.wheel_warn_max, gait.WHEEL_RADIUS)
 
+    def test_brake_stops_the_robot(self):
+        """Arrêt franc : le frein ramène vraiment la vitesse à zéro."""
+        robot = Robot(rate=200, mode="roues")
+        robot.walk(vx=2.5, seconds=5.0)
+        self.assertGreater(robot.natural.vx, 1.5)
+        robot.brake(2.0)
+        self.assertEqual(robot.natural.vx, 0.0)
+        x = robot.base[0]
+        robot.hold(1.0)
+        self.assertAlmostEqual(robot.base[0], x, places=6)   # ne dérive plus
+
+    def test_brakes_harder_than_it_accelerates(self):
+        robot = Robot(rate=400, mode="roues")
+        robot.walk(vx=2.0, seconds=4.0)
+        v0 = robot.natural.vx
+        robot.command(0.0)
+        robot.step(1)
+        decel = (v0 - robot.natural.vx) * 400
+        self.assertGreater(decel, 3.0)
+
+    def test_steps_over_stairs_with_its_legs(self):
+        """La roue ne monte pas la marche : la patte la soulève."""
+        robot = Robot(rate=200, mode="roues", terrain="escalier")
+        lifted = 0
+        for _ in range(int(24 * 200)):
+            robot.step()
+            lifted += sum(1 for leg in robot.model.legs if robot.natural.wstep.get(leg.name))
+            robot.command(1.0)
+        self.assertGreater(lifted, 100)                     # des franchissements ont eu lieu
+        self.assertGreater(robot.base[0], 6.0)              # l'escalier est passé
+        self.assertLess(robot.report()["peak_joint_velocity_rad_s"], DEFAULT.velocity_max)
+
     def test_switch_back_to_legs(self):
         robot = Robot(rate=200, mode="roues")
         robot.walk(vx=1.5, seconds=3.0)
@@ -376,6 +408,55 @@ class TestWheels(unittest.TestCase):
         robot.walk(vx=0.4, seconds=4.0)
         self.assertEqual(robot.report()["limit_violations"], {})
         self.assertIn(robot.gait.name, ("walk", "trot"))
+
+
+class TestWheelFigures(unittest.TestCase):
+    def _run(self, name):
+        robot = Robot(rate=200, mode="roues")
+        robot.walk(vx=1.0, seconds=1.0)
+        info = robot.figure(name)
+        robot.hold(1.2)                     # le temps que l'assiette se stabilise
+        return robot, info
+
+    def test_catalogue_depends_on_the_mode(self):
+        legs = Robot(rate=50)
+        self.assertIn("backflip", legs.figures())
+        wheels = Robot(rate=50, mode="roues")
+        self.assertEqual(wheels.figures(), ["pirouette", "wheelflip", "wheelie", "wheeljump"])
+        with self.assertRaises(KeyError):
+            wheels.figure("backflip")
+
+    def test_all_wheel_figures_stay_in_the_envelope(self):
+        for name in stunts.WHEEL_FIGURES:
+            robot, _ = self._run(name)
+            report = robot.report()
+            self.assertEqual(report["limit_violations"], {}, name)
+            self.assertLess(report["peak_joint_velocity_rad_s"], DEFAULT.velocity_max, name)
+            self.assertLess(abs(robot.base[4]), 0.05, name)        # repose à plat
+
+    def test_wheelie_lifts_the_front(self):
+        robot, _ = self._run("wheelie")
+        pitches = [f["base"][4] for f in robot.frames]
+        self.assertLess(min(pitches), -0.4)                        # nez en l'air
+        lifted = [f for f in robot.frames if sum(f["contact"]) == 2]
+        self.assertGreater(len(lifted), 100)                       # deux roues au sol
+
+    def test_pirouette_turns_540(self):
+        robot, info = self._run("pirouette")
+        self.assertAlmostEqual(math.degrees(robot.base[5]) % 360, 180.0, places=1)
+        self.assertEqual(info["twist_deg"], 540.0)
+
+    def test_jump_leaves_the_ground(self):
+        robot, info = self._run("wheeljump")
+        self.assertGreater(info["apex_m"], 0.2)
+        airborne = [f for f in robot.frames if not any(f["contact"])]
+        self.assertGreater(len(airborne), 50)
+
+    def test_wheel_flip_turns_once(self):
+        robot, info = self._run("wheelflip")
+        self.assertEqual(info["rotation_deg"], 360.0)
+        pitches = [f["base"][4] for f in robot.frames]
+        self.assertLess(min(pitches), -6.0)
 
 
 class TestFigures(unittest.TestCase):

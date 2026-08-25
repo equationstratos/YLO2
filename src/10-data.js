@@ -217,7 +217,9 @@ window.YLO = window.YLO || {};
     { id: "wheels", group: "Actionneurs", name: "Roues motrices (option)", qty: "×4",
       at: [0.1745, 0.155, -0.20],
       desc: "Variante roues, dans l'esprit des Unitree Go2-W et B2-W : un moteur de roue par patte, l'axe remplace le pied. Le robot roule à plat et garde ses pattes pour franchir ce que la roue ne monte pas.",
-      specs: [["Rayon", "75 mm"], ["Vitesse max", "3,0 m/s"], ["Marche franchissable", "≈ 68 mm"], ["Référence", "Go2-W : 2,5 m/s"]],
+      specs: [["Rayon", "75 mm"], ["Vitesse max", "3,0 m/s"], ["Marche roulable", "≈ 68 mm"],
+        ["Franchissement", "patte levée, 0,34 s"], ["Figures", "cabrage, pirouette, saut, salto"],
+        ["Référence", "Go2-W : 2,5 m/s"]],
       path: "src/44-locomotion.js" },
 
     { id: "champ", group: "Logiciel", name: "CHAMP · contrôleur d'allure", qty: "ROS Noetic", focus: "legs",

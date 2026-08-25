@@ -62,7 +62,9 @@ ou via `ylo2-sim run`.
 | `set_gait("trot")` | allure : `stand`, `walk`, `trot`, `pace`, `bound`, `canter`, `gallop` |
 | `set_terrain("escalier")` | terrain : `plat`, `escalier`, `marches_hautes`, `plateforme`, `rampe`, `gravats`, `poutres` |
 | `set_mode("roues")` | train de propulsion : `pattes` ou `roues` |
-| `figure(nom)` | `backflip`, `doubleflip`, `mctwist540` |
+| `figure(nom)` | pattes : `backflip`, `doubleflip`, `mctwist540` · roues : `wheelie`, `pirouette`, `wheeljump`, `wheelflip` |
+| `figures()` | catalogue du train de propulsion courant |
+| `brake(secondes)` | arrêt franc, consignes à zéro |
 | `backflip()` · `double_backflip()` · `mctwist540()` | raccourcis |
 | `command(vx, vy, wz)` | consigne, saturée aux maxima de `gait.yaml` |
 | `walk(vx, seconds)` / `turn(wz, seconds)` | marche ou rotation pendant une durée |

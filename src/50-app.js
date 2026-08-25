@@ -379,7 +379,11 @@
     { file: "escalier.py", name: "Escalier",
       desc: "Montée, palier, descente : le gouverneur ralentit tout seul à l'approche." },
     { file: "roues.py", name: "Roues motrices",
-      desc: "Vitesse sur le plat, limite face à une marche, retour sur pattes." }
+      desc: "Vitesse sur le plat, limite face à une marche, retour sur pattes." },
+    { file: "roues_figures.py", name: "Figures sur roues",
+      desc: "Cabrage, pirouette, saut, salto roues, puis freinage jusqu'à l'arrêt." },
+    { file: "roues_escalier.py", name: "Escalier en roues",
+      desc: "La patte soulève la roue marche après marche, comme un Go2-W." }
   ];
 
   function buildSimPane() {
@@ -623,12 +627,14 @@
     const vx = document.getElementById("sVx");
     vx.max = k === "roues" ? Y.SPEED.wheelMax : Y.SPEED.max;
     if (M.state.vx > vx.max) { vx.value = vx.max; vx.dispatchEvent(new Event("input")); }
-    document.querySelectorAll("#gaits button, #styles button").forEach(function (b) {
+    // en roues, seule « Statique » reste active : elle sert de frein
+    document.querySelectorAll("#gaits button").forEach(function (b) {
+      b.disabled = k === "roues" && b.dataset.gait !== "stand";
+    });
+    document.querySelectorAll("#styles button").forEach(function (b) {
       b.disabled = k === "roues";
     });
-    document.querySelectorAll("#stunts button").forEach(function (b) {
-      b.disabled = k === "roues";
-    });
+    buildStuntButtons();
     flash(k === "roues"
       ? "Roues motrices : jusqu'à " + Y.SPEED.wheelMax.toFixed(1) + " m/s sur terrain roulant"
       : "Retour sur pattes");
@@ -677,21 +683,27 @@
   function buildStuntButtons() {
     const row = document.getElementById("stunts");
     row.innerHTML = "";
-    Object.keys(Y.Stunt.figures).forEach(function (id) {
+    Y.Stunt.forMode(M.state.mode).forEach(function (id) {
       const f = Y.Stunt.figures[id];
       const b = document.createElement("button");
       b.className = "stunt";
       b.dataset.stunt = id;
       b.textContent = f.label;
-      b.title = f.turns + " tour" + (f.turns > 1 ? "s" : "") +
+      b.title = (f.turns ? f.turns + " tour" + (f.turns > 1 ? "s" : "") : "sans rotation") +
         (f.twist ? " + " + (f.twist * 360) + "° de vrille" : "") +
-        " · vol " + f.flight.toFixed(2) + " s · apex " + f.apex.toFixed(2) + " m";
+        (f.flight ? " · vol " + f.flight.toFixed(2) + " s · apex +" + f.apex.toFixed(2) + " m"
+                  : " · " + f.duration.toFixed(1) + " s au sol");
       b.addEventListener("click", function () { launchStunt(id); });
       row.appendChild(b);
     });
   }
 
   function setGait(k) {
+    if (M.state.mode === "roues") {
+      if (k !== "stand") return;
+      brake();                                // « Statique » freine les roues
+      return;
+    }
     if (k === "auto") {                       // rendre la main au choix automatique
       Y.Natural.setAuto(true);
       syncGaitButtons();
@@ -705,11 +717,28 @@
     if (M.live.status === "connecté") M.live.send({ gait: k });
   }
 
+  /** Arrêt franc : remet la consigne à zéro, curseurs compris. */
+  function brake() {
+    ["sVx", "sWz"].forEach(function (id) {
+      const el = document.getElementById(id);
+      el.value = 0;
+      el.dispatchEvent(new Event("input"));
+    });
+    if (Y.Stunt.active) Y.Stunt.stop();
+    flash("Arrêt");
+  }
+
   function syncGaitButtons() {
     const auto = Y.Natural.isAuto();
     document.querySelectorAll("#gaits button").forEach(function (x) {
-      if (x.dataset.gait === "auto") x.setAttribute("aria-pressed", String(auto));
-      else x.setAttribute("aria-pressed", String(!auto && x.dataset.gait === M.state.gait));
+      if (M.state.mode === "roues") {
+        x.setAttribute("aria-pressed", String(x.dataset.gait === "stand" &&
+          Math.abs(M.state.vx) < 1e-3));
+      } else if (x.dataset.gait === "auto") {
+        x.setAttribute("aria-pressed", String(auto));
+      } else {
+        x.setAttribute("aria-pressed", String(!auto && x.dataset.gait === M.state.gait));
+      }
     });
   }
 
@@ -919,7 +948,9 @@
       });
       updateJointTable();
       updateTags();
-      if (Y.Natural.isAuto() && M.state.mode !== "roues") {
+      if (M.state.mode === "roues") {
+        syncGaitButtons();
+      } else if (Y.Natural.isAuto()) {
         syncGaitButtons();
         if (M.state.gait !== lastGait) { lastGait = M.state.gait; buildPhase(); }
       }
@@ -1058,9 +1089,12 @@
       if (e.key === "Escape") select(null);
       if (e.key === " ") { e.preventDefault(); setGait(M.state.gait === "stand" ? "trot" : "stand"); }
       if (e.key === "w" || e.key === "W") setMode(M.state.mode === "roues" ? "pattes" : "roues");
-      if (e.key === "b" || e.key === "B") launchStunt("backflip");
-      if (e.key === "d" || e.key === "D") launchStunt("doubleflip");
-      if (e.key === "t" || e.key === "T") launchStunt("mctwist540");
+      const figs = Y.Stunt.forMode(M.state.mode);
+      if (e.key === "b" || e.key === "B") launchStunt(figs[0]);
+      if (e.key === "d" || e.key === "D") launchStunt(figs[1]);
+      if (e.key === "t" || e.key === "T") launchStunt(figs[2]);
+      if (e.key === "f" || e.key === "F") launchStunt(figs[3] || figs[0]);
+      if (e.key === "s" || e.key === "S") brake();
     });
 
     // changer de source téléporte le robot : on repart d'une trace vierge

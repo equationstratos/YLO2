@@ -142,8 +142,21 @@ class Robot:
             self._advance()
         return self
 
+    def figures(self) -> List[str]:
+        """Figures disponibles pour le train de propulsion courant."""
+        catalogue = stunts.WHEEL_FIGURES if self.mode == "roues" else stunts.FIGURES
+        return sorted(catalogue)
+
     def figure(self, name: str = "backflip") -> Dict[str, Any]:
-        """Exécute une figure : backflip, doubleflip, mctwist540."""
+        """Figure du mode courant : pattes (saltos) ou roues (cabrage, saut…)."""
+        if self.mode == "roues":
+            if name not in stunts.WHEEL_FIGURES:
+                raise KeyError("figure roues inconnue : %s (parmi %s)"
+                               % (name, sorted(stunts.WHEEL_FIGURES)))
+            info = stunts.perform_wheels(self, stunts.WHEEL_FIGURES[name])
+            self._note("%s : %.2f s" % (info["figure"], info["duration_s"]))
+            self.stunt = info
+            return info
         if name not in stunts.FIGURES:
             raise KeyError("figure inconnue : %s (parmi %s)"
                            % (name, sorted(stunts.FIGURES)))
@@ -165,6 +178,15 @@ class Robot:
     def mctwist540(self) -> Dict[str, Any]:
         """540 McTwist : un salto arrière avec un tour et demi de vrille."""
         return self.figure("mctwist540")
+
+    def wheelie(self) -> Dict[str, Any]:
+        """Cabrage sur les roues arrière (mode roues)."""
+        return self.figure("wheelie")
+
+    def brake(self, seconds: float = 1.5) -> "Robot":
+        """Arrêt franc : consigne à zéro jusqu'à vitesse nulle."""
+        self.command(0.0, 0.0, 0.0)
+        return self.run(seconds)
 
     def set_terrain(self, key: str) -> "Robot":
         """Change de terrain : escalier, gravats, rampe…"""

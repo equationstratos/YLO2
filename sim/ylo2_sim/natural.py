@@ -160,6 +160,8 @@ class Natural:
     clear: Dict[str, float] = field(default_factory=dict)
     prev_foot: Dict[str, Tuple[float, float, float]] = field(default_factory=dict)
     wheel_z: Dict[str, Optional[float]] = field(default_factory=dict)
+    wstep: Dict[str, Optional[dict]] = field(default_factory=dict)
+    fig_axle: Dict[str, Optional[float]] = field(default_factory=dict)
     spin: Dict[str, float] = field(default_factory=dict)
     sway: float = 0.0
     yaw_wag: float = 0.0
@@ -180,7 +182,8 @@ class Natural:
         self.trot_mix = 1.0
         for leg in self.model.legs:
             self.off.setdefault(leg.name, g.offsets[leg.name])
-            for store in (self.lift, self.plant, self.land, self.prev_foot, self.wheel_z):
+            for store in (self.lift, self.plant, self.land, self.prev_foot, self.wheel_z,
+                          self.wstep, self.fig_axle):
                 store.setdefault(leg.name, None)
             self.clear.setdefault(leg.name, 0.0)
             self.spin.setdefault(leg.name, 0.0)
@@ -457,10 +460,19 @@ class Natural:
 
         model = self.model
         terrain = robot.terrain
-        cmd_vx = min(max(robot.vx, -gaitmod.MAX_WHEEL_SPEED), gaitmod.MAX_WHEEL_SPEED)
+        ahead = terrain.step_ahead(robot.base[0], robot.base[1], robot.base[5], 0.9)
+        self.rough += (ahead - self.rough) * min(1.0, dt * 3)
+        self.governor = min(max(1.0 - self.rough / 0.30, 0.28), 1.0)
+
+        cmd_vx = (min(max(robot.vx, -gaitmod.MAX_WHEEL_SPEED), gaitmod.MAX_WHEEL_SPEED)
+                  * self.governor)
         prev_vx = self.vx
 
-        self.vx = self._approach(self.vx, cmd_vx, 2.4, dt)
+        # freinage plus vif que l'accélération, et arrêt franc
+        braking = abs(cmd_vx) < abs(self.vx) * 0.98
+        self.vx = self._approach(self.vx, cmd_vx, 4.5 if braking else 2.4, dt)
+        if abs(cmd_vx) < 1e-3 and abs(self.vx) < 0.02:
+            self.vx = 0.0
         self.vy = self._approach(self.vy, 0.0, 2.4, dt)
         self.wz = self._approach(self.wz, robot.wz, 3.2, dt)
         self.ax += ((self.vx - prev_vx) / max(dt, 1e-3) - self.ax) * min(1.0, dt * 8)
@@ -471,29 +483,61 @@ class Natural:
         robot.base[1] += self.vx * math.sin(robot.base[5]) * dt
 
         cy, sy = math.cos(robot.base[5]), math.sin(robot.base[5])
-        height = robot.height * 0.92
-        heights, points = [], []
+        rough_k = min(max(self.rough / 0.25, 0.0), 1.0)
+        height = robot.height * 0.92 * (1 + rough_k * 0.22)
+        heights, points, grounded = [], [], []
+        partner = {"lf": "rh", "rh": "lf", "rf": "lh", "lh": "rf"}
+        stepping = sum(1 for l in model.legs if self.wstep.get(l.name))
 
         for leg in model.legs:
             nx, ny = leg.x, leg.y + leg.mirror * model.abad_plane
             wx = robot.base[0] + cy * nx - sy * ny
             wy = robot.base[1] + sy * nx + cy * ny
             raw = terrain.height_at(wx, wy)
-            prev = self.wheel_z[leg.name]
-            if prev is None:
-                h = raw
-            else:                                  # suspension : vitesse bornée
-                target = prev + (raw - prev) * min(1.0, dt * 8)
-                rate = 0.55 * dt
-                h = min(max(target, prev - rate), prev + rate)
+
+            # une roue de 75 mm ne monte pas une marche de 130 mm : la patte
+            # la soulève par-dessus, comme le fait un Go2-W
+            look = 0.22 if self.vx >= 0 else -0.22
+            ahead_h = terrain.height_at(wx + cy * look, wy + sy * look)
+            rise = ahead_h - raw
+            if (not self.wstep.get(leg.name) and abs(rise) > gaitmod.WHEEL_RADIUS * 0.45
+                    and stepping < 2 and not self.wstep.get(partner[leg.name])
+                    and abs(self.vx) < 1.5):
+                cur = self.wheel_z[leg.name]
+                self.wstep[leg.name] = {"t": 0.0, "dur": 0.34,
+                                        "from": raw if cur is None else cur, "to": ahead_h}
+                stepping += 1
+
+            st = self.wstep.get(leg.name)
+            contact = True
+            if st:
+                st["t"] += dt
+                s_ = min(max(st["t"] / st["dur"], 0.0), 1.0)
+                line = st["from"] + (st["to"] - st["from"]) * smoothstep(s_)
+                top = max(st["from"], st["to"])
+                h = line + (0.055 + max(0.0, top - max(st["from"], st["to"]))) * math.sin(math.pi * s_)
+                contact = s_ > 0.85
+                if s_ >= 1.0:
+                    self.wheel_z[leg.name] = st["to"]
+                    self.wstep[leg.name] = None
+            else:
+                prev = self.wheel_z[leg.name]
+                if prev is None:
+                    h = raw
+                else:                              # suspension : vitesse bornée
+                    target = prev + (raw - prev) * min(1.0, dt * 8)
+                    rate = 0.55 * dt
+                    h = min(max(target, prev - rate), prev + rate)
             self.wheel_z[leg.name] = h
             heights.append((leg, h))
-            points.append((wx, wy, h))
+            points.append((wx, wy, h, contact))
+            if contact:
+                grounded.append(h)
             v_wheel = self.vx - self.wz * ny
             self.spin[leg.name] = (self.spin[leg.name]
                                    + v_wheel / gaitmod.WHEEL_RADIUS * dt) % math.tau
 
-        ground = sum(h for _, h in heights) / 4
+        ground = sum(grounded) / len(grounded) if grounded else self.z_body - height - gaitmod.WHEEL_RADIUS
         z_target = ground + height + gaitmod.WHEEL_RADIUS
         k, c = 60.0, 2 * math.sqrt(60.0) * 0.9
         self.vz += (k * (z_target - self.z_body) - c * self.vz) * dt
@@ -515,12 +559,12 @@ class Natural:
         self.wheel_warn = step if step > gaitmod.WHEEL_RADIUS * 0.9 else 0.0
         self.wheel_warn_max = max(self.wheel_warn_max, self.wheel_warn)
 
-        for i, (leg, (wx, wy, h)) in enumerate(zip(model.legs, points)):
+        for i, (leg, (wx, wy, h, contact)) in enumerate(zip(model.legs, points)):
             dx, dy = wx - robot.base[0], wy - robot.base[1]
             level = (cy * dx + sy * dy, -sy * dx + cy * dy,
                      h + gaitmod.WHEEL_RADIUS - robot.base[2])
             target = constrain(model, leg, level_to_body(level, robot.base[3], robot.base[4], 0.0))
             angles = kin.inverse(leg, *target, model=model)
             unwrap(robot.q, i, angles)
-            robot.contacts[i] = True
+            robot.contacts[i] = contact
             robot.foot_world[leg.name] = [wx, wy, h]

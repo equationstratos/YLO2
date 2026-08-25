@@ -52,7 +52,7 @@
     profile: PROFILES.souple,
     vx: 0, vy: 0, wz: 0,
     ax: 0,
-    plant: {}, lift: {}, land: {}, clear: {}, prevFoot: {}, wheelZ: {},
+    plant: {}, lift: {}, land: {}, clear: {}, prevFoot: {}, wheelZ: {}, wstep: {}, figAxle: {},
     spin: {},                              // angle de roue
     jit: {}, lastPh: {},
     auto: true,
@@ -67,6 +67,7 @@
   Y.LEGS.forEach(function (L) {
     nat.plant[L.id] = null; nat.lift[L.id] = null; nat.land[L.id] = null;
     nat.clear[L.id] = 0; nat.prevFoot[L.id] = null; nat.wheelZ[L.id] = null;
+    nat.wstep[L.id] = null;
     nat.off[L.id] = 0; nat.jit[L.id] = 0; nat.lastPh[L.id] = 0; nat.spin[L.id] = 0;
   });
 
@@ -425,12 +426,18 @@
      3. Mode roues — inspiré des Go2-W / B2-W
      ===================================================================== */
   function stepWheels(dt, state) {
-    const p = nat.profile;
-    const cmdVx = clamp(state.vx, -Y.SPEED.wheelMax, Y.SPEED.wheelMax);
     const prevVx = nat.vx;
 
-    // les roues accélèrent plus fort que les pattes
-    nat.vx = approach(nat.vx, cmdVx, 2.4, dt);
+    // relief devant : on lève le pied du champignon avant de l'aborder
+    const ahead = Y.Terrain ? Y.Terrain.stepAhead(state.px, state.py, state.yaw, 0.9) : 0;
+    nat.rough = lerp(nat.rough, ahead, Math.min(1, dt * 3));
+    nat.governor = clamp(1 - nat.rough / 0.30, 0.28, 1);
+
+    const cmdVx = clamp(state.vx, -Y.SPEED.wheelMax, Y.SPEED.wheelMax) * nat.governor;
+    // freinage plus vif que l'accélération : les roues mordent
+    const braking = Math.abs(cmdVx) < Math.abs(nat.vx) * 0.98;
+    nat.vx = approach(nat.vx, cmdVx, braking ? 4.5 : 2.4, dt);
+    if (Math.abs(cmdVx) < 1e-3 && Math.abs(nat.vx) < 0.02) nat.vx = 0;   // arrêt franc
     nat.vy = approach(nat.vy, 0, 2.4, dt);           // pas de dérive latérale
     nat.wz = approach(nat.wz, state.wz, 3.2, dt);
     nat.ax = lerp(nat.ax, (nat.vx - prevVx) / Math.max(dt, 1e-3), Math.min(1, dt * 8));
@@ -442,28 +449,60 @@
     state.py += nat.vx * Math.sin(state.yaw) * dt;
 
     const cy = Math.cos(state.yaw), sy = Math.sin(state.yaw);
-    const height = state.height * 0.92;
-    let groundZ = 0, front = 0, rear = 0, left = 0, right = 0;
+    // sur relief, la caisse se redresse pour laisser du débattement
+    const height = state.height * 0.92 * (1 + clamp(nat.rough / 0.25, 0, 1) * 0.22);
+    let groundZ = 0, grounded = 0, front = 0, rear = 0, left = 0, right = 0;
 
     const contacts = [];
+    const speedNow = Math.abs(nat.vx);
+    let stepping = 0;
+    Y.LEGS.forEach(function (L) { if (nat.wstep[L.id]) stepping++; });
+
     Y.LEGS.forEach(function (L) {
       const nx = L.x, ny = L.y + L.m * K.abadPlane;
       const wx = state.px + cy * nx - sy * ny;
       const wy = state.py + sy * nx + cy * ny;
-      // suspension : la hauteur vue par la roue est filtrée et sa vitesse
-      // bornée, sinon une arête de marche fait sauter la patte d'un coup
       const raw = terrainAt(wx, wy);
-      const prevH = nat.wheelZ[L.id];
-      let h;
-      if (prevH === null || prevH === undefined) h = raw;
-      else {
-        const target = lerp(prevH, raw, Math.min(1, dt * 8));
-        const maxRate = 0.55 * dt;
-        h = clamp(target, prevH - maxRate, prevH + maxRate);
+
+      // marche sous la roue : une roue de 75 mm ne monte pas une marche de
+      // 130 mm, la patte la soulève par-dessus — c'est ce que fait un Go2-W
+      const look = 0.22 * (nat.vx >= 0 ? 1 : -1);
+      const aheadH = terrainAt(wx + cy * look, wy + sy * look);
+      const rise = aheadH - raw;
+      const partner = { lf: "rh", rh: "lf", rf: "lh", lh: "rf" }[L.id];
+      if (!nat.wstep[L.id] && Math.abs(rise) > WHEEL_R * 0.45 &&
+          stepping < 2 && !nat.wstep[partner] && speedNow < 1.5) {
+        const cur = nat.wheelZ[L.id];
+        nat.wstep[L.id] = { t: 0, dur: 0.34,
+          from: (cur === null || cur === undefined) ? raw : cur, to: aheadH };
+        stepping++;
+      }
+
+      let h, contact = true;
+      const st = nat.wstep[L.id];
+      if (st) {
+        st.t += dt;
+        const s = clamp(st.t / st.dur, 0, 1);
+        const top = Math.max(st.from, st.to);
+        // la roue suit la ligne de la marche, plus un arc de dégagement :
+        // sans le sinus, tout le dénivelé s'appliquerait dès le premier pas
+        const line = lerp(st.from, st.to, smooth(s));
+        h = line + (0.055 + Math.max(0, top - Math.max(st.from, st.to))) * Math.sin(Math.PI * s);
+        contact = s > 0.85;
+        if (s >= 1) { nat.wheelZ[L.id] = st.to; nat.wstep[L.id] = null; }
+      } else {
+        // suspension : hauteur filtrée et vitesse de débattement bornée
+        const prevH = nat.wheelZ[L.id];
+        if (prevH === null || prevH === undefined) h = raw;
+        else {
+          const target = lerp(prevH, raw, Math.min(1, dt * 8));
+          const maxRate = 0.55 * dt;
+          h = clamp(target, prevH - maxRate, prevH + maxRate);
+        }
       }
       nat.wheelZ[L.id] = h;
-      contacts.push({ L: L, x: wx, y: wy, z: h });
-      groundZ += h / 4;
+      contacts.push({ L: L, x: wx, y: wy, z: h, contact: contact });
+      if (contact) { groundZ += h; grounded++; }
       if (L.f > 0) front += h / 2; else rear += h / 2;
       if (L.m > 0) left += h / 2; else right += h / 2;
 
@@ -472,7 +511,8 @@
       nat.spin[L.id] = (nat.spin[L.id] + vWheel / WHEEL_R * dt) % (Math.PI * 2);
     });
 
-    // suspension : la caisse suit le sol filtré, pas chaque bosse
+    // suspension : la caisse suit le sol filtré des roues au contact
+    groundZ = grounded ? groundZ / grounded : nat.zBody - height - WHEEL_R;
     nat.zTarget = groundZ + height + WHEEL_R;
     const k = 60, c = 2 * Math.sqrt(k) * 0.9;
     nat.vz += (k * (nat.zTarget - nat.zBody) - c * nat.vz) * dt;
@@ -498,7 +538,7 @@
       const level = [cy * dx + sy * dy, -sy * dx + cy * dy, c.z + WHEEL_R - state.z];
       const target = constrain(L, levelToBody(level, state.roll, state.pitch, 0));
       assign(n, Y.Motion.ik(L, target[0], target[1], target[2]));
-      n.contact = true;
+      n.contact = c.contact !== false;
       n.phase = 0;
       n.footWorld = [c.x, c.y, c.z];
       if (n.wheel) n.wheel.rotation.y = nat.spin[L.id];
@@ -521,27 +561,95 @@
     return base;
   }
 
+  /** Pose interpolée depuis une pose mesurée (vitesse bornée, sans à-coup). */
+  function poseFromQ(start, pose, k) {
+    Y.LEGS.forEach(function (L, li) {
+      const n = Y.Robot.legs[L.id];
+      const target = poseFor(L, pose);
+      n.q = [0, 1, 2].map(function (i) { return lerp(start[li * 3 + i], target[i], k); });
+      n.contact = false;
+    });
+  }
+
+  function poseMixQ(a, b, k) {
+    Y.LEGS.forEach(function (L) {
+      const n = Y.Robot.legs[L.id];
+      const pa = poseFor(L, a), pb = poseFor(L, b);
+      n.q = [0, 1, 2].map(function (i) { return lerp(pa[i], pb[i], k); });
+      n.contact = false;
+    });
+  }
+
+  function captureQ() {
+    return Y.LEGS.reduce(function (acc, L) {
+      return acc.concat(Y.Robot.legs[L.id].q);
+    }, []);
+  }
+
   const FIGURES = {
     backflip: {
-      label: "Salto arrière", turns: 1, twist: 0, cork: 0, air: "tuck",
+      label: "Salto arrière", mode: "pattes", turns: 1, twist: 0, cork: 0, air: "tuck",
       vz: 2.95, crouch: 0.34, load: 0.10, push: 0.19, land: 0.22, recover: 0.42,
       crouchZ: 0.165, takeoffZ: 0.32, absorbZ: 0.185, travel: -0.10
     },
     doubleflip: {
-      label: "Double salto", turns: 2, twist: 0, cork: 0, air: "pike",
+      label: "Double salto", mode: "pattes", turns: 2, twist: 0, cork: 0, air: "pike",
       vz: 4.20, crouch: 0.40, load: 0.12, push: 0.21, land: 0.26, recover: 0.50,
       crouchZ: 0.155, takeoffZ: 0.33, absorbZ: 0.175, travel: -0.16
     },
     mctwist540: {
-      label: "540 McTwist", turns: 1, twist: 1.5, cork: 0.45, air: "twist",
+      label: "540 McTwist", mode: "pattes", turns: 1, twist: 1.5, cork: 0.45, air: "twist",
       vz: 3.35, crouch: 0.36, load: 0.10, push: 0.20, land: 0.24, recover: 0.46,
       crouchZ: 0.160, takeoffZ: 0.32, absorbZ: 0.180, travel: -0.06
     }
   };
 
+  /* --- figures sur roues, dans l'esprit des démonstrations Go2-W --- */
+  const WHEEL_FIGURES = {
+    wheelie: {
+      label: "Cabrage", mode: "roues", kind: "wheelie",
+      arm: 0.25, rise: 0.40, hold: 1.30, drop: 0.45,
+      pitch: -0.55, lift: 0.34
+    },
+    pirouette: {
+      label: "Pirouette", mode: "roues", kind: "spin",
+      arm: 0.22, spin: 1.20, settle: 0.35,
+      turns: 1.5, lean: 0.20
+    },
+    wheeljump: {
+      label: "Saut", mode: "roues", kind: "jump",
+      crouch: 0.30, push: 0.16, land: 0.26, recover: 0.34,
+      vz: 2.30, crouchZ: 0.80, tuck: 0.15
+    },
+    wheelflip: {
+      label: "Salto roues", mode: "roues", kind: "flip",
+      crouch: 0.34, push: 0.20, land: 0.26, recover: 0.42,
+      vz: 2.95, crouchZ: 0.72, turns: 1, tuck: 0.20
+    }
+  };
+
+  Object.keys(WHEEL_FIGURES).forEach(function (k) {
+    const f = WHEEL_FIGURES[k];
+    f.id = k;
+    if (f.vz) {
+      f.flight = 2 * f.vz / G_ACC;
+      f.apex = f.vz * f.vz / (2 * G_ACC);
+      f.duration = f.crouch + f.push + f.flight + f.land + f.recover;
+    } else if (f.kind === "wheelie") {
+      f.duration = f.arm + f.rise + f.hold + f.drop;
+      f.flight = 0; f.apex = 0;
+    } else {
+      f.duration = f.arm + f.spin + f.settle;
+      f.flight = 0; f.apex = 0;
+    }
+    FIGURES[k] = f;
+  });
+
   Object.keys(FIGURES).forEach(function (k) {
     const f = FIGURES[k];
+    if (f.mode === "roues") return;
     f.id = k;
+    f.mode = f.mode || "pattes";
     f.flight = 2 * f.vz / G_ACC;
     f.apex = f.takeoffZ + f.vz * f.vz / (2 * G_ACC);
     f.duration = f.crouch + f.load + f.push + f.flight + f.land + f.recover;
@@ -663,6 +771,203 @@
     }
   }
 
+  /**
+   * Figures sur roues : la caisse est pilotée en hauteur et en assiette, et
+   * chaque roue reçoit une hauteur d'axe — au sol (terrain + rayon) ou en
+   * l'air. Les jambes ne font que tenir la roue là où on la veut.
+   */
+  function stepWheelFigure(dt, state) {
+    const f = run.fig;
+    run.t += dt;
+    const t = run.t;
+    const base = run.ground;
+    const cy = Math.cos(state.yaw), sy = Math.sin(state.yaw);
+    const ride = state.height * 0.92;
+
+    // avance libre : une figure sur roues garde sa vitesse
+    state.px += nat.vx * cy * dt;
+    state.py += nat.vx * sy * dt;
+    Y.LEGS.forEach(function (L) {
+      const ny = L.y + L.m * K.abadPlane;
+      nat.spin[L.id] = (nat.spin[L.id] + (nat.vx - nat.wz * ny) / WHEEL_R * dt) % (Math.PI * 2);
+    });
+
+    /** Place les roues : `axle(L)` rend la hauteur d'axe voulue, en monde. */
+    const place = function (axle, contactOf) {
+      Y.LEGS.forEach(function (L) {
+        const n = Y.Robot.legs[L.id];
+        const nx = L.x, ny = L.y + L.m * K.abadPlane;
+        const wx = state.px + cy * nx - sy * ny;
+        const wy = state.py + sy * nx + cy * ny;
+        // on borne le débattement RELATIF à la caisse : pendant un vol
+        // balistique, la caisse monte à 3 m/s et les jambes doivent suivre,
+        // ce sont les mouvements par rapport au tronc qui coûtent des rad/s
+        let rel = axle(L, terrainAt(wx, wy)) - state.z;
+        const prevRel = nat.figAxle[L.id];
+        if (prevRel !== null && prevRel !== undefined) {
+          rel = clamp(rel, prevRel - 1.6 * dt, prevRel + 1.6 * dt);
+        }
+        nat.figAxle[L.id] = rel;
+        const z = state.z + rel;
+        const dx = wx - state.px, dy = wy - state.py;
+        const level = [cy * dx + sy * dy, -sy * dx + cy * dy, z - state.z];
+        const target = constrain(L, levelToBody(level, state.roll, state.pitch, 0));
+        assign(n, Y.Motion.ik(L, target[0], target[1], target[2]));
+        n.contact = contactOf ? contactOf(L) : true;
+        n.footWorld = [wx, wy, z - WHEEL_R];
+        if (n.wheel) n.wheel.rotation.y = nat.spin[L.id];
+      });
+    };
+
+    let phase = "";
+
+    if (f.kind === "wheelie") {
+      const t1 = f.arm, t2 = t1 + f.rise, t3 = t2 + f.hold;
+      if (t < t1) {                                   // charge l'arrière
+        phase = "charge";
+        const s = smooth(t / t1);
+        state.z = base + ride * (1 - 0.12 * s) + WHEEL_R;
+        state.pitch = lerp(0, 0.06, s);
+        place(function (L, h) { return h + WHEEL_R; });
+      } else if (t < t2) {                            // le train avant se lève
+        phase = "cabrage";
+        const s = smooth((t - t1) / f.rise);
+        state.pitch = lerp(0.06, f.pitch, s);
+        state.z = base + ride * (0.88 + 0.16 * s) + WHEEL_R;
+        place(function (L, h) {
+          return L.f > 0 ? h + WHEEL_R + f.lift * s : h + WHEEL_R;
+        }, function (L) { return L.f < 0; });
+      } else if (t < t3) {                            // tenue sur deux roues
+        phase = "tenue";
+        const s = (t - t2) / f.hold;
+        state.pitch = f.pitch + Math.sin(s * Math.PI * 6) * 0.035;
+        state.z = base + ride * 1.04 + WHEEL_R;
+        place(function (L, h) {
+          return L.f > 0 ? h + WHEEL_R + f.lift : h + WHEEL_R;
+        }, function (L) { return L.f < 0; });
+      } else {                                        // reposé
+        phase = "reprise";
+        const s = smooth((t - t3) / f.drop);
+        state.pitch = lerp(f.pitch, 0, s);
+        state.z = base + ride * (1.04 - 0.04 * s) + WHEEL_R;
+        place(function (L, h) {
+          return L.f > 0 ? h + WHEEL_R + f.lift * (1 - s) : h + WHEEL_R;
+        }, function (L) { return L.f < 0 || s > 0.8; });
+      }
+    } else if (f.kind === "spin") {
+      const t1 = f.arm, t2 = t1 + f.spin;
+      if (t < t1) {
+        phase = "appui";
+        const s = smooth(t / t1);
+        state.z = base + ride * (1 - 0.10 * s) + WHEEL_R;
+        state.roll = lerp(0, f.lean * 0.4, s);
+      } else if (t < t2) {
+        phase = "vrille";
+        const s = (t - t1) / f.spin;
+        state.yaw = run.yaw0 + 2 * Math.PI * f.turns * smoother(s);
+        state.roll = f.lean * Math.sin(Math.PI * s);
+        state.z = base + ride * 0.90 + WHEEL_R;
+        nat.wz = 2 * Math.PI * f.turns / f.spin;      // pour la rotation des roues
+      } else {
+        phase = "stabilisation";
+        const s = smooth((t - t2) / f.settle);
+        state.yaw = run.yaw0 + 2 * Math.PI * f.turns;
+        state.roll = lerp(f.lean * 0.2, 0, s);
+        state.z = base + ride * (0.90 + 0.10 * s) + WHEEL_R;
+        nat.wz = lerp(nat.wz, 0, Math.min(1, dt * 6));
+      }
+      place(function (L, h) { return h + WHEEL_R; });
+    } else {                                          // saut et salto
+      const t1 = f.crouch, t2 = t1 + f.push, t3 = t2 + f.flight, t4 = t3 + f.land;
+      const takeoff = base + ride + WHEEL_R;
+      if (t < t1) {
+        phase = "armement";
+        const s = smooth(t / t1);
+        state.z = base + ride * lerp(1, f.crouchZ, s) + WHEEL_R;
+        state.pitch = lerp(0, f.turns ? -0.10 : 0.04, s);
+        place(function (L, h) { return h + WHEEL_R; });
+      } else if (t < t2) {
+        phase = "poussée";
+        const s = smooth((t - t1) / f.push);
+        state.z = base + ride * lerp(f.crouchZ, 1.18, s) + WHEEL_R;
+        state.pitch = lerp(f.turns ? -0.10 : 0.04, f.turns ? -0.50 : -0.14, s);
+        place(function (L, h) { return h + WHEEL_R; });
+      } else if (t < t3) {
+        phase = f.turns ? "vol" : "envol";
+        const tf = t - t2;
+        const s = tf / f.flight;
+        state.z = takeoff * 1.0 + f.vz * tf - 0.5 * G_ACC * tf * tf;
+        if (f.turns) {
+          state.pitch = -0.50 - (2 * Math.PI * f.turns - 0.50) * smoother(s);
+        } else {
+          state.pitch = lerp(-0.14, 0.10, smooth(s));
+        }
+        if (f.turns) {
+          // en salto, la caisse tourne : les jambes doivent être fixées dans
+          // SON repère, sinon elles tournent autour d'elle à chaque image
+          if (!run.takeoffQ) run.takeoffQ = captureQ();
+          if (s < 0.45) poseFromQ(run.takeoffQ, POSE.tuck, smooth(s / 0.45));
+          else poseMixQ(POSE.tuck, POSE.reach, smooth((s - 0.45) / 0.55));
+          Y.LEGS.forEach(function (L) {
+            const n = Y.Robot.legs[L.id];
+            if (n.wheel) n.wheel.rotation.y = nat.spin[L.id];
+            nat.figAxle[L.id] = null;              // on repartira du réel au poser
+          });
+        } else {
+          // saut à plat : les roues pendent, se rentrent au sommet, se tendent
+          const arc = Math.sin(Math.PI * clamp(s, 0, 1));
+          const hang = lerp(ride + WHEEL_R, ride * 0.5, arc);
+          place(function () { return state.z - hang; }, function () { return false; });
+        }
+      } else if (t < t4) {
+        phase = "réception";
+        const s = smooth((t - t3) / f.land);
+        state.z = base + ride * lerp(1.0, 0.80, s) + WHEEL_R;
+        state.pitch = f.turns ? lerp(0, 0.10, s) : lerp(0.10, 0.06, s);
+        if (f.turns) {
+          // on ouvre depuis la pose de vol vers la pose d'appui : sans ce
+          // fondu, le passage vol -> sol coûte 190 rad/s en une image
+          Y.LEGS.forEach(function (L) {
+            const n = Y.Robot.legs[L.id];
+            const nx = L.x, ny = L.y + L.m * K.abadPlane;
+            const wx = state.px + cy * nx - sy * ny;
+            const wy = state.py + sy * nx + cy * ny;
+            const dx = wx - state.px, dy = wy - state.py;
+            const level = [cy * dx + sy * dy, -sy * dx + cy * dy,
+              terrainAt(wx, wy) + WHEEL_R - state.z];
+            const target = constrain(L, levelToBody(level, state.roll, state.pitch, 0));
+            const ground = Y.Motion.ik(L, target[0], target[1], target[2]);
+            const air = poseFor(L, POSE.reach);
+            assign(n, [0, 1, 2].map(function (i) { return lerp(air[i], ground[i], s); }));
+            n.contact = s > 0.4;
+            n.footWorld = [wx, wy, terrainAt(wx, wy)];
+            if (n.wheel) n.wheel.rotation.y = nat.spin[L.id];
+            nat.figAxle[L.id] = null;
+          });
+        } else {
+          place(function (L, h) { return h + WHEEL_R; }, function () { return s > 0.4; });
+        }
+      } else {
+        phase = "stabilisation";
+        const s = smooth((t - t4) / f.recover);
+        state.z = base + ride * lerp(0.80, 1.0, s) + WHEEL_R;
+        state.pitch = lerp(0.10, 0, s);
+        place(function (L, h) { return h + WHEEL_R; });
+      }
+    }
+
+    Y.Stunt.phase = phase;
+    Y.Stunt.progress = clamp(t / f.duration, 0, 1);
+
+    if (t >= f.duration) {
+      state.pitch = 0; state.roll = 0;
+      if (f.kind === "spin") { state.yaw = run.yaw0 + 2 * Math.PI * f.turns; nat.wz = 0; }
+      nat.zBody = state.z; nat.vz = 0;
+      Y.LEGS.forEach(function (L) { nat.wheelZ[L.id] = null; nat.wstep[L.id] = null; });
+      Y.Stunt.stop();
+    }
+  }
+
   Y.Stunt = {
     figures: FIGURES,
     active: null, phase: "", progress: 0, listeners: [],
@@ -679,8 +984,10 @@
     start: function (name) {
       const f = FIGURES[name];
       if (!f) return false;
+      if ((f.mode || "pattes") !== Y.Motion.state.mode) return false;
       run.fig = f; run.t = 0; run.takeoffQ = null;
       run.yaw0 = Y.Motion.state.yaw;
+      Y.LEGS.forEach(function (L) { nat.figAxle[L.id] = null; });
       run.ground = terrainAt(Y.Motion.state.px, Y.Motion.state.py);
       this.active = name; this.phase = "armement"; this.progress = 0;
       this.emit();
@@ -692,8 +999,16 @@
     },
     step: function (dt, state) {
       if (!run.fig) return false;
-      stepFigure(dt, state);
+      if (run.fig.mode === "roues") stepWheelFigure(dt, state);
+      else stepFigure(dt, state);
       return true;
+    },
+
+    /** Figures disponibles pour le train de propulsion courant. */
+    forMode: function (mode) {
+      return Object.keys(FIGURES).filter(function (k) {
+        return (FIGURES[k].mode || "pattes") === mode;
+      });
     }
   };
 
@@ -716,6 +1031,8 @@
       Y.LEGS.forEach(function (L) {
         nat.plant[L.id] = null; nat.lift[L.id] = null; nat.land[L.id] = null;
         nat.clear[L.id] = 0; nat.prevFoot[L.id] = null; nat.wheelZ[L.id] = null;
+        nat.wstep[L.id] = null;
+    nat.wstep[L.id] = null;
         nat.off[L.id] = g.off[L.id] !== undefined ? g.off[L.id] : 0;
         nat.jit[L.id] = 0; nat.lastPh[L.id] = 0;
       });
