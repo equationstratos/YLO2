@@ -105,6 +105,15 @@
   let dragging = false, lastX = 0, lastY = 0, pinch0 = 0, downAt = null, camTween = null;
   // vitesse de balayage demandée par le stick droit de la manette, en rad/s
   let padLook = null;
+  /* Vue de suivi. Sur les terrains qui sont des PARCOURS, la caméra se tient
+     derrière le robot : c'est la seule vue depuis laquelle on peut lire ce qui
+     arrive. Quand la main s'en mêle, elle rend la main — et elle y revient
+     toute seule, après une seconde et demie sans rien toucher. */
+  const CHASE = { el: 0.16, dist: 3.0, hold: 1.5, back: 6.0 };
+  let manualCam = 0;
+  function grabCam(long) { manualCam = long ? CHASE.back : CHASE.hold; }
+  /** Chronomètre du parcours : de la sortie du départ à l'entrée dans l'arrivée. */
+  const course = { t: 0, armed: false, running: false, best: 0, done: 0 };
   const pointers = new Map();
   const clamp = function (v, a, b) { return Math.min(Math.max(v, a), b); };
   const lerp = function (a, b, t) { return a + (b - a) * t; };
@@ -167,6 +176,7 @@
     // L'axe vertical est INVERSÉ : tirer vers le haut monte le point de vue,
     // tirer vers le bas descend dessous le robot. C'est le sens qu'attend la
     // main quand on cherche à voir sous la caisse ou à travers une ouverture.
+    grabCam(false);
     orbit.az -= (e.clientX - lastX) * 0.006;
     orbit.el = clamp(orbit.el - (e.clientY - lastY) * 0.005, -0.35, 1.45);
     lastX = e.clientX; lastY = e.clientY;
@@ -179,6 +189,7 @@
   canvas.addEventListener("pointercancel", endPointer);
   canvas.addEventListener("wheel", function (e) {
     e.preventDefault();
+    grabCam(false);
     orbit.dist = clamp(orbit.dist * (1 + Math.sign(e.deltaY) * 0.09), 0.45, 6);
   }, { passive: false });
 
@@ -188,7 +199,11 @@
     front: { az: 0, el: 0.08, dist: 1.85 },
     top: { az: -Math.PI / 2, el: 1.40, dist: 2.45 }
   };
-  function setView(name) {
+  function setView(name, silent) {
+    // Un cadrage demandé explicitement tient plus longtemps qu'un coup de
+    // souris. Au démarrage, en revanche, personne n'a rien demandé : la page
+    // ne doit pas retenir la caméra six secondes avant de suivre le robot.
+    if (!silent) grabCam(true);
     view.name = name;
     camTween = Object.assign({}, VIEWS[name]);
     document.querySelectorAll("#views button").forEach(function (b) {
@@ -911,7 +926,8 @@
     });
     const note = document.getElementById("padnote");
     if (wanted !== "manette") {
-      note.textContent = "Les raccourcis habituels sont suspendus tant que PLAY tient les commandes.";
+      note.textContent = "Au sol, chaque touche lance sa figure. En l'air, la même touche fait "
+        + "tourner le vol en cours : on quitte la lèvre d'abord, on choisit ensuite.";
     } else if (P.padName) {
       // La disposition retenue est affichée : sur une manette exposée en HID
       // brut, ce n'est pas la même que sur une manette « standard », et
@@ -923,6 +939,67 @@
       note.textContent = "Aucune manette détectée. Branchez-la ou appairez-la, " +
         "puis appuyez sur un bouton : le navigateur ne la déclare qu'au premier appui.";
     }
+  }
+
+  /**
+   * Chronomètre du parcours.
+   *
+   * Il part quand le robot QUITTE la zone de départ — pas quand on appuie sur
+   * un bouton : c'est le premier mètre parcouru qui compte — et il s'arrête
+   * en entrant dans la zone d'arrivée. Revenir se poser sur le départ remet
+   * tout à zéro, ce qui permet de retenter sans rien réinitialiser.
+   */
+  function stepCourse(dt) {
+    if (!Y.Terrain.current.zones) {
+      if (course.running || course.done) { course.running = false; course.done = 0; }
+      return;
+    }
+    const here = Y.Terrain.zoneAt(M.state.px, M.state.py);
+    if (here === "start") {
+      if (course.running || course.done) flash("Départ armé");
+      course.t = 0; course.armed = true; course.running = false; course.done = 0;
+      return;
+    }
+    if (course.armed) { course.armed = false; course.running = true; }
+    if (!course.running) return;
+    course.t += dt;
+    if (here === "finish") {
+      course.running = false;
+      course.done = course.t;
+      const better = !course.best || course.t < course.best;
+      if (better) course.best = course.t;
+      flash("Arrivée — " + course.t.toFixed(2) + " s"
+        + (better ? "   meilleur temps" : "   record " + course.best.toFixed(2) + " s"));
+    }
+  }
+
+  /**
+   * Compteur d'enchaînements.
+   *
+   * En l'air, il affiche ce qui est en train de se construire — chaque figure
+   * bouclée s'y ajoute — et le vol qu'il reste pour en tenter une de plus. À
+   * la réception, il fige l'enchaînement validé. C'est le seul retour qui
+   * dise au joueur qu'il vient de gagner quelque chose.
+   */
+  function updateCombo() {
+    const box = document.getElementById("combo");
+    if (!box) return;
+    const P = Y.Play.state;
+    // le compteur ne sert qu'en PLAY, mais le chrono du parcours vaut aussi
+    // pour qui roule aux curseurs
+    box.hidden = !P.on && !course.running && !course.done;
+    if (box.hidden) return;
+    document.getElementById("comboScore").textContent = P.score.toLocaleString("fr-FR");
+    const chain = document.getElementById("comboChain");
+    const live = P.combo.length > 0;
+    chain.textContent = live ? P.combo.join(" + ") : (P.last || "");
+    chain.classList.toggle("live", live);
+    const left = Y.Natural.airLeft();
+    const chrono = course.running ? course.t.toFixed(2) + " s"
+      : course.done ? course.done.toFixed(2) + " s · arrivée"
+      : course.armed ? "au départ" : "";
+    document.getElementById("comboAir").textContent =
+      left > 0.05 ? "vol " + left.toFixed(2) + " s" : chrono;
   }
 
   /** Replie le bandeau de commandes : la scène est alors entièrement dégagée. */
@@ -1068,6 +1145,7 @@
 
     updateTraces();
     updateSupport();
+    stepCourse(dt);
     if (Y.Robot.extras.lidarSpin) Y.Robot.extras.lidarSpin.rotation.z += dt * 9;
     (Y.Robot.extras.leds || []).forEach(function (o) {
       const d = ((o.userData.led / 12) - M.state.phase + 1) % 1;
@@ -1085,11 +1163,30 @@
     orbit.target.lerp(camTarget, Math.min(1, dt * chase));
     if (padLook && (padLook[0] || padLook[1])) {
       camTween = null;                       // la main reprend sur le cadrage
+      grabCam(false);
       orbit.az -= padLook[0] * dt;
       // Le stick était déjà dans ce sens-là : poussé vers le haut, il monte le
       // point de vue. C'est la souris qui faisait l'inverse ; les deux
       // s'accordent maintenant.
       orbit.el = clamp(orbit.el - padLook[1] * dt, -0.35, 1.45);
+    }
+    /* Retour en vue de suivi. L'azimut vise l'arrière du SENS DE MARCHE et
+       non l'arrière du robot : après un 540 il roule en fakie, et la caméra
+       doit rester devant ce qui arrive, pas derrière ce qu'il regarde. */
+    manualCam = Math.max(0, manualCam - dt);
+    if (Y.Terrain.current.chase && !Y.Session.state.running && manualCam <= 0) {
+      camTween = null;                       // la vue de suivi reprend la main
+      {
+        const fakie = (Y.Natural.state.dir || 1) < 0;
+        const back = M.state.yaw + (fakie ? 0 : Math.PI);
+        let da = (back - orbit.az) % (Math.PI * 2);
+        if (da > Math.PI) da -= Math.PI * 2;
+        if (da < -Math.PI) da += Math.PI * 2;
+        const k = Math.min(1, dt * 1.6);
+        orbit.az += da * k;
+        orbit.el += (CHASE.el - orbit.el) * k;
+        orbit.dist += (CHASE.dist - orbit.dist) * k;
+      }
     }
     if (camTween) {
       const e = 1 - Math.exp(-dt * 6);
@@ -1114,6 +1211,7 @@
       });
       updateJointTable();
       updateTags();
+      updateCombo();
       if (M.state.mode === "roues") {
         syncGaitButtons();
       } else if (Y.Natural.isAuto()) {
@@ -1347,7 +1445,7 @@
     window.__ylo = { Y: Y, scene: scene, camera: camera, orbit: orbit, view: view };
 
     Y.Terrain.set("plat");
-    resize(); setView("iso"); placeCamera(); select(null);
+    resize(); setView("iso", true); placeCamera(); select(null);
     boot.hidden = true;
     if (!Y.Geo.ready) flash("Maillages indisponibles : " + Y.Geo.error);
     requestAnimationFrame(tick);

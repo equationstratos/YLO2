@@ -185,7 +185,7 @@
     // et c'est la gravité qui fait le va-et-vient. Une transition de 1,20 m
     // ne se « passe » pas comme les rampes des autres terrains : elle se
     // remonte tant qu'on a de la vitesse, et on redescend en marche arrière.
-    { id: "bigramp", name: "Big ramp", maxStep: 0.30,
+    { id: "bigramp", name: "Big ramp", maxStep: 0.30, chase: true,
       desc: "Mini-ramp de 1,20 m de transition, flat de 6,4 m entre les deux courbes. " +
             "À rouler comme du skate : élan, pompe, retour par gravité, saut à la lèvre.",
       boxes: (function () {
@@ -206,7 +206,7 @@
        de roll-in pour un robot de 0,44 m de patte, c'est six fois sa jambe.
        La descente rend environ 6,6 m/s en bas. */
     { id: "megaramp", name: "Mega ramp", maxStep: 0.40,
-      start: [-16.0, 0, 0],
+      start: [-16.0, 0, 0], chase: true,
       desc: "Roll-in droit de 2,60 m, tremplin de 700 mm, gap de 1,00 m, pente de réception, " +
             "puis une transition de 2,60 m. Le robot démarre sur la plateforme de départ.",
       boxes: (function () {
@@ -247,7 +247,11 @@
        un rayon plus haut : il faut y descendre à 200 mm là où 250 suffisent
        sur pattes. */
     { id: "megascene", name: "Méga-parcours", maxStep: 0.24,
-      start: [-16.0, 0, 0],
+      start: [-16.0, 0, 0], chase: true,
+      zones: [
+        { x0: -17.0, x1: -15.0, y0: -1.4, y1: 1.4, z: 2.60, kind: "start" },
+        { x0: 27.2 - 1.5, x1: 27.2, y0: -1.8, y1: 1.8, z: 0, kind: "finish" }
+      ],
       desc: "Tout le catalogue à la suite : roll-in de 2,60 m, gravats, poutres, escalier, " +
             "fenêtre à traverser, plateforme, funbox et ledge, marches hautes, tremplin et gap, " +
             "quarter pipe. La fenêtre demande de baisser la caisse : 200 mm sur roues, 250 sur pattes.",
@@ -420,6 +424,33 @@
     return group;
   }
 
+  /* Marquages au sol : départ et arrivée. Ce sont des DÉCORS — ils ne
+     comptent ni dans la hauteur du sol ni dans les collisions —, juste une
+     plaque lumineuse qu'on reconnaît de loin. */
+  let zoneMats = null;
+  function zoneMat(kind) {
+    if (!zoneMats) {
+      zoneMats = {
+        start: new T.MeshStandardMaterial({ color: 0x10281f, emissive: 0x2fbe86,
+          emissiveIntensity: 0.5, roughness: 0.85, metalness: 0 }),
+        finish: new T.MeshStandardMaterial({ color: 0x33180a, emissive: 0xff6a2b,
+          emissiveIntensity: 0.5, roughness: 0.85, metalness: 0 })
+      };
+    }
+    return zoneMats[kind] || zoneMats.start;
+  }
+
+  /** Zone marquée sous un point : « start », « finish », ou rien. */
+  function zoneAt(x, y) {
+    const zs = current.zones;
+    if (!zs) return null;
+    for (let i = 0; i < zs.length; i++) {
+      const z = zs[i];
+      if (x >= z.x0 && x < z.x1 && y >= z.y0 && y < z.y1) return z.kind;
+    }
+    return null;
+  }
+
   function rebuild() {
     while (group.children.length) {
       const m = group.children.pop();
@@ -448,6 +479,13 @@
         group.add(nose);
       }
     });
+    (current.zones || []).forEach(function (z) {
+      const w = z.x1 - z.x0, d = z.y1 - z.y0;
+      const plate = new T.Mesh(new T.BoxGeometry(w, d, 0.012), zoneMat(z.kind));
+      plate.position.set((z.x0 + z.x1) / 2, (z.y0 + z.y1) / 2, z.z + 0.008);
+      plate.receiveShadow = true;
+      group.add(plate);
+    });
   }
 
   Y.Terrain = {
@@ -456,6 +494,7 @@
     build: build,
     heightAt: heightAt,
     ceilingAt: ceilingAt,
+    zoneAt: zoneAt,
     support: support,
     jumpAhead: jumpAhead,
     maxHeightAlong: maxHeightAlong,

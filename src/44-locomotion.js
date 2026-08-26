@@ -19,6 +19,8 @@
      patte peut la poser plus haut. Un Go2-W passe des marches bien plus
      hautes que ses pneus parce qu'il lève la jambe. Au-delà, c'est un mur. */
   const WHEEL_CLIMB = 0.30;
+  /* Durée du fondu qui ramène les jambes de la pose de vol à l'appui. */
+  const TRICK_FADE = 0.28;
   /* Dessous de caisse : au-delà, un relief ne heurte plus les roues mais le
      tronc lui-même, et là il n'y a plus rien à négocier. */
   const BODY_UNDER = 0.10;
@@ -76,6 +78,7 @@
     // dérober sous les roues. Réservé au pilotage — la session AUTO et le
     // simulateur Python doivent rester reproductibles au millimètre.
     freeRoll: false, wheelAir: false, brake: false, prevTarget: null, ffz: 0,
+    pump: 0, trick: null, trickFade: 0, trickQ: null, landed: null, restZ: 0,
     // sens de marche des roues : un 540 se reçoit en fakie, roues en arrière
     dir: 1
   };
@@ -578,8 +581,10 @@
     }
 
     const cy = Math.cos(state.yaw), sy = Math.sin(state.yaw);
-    // sur relief, la caisse se redresse pour laisser du débattement
-    const height = state.height * 0.92 * (1 + clamp(nat.rough / 0.25, 0, 1) * 0.22);
+    // sur relief, la caisse se redresse pour laisser du débattement ; dans une
+    // transition, elle se ramasse — c'est le pompage, et ça se voit
+    const height = state.height * 0.92 * (1 + clamp(nat.rough / 0.25, 0, 1) * 0.22)
+      * (1 - 0.16 * nat.pump);
     let groundZ = 0, grounded = 0, front = 0, rear = 0, left = 0, right = 0;
     let rawAvg = 0;
 
@@ -706,6 +711,7 @@
        au lieu de se franchir. Réservé à la roue libre : ailleurs la
        suspension seule suffit, et la session doit rester reproductible. */
     const restZ = rawAvg + height + WHEEL_R;
+    nat.restZ = restZ;
     if (nat.freeRoll && nat.wheelAir) {
       nat.vz -= G_ACC * dt;
       nat.zBody += nat.vz * dt;
@@ -778,7 +784,27 @@
        frottement de roulement, sans lequel le va-et-vient serait perpétuel. */
     if (nat.freeRoll && !nat.wheelAir) {
       nat.vx += G_ACC * Math.sin(slopePitch) * 0.85 * dt;
-      nat.vx -= nat.vx * 0.12 * dt;
+      nat.vx -= nat.vx * 0.08 * dt;
+      /* POMPAGE. Dans une transition, un skateur ne subit pas la courbe : il
+         se ramasse en y entrant et se détend au creux. Ce travail-là, fait
+         contre la force centrifuge, ajoute de la vitesse à chaque passage —
+         c'est ce qui permet de monter de plus en plus haut sans jamais poser
+         le pied, et c'est le geste central de tout le jeu.
+
+         Sans lui, la première transition venue avalait l'élan et le robot
+         restait à osciller au fond : on ne « passait plus les obstacles ».
+         Avec lui, un quarter pipe n'est plus un mur mais un tremplin qu'on
+         charge en deux ou trois allers-retours. */
+      const slope = Math.abs(slopePitch);
+      const v = Math.abs(nat.vx);
+      if (slope > 0.12 && v > 0.15 && v < 5.5) {
+        nat.pump = Math.min(1, slope / 0.7) * Math.min(1, v / 1.5);
+        nat.vx += Math.sign(nat.vx) * 0.90 * slope * Math.min(v, 2.5) * dt;
+      } else {
+        nat.pump = lerp(nat.pump, 0, Math.min(1, dt * 4));
+      }
+    } else if (!nat.freeRoll) {
+      nat.pump = 0;
     }
     const bankIdeal = Math.atan2(nat.vx * nat.wz, G_ACC);
     // plongée au freinage, cabrage à l'accélération : c'est ce qui donne le poids
@@ -786,9 +812,91 @@
     state.roll = lerp(state.roll, slopeRoll - bankIdeal * 0.9, Math.min(1, dt * 8));
     state.sway = 0; state.yawWag = 0;
 
+    /* FIGURE EN L'AIR. Le vol est déjà en cours : la figure n'ajoute qu'une
+       ROTATION, elle ne relance rien. C'est toute la différence avec les
+       figures au sol, qui possèdent leur propre envol — et c'est ce qui
+       change le jeu : on quitte la lèvre d'abord, on choisit ensuite ce qu'on
+       fait pendant qu'on monte, et on enchaîne tant qu'on est en l'air.
+
+       La durée est calée sur le vol qui RESTE, calculé depuis l'état
+       balistique : la rotation se termine juste avant le contact, quelle que
+       soit la hauteur du saut. Trop courte, on retombe à l'envers. */
+    if (nat.trick) {
+      const tk = nat.trick;
+      tk.t += dt;
+      const raw = clamp(tk.t / tk.dur, 0, 1);
+      const s = smoother(raw);
+      state.pitch = tk.pitch0 - 2 * Math.PI * (tk.a.pitch || 0) * s;
+      state.roll = tk.roll0 + 2 * Math.PI * (tk.a.roll || 0) * s;
+      state.yaw = tk.yaw0 + 2 * Math.PI * (tk.a.yaw || 0) * s;
+      if (raw >= 1 && nat.wheelAir) {
+        /* Rotation bouclée en l'air : on valide et on libère la place. C'est
+           ce qui permet d'ENCHAÎNER — un salto puis un 360 dans le même saut,
+           tant qu'il reste du vol. Sans ça, une figure occupait tout le saut. */
+        /* Un tour entier ramène à la même assiette : on repose donc
+           l'assiette de DÉPART, pas l'angle accumulé. En laissant -2π, la
+           reprise le ramenait à zéro en un huitième de seconde — six radians
+           de caisse, que les jambes devaient suivre à 200 rad/s. */
+        state.pitch = tk.pitch0;
+        state.roll = tk.roll0;
+        state.yaw = tk.yaw0 + 2 * Math.PI * (tk.a.yaw || 0);
+        nat.trickFade = TRICK_FADE;
+        nat.trickQ = captureQ();
+        nat.landed = { id: tk.id, label: tk.a.label, score: tk.a.score, ok: true };
+        nat.trick = null;
+      } else if (!nat.wheelAir) {                  // on vient de toucher
+        state.yaw = tk.yaw0 + 2 * Math.PI * (tk.a.yaw || 0);
+        state.pitch = 0; state.roll = 0;
+        // un demi-tour net repart en fakie, roues à l'envers — comme au skate
+        if (Math.abs(((tk.a.yaw || 0) % 1) - 0.5) < 0.01) {
+          nat.vx = -nat.vx; nat.dir = -nat.dir;
+        }
+        nat.trickFade = TRICK_FADE;
+        nat.trickQ = captureQ();
+        // sous 85 % de la rotation, on se reçoit de travers : c'est une chute
+        nat.landed = { id: tk.id, label: tk.a.label, score: tk.a.score,
+                       ok: raw > 0.85 };
+        nat.trick = null;
+      }
+    }
+
     // obstacle trop haut : une roue ne monte pas une marche plus haute qu'elle
     const step = Y.Terrain ? Y.Terrain.stepAhead(state.px, state.py, state.yaw, 0.7) : 0;
     nat.wheelWarn = step > WHEEL_R * 0.9 ? step : 0;
+
+    if (nat.trick) {
+      /* Pendant la rotation, les jambes sont figées dans le repère de la
+         CAISSE : sinon elles courent après un sol qui tourne autour d'elles,
+         et ça coûte des centaines de rad/s pour rien. Groupé serré d'abord —
+         ça fait tourner vite —, puis ouverture pour aller chercher le sol. */
+      /* Le groupé et l'ouverture ont leur propre durée, indépendante de la
+         vitesse de rotation : une jambe ne se replie pas deux fois plus vite
+         parce qu'on tourne deux fois plus vite. Sans ça, accélérer les
+         figures accélérait aussi les genoux, pour rien. */
+      const tk = nat.trick;
+      /* Les deux fenêtres doivent TENIR dans la figure. Fixées à 0,22 et
+         0,26 s, elles se chevauchaient sur une figure de 0,34 s : le groupé
+         n'était qu'au tiers quand l'ouverture prenait la main, et la pose
+         sautait d'un coup — 180 rad/s pour un salto. */
+      const tin = Math.min(0.22, tk.dur * 0.45);
+      const tout = Math.min(0.26, tk.dur * 0.45);
+      if (tk.t < tk.dur - tout) poseFromQ(tk.q0, POSE.tuck, smooth(clamp(tk.t / tin, 0, 1)));
+      else poseMixQ(POSE.tuck, POSE.reach, smooth((tk.t - (tk.dur - tout)) / tout));
+      Y.LEGS.forEach(function (L) {
+        const n = Y.Robot.legs[L.id];
+        n.contact = false; n.phase = 0;
+        n.footWorld = null;
+        if (n.wheel) n.wheel.rotation.y = nat.spin[L.id];
+        nat.wheelZ[L.id] = null;              // on repartira du sol réel au poser
+      });
+      return;
+    }
+    // Réception d'une figure : on fond depuis la pose de vol vers l'appui.
+    // Sans ce fondu, passer de la pose groupée à la pose de sol en une image
+    // coûterait plus de cent rad/s.
+    if (nat.trickFade > 0) nat.trickFade = Math.max(0, nat.trickFade - dt);
+    const fade = nat.trickQ && nat.trickFade > 0
+      ? smooth(1 - nat.trickFade / TRICK_FADE) : 1;
 
     Y.LEGS.forEach(function (L, i) {
       const n = Y.Robot.legs[L.id];
@@ -796,7 +904,9 @@
       const dx = c.x - state.px, dy = c.y - state.py;
       const level = [cy * dx + sy * dy, -sy * dx + cy * dy, c.z + WHEEL_R - state.z];
       const target = constrain(L, levelToBody(level, state.roll, state.pitch, 0));
-      assign(n, Y.Motion.ik(L, target[0], target[1], target[2]));
+      const q = Y.Motion.ik(L, target[0], target[1], target[2]);
+      assign(n, fade >= 1 ? q
+        : [0, 1, 2].map(function (j) { return lerp(nat.trickQ[i * 3 + j], q[j], fade); }));
       n.contact = c.contact !== false;
       n.phase = 0;
       n.footWorld = [c.x, c.y, c.z];
@@ -812,6 +922,22 @@
     pike:  { front: [0, 1.70, -2.35], hind: [0, 1.15, -2.50] },
     reach: { front: [0, 0.55, -1.45], hind: [0, 0.85, -1.70] },
     twist: { front: [0.35, 1.45, -2.45], hind: [-0.35, 1.30, -2.50] }
+  };
+
+  /* --- figures EN L'AIR : ce qu'on déclenche après avoir quitté la lèvre ---
+     Elles n'ont ni armement ni envol : le vol est déjà là. Elles ne décrivent
+     donc qu'une rotation, en tours, et ce qu'elle vaut. */
+  const AIR = {
+    back:        { label: "Salto arrière", pitch: 1, dur: 0.34, score: 100 },
+    front:       { label: "Salto avant", pitch: -1, dur: 0.34, score: 100 },
+    double:      { label: "Double salto arrière", pitch: 2, dur: 0.56, score: 260 },
+    doublefront: { label: "Double salto avant", pitch: -2, dur: 0.56, score: 260 },
+    sideL:       { label: "Salto latéral gauche", roll: 1, dur: 0.36, score: 120 },
+    sideR:       { label: "Salto latéral droit", roll: -1, dur: 0.36, score: 120 },
+    dsideL:      { label: "Double latéral gauche", roll: 2, dur: 0.58, score: 300 },
+    dsideR:      { label: "Double latéral droit", roll: -2, dur: 0.58, score: 300 },
+    spin360:     { label: "360", yaw: 1, dur: 0.32, score: 90 },
+    mctwist:     { label: "540 McTwist", pitch: 1, yaw: 1.5, dur: 0.48, score: 400 }
   };
 
   function poseFor(L, pose) {
@@ -2134,6 +2260,42 @@
     freeRolling: function () { return nat.freeRoll; },
     setBrake: function (on) { nat.brake = !!on; },
     wheelAirborne: function () { return nat.wheelAir; },
+    airFigures: AIR,
+
+    /**
+     * Déclenche une figure EN L'AIR.
+     *
+     * Refusée au sol : au sol, ce sont les figures du catalogue qui
+     * s'appliquent, avec leur propre armement et leur propre envol. Ici le
+     * robot vole déjà, et la figure n'ajoute qu'une rotation calée sur le vol
+     * qui reste — assez pour la finir, jamais plus.
+     */
+    trick: function (id) {
+      const a = AIR[id];
+      if (!a || !nat.freeRoll || !nat.wheelAir || nat.trick) return false;
+      const st = Y.Motion.state;
+      /* Chaque figure a sa VITESSE propre — un tour ne se boucle pas en un
+         clin d'œil. On ne refuse PAS celles qui semblent trop longues : c'est
+         au joueur de juger sa hauteur, et tenter une figure trop lente pour
+         le vol qui reste, c'est se recevoir de travers et tout perdre. Seul
+         un décollage manifestement trop bas est refusé, parce que là il n'y a
+         rien à juger. C'est ce qui donne du prix à la hauteur. */
+      const dz = Math.max(nat.zBody - nat.restZ, 0);
+      if (dz < 0.30 && nat.vz < 0.5) return false;
+      nat.trick = { id: id, a: a, t: 0, dur: a.dur,
+                    q0: captureQ(), yaw0: st.yaw, pitch0: st.pitch, roll0: st.roll };
+      return a.label;
+    },
+    /** Figure en cours d'exécution en l'air, s'il y en a une. */
+    tricking: function () { return nat.trick ? nat.trick.id : null; },
+    /** Dernière réception : ce qui a été posé, et si c'était propre. */
+    takeLanding: function () { const l = nat.landed; nat.landed = null; return l; },
+    /** Temps de vol qu'il reste, en secondes. */
+    airLeft: function () {
+      if (!nat.wheelAir) return 0;
+      const dz = Math.max(nat.zBody - nat.restZ, 0);
+      return (nat.vz + Math.sqrt(Math.max(nat.vz * nat.vz + 2 * G_ACC * dz, 0))) / G_ACC;
+    },
     isAuto: function () { return nat.auto; },
     airborne: function () { return nat.air; },
     lastFlight: function () { return nat.lastAir; },

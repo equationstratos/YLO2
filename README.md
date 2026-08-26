@@ -332,6 +332,81 @@ posaient donc des blocs différents pour la même description — 103 d'un côt�
 98 de l'autre. `Math.imul` rend le produit exact ; ils en posent maintenant 98
 tous les deux, et un test l'épingle.
 
+### Rouler comme au skate : pomper, sauter, tourner, enchaîner
+
+Une grande rampe ne se franchit pas, elle se **roule** — mais rouler ne suffit
+pas. Il manquait les trois gestes qui font qu'un skatepark est un terrain de
+jeu et non une suite d'obstacles.
+
+**Pomper.** Dans une transition, un skateur ne subit pas la courbe : il se
+ramasse en y entrant et se détend au creux. Ce travail, fait contre la force
+centrifuge, ajoute de la vitesse à chaque passage. Sans lui, la première
+transition venue avalait l'élan et le robot restait à osciller au fond — il
+« ne passait plus les obstacles ». Avec lui, un quarter pipe devient un
+tremplin qu'on charge en deux ou trois allers-retours. Mesuré : dans le
+skatepark, à 1 m/s de consigne, le robot passait de x = 7,9 (arrêté au pied du
+quarter) à **x = 15,8** — il le franchit maintenant, et par le haut. La caisse
+se ramasse de 16 % pendant le pompage : ça se voit.
+
+**Tourner en l'air, pas depuis le sol.** C'est le vrai changement. Les figures
+du catalogue possèdent leur propre envol : elles s'arment, poussent, volent et
+se reçoivent, d'un bloc. En l'air, le vol est déjà là — la figure n'ajoute
+qu'une **rotation**. Le même bouton fait donc deux choses selon l'endroit d'où
+on appuie, et c'est toute la bascule : on quitte la lèvre d'abord, on choisit
+ensuite ce qu'on fait pendant qu'on monte.
+
+| En l'air | Rotation | Durée | Points |
+| --- | --- | --- | --- |
+| Salto arrière / avant | 1 tour de tangage | 0,34 s | 100 |
+| Double salto arrière / avant | 2 tours | 0,56 s | 260 |
+| Salto latéral gauche / droit | 1 tour de roulis | 0,36 s | 120 |
+| Double latéral | 2 tours | 0,58 s | 300 |
+| 360 | 1 tour de lacet | 0,32 s | 90 |
+| 540 McTwist | 1 tangage + 1,5 lacet | 0,48 s | 400 |
+
+Chaque figure a sa vitesse propre, et **on ne refuse pas celles qui semblent
+trop longues** : c'est au joueur de juger sa hauteur. Tenter une figure trop
+lente pour le vol qui reste, c'est se recevoir de travers — sous 85 % de la
+rotation, c'est une chute et l'enchaînement est perdu. Seul un décollage
+manifestement trop bas est refusé, parce que là il n'y a rien à juger.
+
+**Enchaîner.** Une rotation bouclée en l'air libère la place pour la suivante,
+tant qu'il reste du vol. À la réception, l'enchaînement est validé et multiplié
+par le nombre de figures : deux figures dans le même saut valent quatre fois
+une seule. C'est ce qui pousse à en tenter une de plus au lieu de se poser.
+
+```
+360 + Salto arrière ×2        380 pts
+```
+
+Relevé sur les dix figures aériennes : **14 à 21 rad/s** au pire, aucune butée.
+C'est bas parce que, pendant la rotation, les jambes sont figées dans le repère
+de la caisse — sinon elles courraient après un sol qui tourne autour d'elles.
+Le groupé et l'ouverture ont leur propre durée, indépendante de la vitesse de
+rotation : une jambe ne se replie pas deux fois plus vite parce qu'on tourne
+deux fois plus vite.
+
+### Vue de suivi, départ et arrivée
+
+Sur les trois terrains qui sont des **parcours** — big ramp, mega ramp,
+méga-parcours — la caméra se tient derrière le robot : c'est la seule vue
+depuis laquelle on lit ce qui arrive. Elle vise l'arrière du **sens de
+marche** et non l'arrière du robot : après un 540 il roule en fakie, et la
+caméra doit rester devant ce qui vient, pas derrière ce qu'il regarde.
+
+La main reprend la caméra quand elle veut — et la vue y **revient toute
+seule** : 1,5 s après un coup de souris ou de stick, 6 s après un cadrage
+demandé explicitement par un bouton de vue. Au démarrage, personne n'ayant
+rien demandé, la page ne retient pas la caméra du tout.
+
+Le méga-parcours a une zone de **départ** (verte, en haut du roll-in) et une
+zone d'**arrivée** (orange, avant la transition finale). Ce sont des décors :
+elles ne comptent ni dans la hauteur du sol ni dans les collisions. Le
+chronomètre part quand le robot **quitte** le départ — pas quand on appuie sur
+un bouton, c'est le premier mètre parcouru qui compte — et s'arrête en entrant
+dans l'arrivée. Revenir se poser sur le départ remet tout à zéro : on retente
+sans rien réinitialiser, et le meilleur temps est gardé.
+
 ### Une roue n'est pas un point
 
 « Des fois ça passe à travers. » C'était exact, et il y avait trois causes
@@ -872,9 +947,15 @@ même temps de vol serait invivable pour les genoux. Relevé : vol 0,86 s, apex
 PLAY n'a pas de jumeau Python : la manette est une affaire de navigateur, et le
 simulateur n'a pas de manette. Ce qui relève de la physique, lui, est dans les
 deux moteurs et couvert par les tests — le salto enchaîné, la pirouette tenue,
-le contact de roue, la big ramp. Restent côté navigateur seuls : la caméra au
-stick droit, la roue libre et le pilotage pendant une figure, qui n'existent
-que face à un flux de commandes vivant.
+le contact de roue, les murs, la fenêtre, les terrains. Restent côté navigateur
+seuls : la caméra, la roue libre et son pompage, les figures en l'air, le score
+et le chronomètre. Tous n'existent que face à un flux de commandes vivant, ce
+que le simulateur n'a pas : il exécute des figures écrites d'avance.
+
+Et une chose demandée n'est pas là, autant le dire : il n'y a pas de **grind**.
+Se poser sur un ledge ou un coping et y glisser demande un contact de tranche —
+une arête, pas un champ de hauteurs — et un équilibre à tenir. C'est un
+chantier à part entière, pas un réglage.
 
 ## Simulation Python
 

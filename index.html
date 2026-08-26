@@ -290,6 +290,19 @@ canvas{position:absolute;inset:0;display:block;width:100%;height:100%;touch-acti
 }
 .padmap td:last-child{color:var(--dim)}
 .padnote{margin:8px 0 0;font-size:10px;color:var(--faint);line-height:1.4}
+/* Compteur d'enchaînements : à droite de la scène, en vis-à-vis de la
+   correspondance des commandes, et visible seulement en PLAY. */
+.combo{
+  position:absolute;right:16px;top:104px;z-index:5;min-width:150px;max-width:280px;
+  text-align:right;pointer-events:none;
+}
+.cscore{font-family:var(--mono);font-size:26px;line-height:1;color:var(--ink)}
+.cscore b{font-weight:600;letter-spacing:.02em}
+.cscore span{font-size:11px;color:var(--faint);letter-spacing:.14em}
+.cchain{margin-top:6px;font-size:12px;color:var(--data);line-height:1.35;min-height:16px}
+.cchain.live{color:var(--warn)}
+.cair{margin-top:2px;font-family:var(--mono);font-size:10px;color:var(--faint);
+      letter-spacing:.12em;text-transform:uppercase}
 .stunt[aria-pressed="true"]{background:var(--warn);color:#171203;font-weight:600}
 .flipbar{position:relative;height:3px;background:var(--line);margin-top:8px;border-radius:2px;overflow:hidden;display:none}
 .flipbar.on{display:block}
@@ -447,6 +460,11 @@ input[type=range]::-moz-range-thumb{
         <h4><span id="padmaptitle">Manette</span></h4>
         <table id="padmaptable"></table>
         <p class="padnote" id="padnote"></p>
+      </div>
+      <div class="combo" id="combo" hidden>
+        <div class="cscore"><b id="comboScore">0</b> <span>pts</span></div>
+        <div class="cchain" id="comboChain"></div>
+        <div class="cair" id="comboAir"></div>
       </div>
       <div class="hud">
         <div class="card">
@@ -952,7 +970,7 @@ window.YLO = window.YLO || {};
     // et c'est la gravité qui fait le va-et-vient. Une transition de 1,20 m
     // ne se « passe » pas comme les rampes des autres terrains : elle se
     // remonte tant qu'on a de la vitesse, et on redescend en marche arrière.
-    { id: "bigramp", name: "Big ramp", maxStep: 0.30,
+    { id: "bigramp", name: "Big ramp", maxStep: 0.30, chase: true,
       desc: "Mini-ramp de 1,20 m de transition, flat de 6,4 m entre les deux courbes. " +
             "À rouler comme du skate : élan, pompe, retour par gravité, saut à la lèvre.",
       boxes: (function () {
@@ -973,7 +991,7 @@ window.YLO = window.YLO || {};
        de roll-in pour un robot de 0,44 m de patte, c'est six fois sa jambe.
        La descente rend environ 6,6 m/s en bas. */
     { id: "megaramp", name: "Mega ramp", maxStep: 0.40,
-      start: [-16.0, 0, 0],
+      start: [-16.0, 0, 0], chase: true,
       desc: "Roll-in droit de 2,60 m, tremplin de 700 mm, gap de 1,00 m, pente de réception, " +
             "puis une transition de 2,60 m. Le robot démarre sur la plateforme de départ.",
       boxes: (function () {
@@ -1014,7 +1032,11 @@ window.YLO = window.YLO || {};
        un rayon plus haut : il faut y descendre à 200 mm là où 250 suffisent
        sur pattes. */
     { id: "megascene", name: "Méga-parcours", maxStep: 0.24,
-      start: [-16.0, 0, 0],
+      start: [-16.0, 0, 0], chase: true,
+      zones: [
+        { x0: -17.0, x1: -15.0, y0: -1.4, y1: 1.4, z: 2.60, kind: "start" },
+        { x0: 27.2 - 1.5, x1: 27.2, y0: -1.8, y1: 1.8, z: 0, kind: "finish" }
+      ],
       desc: "Tout le catalogue à la suite : roll-in de 2,60 m, gravats, poutres, escalier, " +
             "fenêtre à traverser, plateforme, funbox et ledge, marches hautes, tremplin et gap, " +
             "quarter pipe. La fenêtre demande de baisser la caisse : 200 mm sur roues, 250 sur pattes.",
@@ -1187,6 +1209,33 @@ window.YLO = window.YLO || {};
     return group;
   }
 
+  /* Marquages au sol : départ et arrivée. Ce sont des DÉCORS — ils ne
+     comptent ni dans la hauteur du sol ni dans les collisions —, juste une
+     plaque lumineuse qu'on reconnaît de loin. */
+  let zoneMats = null;
+  function zoneMat(kind) {
+    if (!zoneMats) {
+      zoneMats = {
+        start: new T.MeshStandardMaterial({ color: 0x10281f, emissive: 0x2fbe86,
+          emissiveIntensity: 0.5, roughness: 0.85, metalness: 0 }),
+        finish: new T.MeshStandardMaterial({ color: 0x33180a, emissive: 0xff6a2b,
+          emissiveIntensity: 0.5, roughness: 0.85, metalness: 0 })
+      };
+    }
+    return zoneMats[kind] || zoneMats.start;
+  }
+
+  /** Zone marquée sous un point : « start », « finish », ou rien. */
+  function zoneAt(x, y) {
+    const zs = current.zones;
+    if (!zs) return null;
+    for (let i = 0; i < zs.length; i++) {
+      const z = zs[i];
+      if (x >= z.x0 && x < z.x1 && y >= z.y0 && y < z.y1) return z.kind;
+    }
+    return null;
+  }
+
   function rebuild() {
     while (group.children.length) {
       const m = group.children.pop();
@@ -1215,6 +1264,13 @@ window.YLO = window.YLO || {};
         group.add(nose);
       }
     });
+    (current.zones || []).forEach(function (z) {
+      const w = z.x1 - z.x0, d = z.y1 - z.y0;
+      const plate = new T.Mesh(new T.BoxGeometry(w, d, 0.012), zoneMat(z.kind));
+      plate.position.set((z.x0 + z.x1) / 2, (z.y0 + z.y1) / 2, z.z + 0.008);
+      plate.receiveShadow = true;
+      group.add(plate);
+    });
   }
 
   Y.Terrain = {
@@ -1223,6 +1279,7 @@ window.YLO = window.YLO || {};
     build: build,
     heightAt: heightAt,
     ceilingAt: ceilingAt,
+    zoneAt: zoneAt,
     support: support,
     jumpAhead: jumpAhead,
     maxHeightAlong: maxHeightAlong,
@@ -2141,6 +2198,8 @@ window.YLO = window.YLO || {};
      patte peut la poser plus haut. Un Go2-W passe des marches bien plus
      hautes que ses pneus parce qu'il lève la jambe. Au-delà, c'est un mur. */
   const WHEEL_CLIMB = 0.30;
+  /* Durée du fondu qui ramène les jambes de la pose de vol à l'appui. */
+  const TRICK_FADE = 0.28;
   /* Dessous de caisse : au-delà, un relief ne heurte plus les roues mais le
      tronc lui-même, et là il n'y a plus rien à négocier. */
   const BODY_UNDER = 0.10;
@@ -2198,6 +2257,7 @@ window.YLO = window.YLO || {};
     // dérober sous les roues. Réservé au pilotage — la session AUTO et le
     // simulateur Python doivent rester reproductibles au millimètre.
     freeRoll: false, wheelAir: false, brake: false, prevTarget: null, ffz: 0,
+    pump: 0, trick: null, trickFade: 0, trickQ: null, landed: null, restZ: 0,
     // sens de marche des roues : un 540 se reçoit en fakie, roues en arrière
     dir: 1
   };
@@ -2700,8 +2760,10 @@ window.YLO = window.YLO || {};
     }
 
     const cy = Math.cos(state.yaw), sy = Math.sin(state.yaw);
-    // sur relief, la caisse se redresse pour laisser du débattement
-    const height = state.height * 0.92 * (1 + clamp(nat.rough / 0.25, 0, 1) * 0.22);
+    // sur relief, la caisse se redresse pour laisser du débattement ; dans une
+    // transition, elle se ramasse — c'est le pompage, et ça se voit
+    const height = state.height * 0.92 * (1 + clamp(nat.rough / 0.25, 0, 1) * 0.22)
+      * (1 - 0.16 * nat.pump);
     let groundZ = 0, grounded = 0, front = 0, rear = 0, left = 0, right = 0;
     let rawAvg = 0;
 
@@ -2828,6 +2890,7 @@ window.YLO = window.YLO || {};
        au lieu de se franchir. Réservé à la roue libre : ailleurs la
        suspension seule suffit, et la session doit rester reproductible. */
     const restZ = rawAvg + height + WHEEL_R;
+    nat.restZ = restZ;
     if (nat.freeRoll && nat.wheelAir) {
       nat.vz -= G_ACC * dt;
       nat.zBody += nat.vz * dt;
@@ -2900,7 +2963,27 @@ window.YLO = window.YLO || {};
        frottement de roulement, sans lequel le va-et-vient serait perpétuel. */
     if (nat.freeRoll && !nat.wheelAir) {
       nat.vx += G_ACC * Math.sin(slopePitch) * 0.85 * dt;
-      nat.vx -= nat.vx * 0.12 * dt;
+      nat.vx -= nat.vx * 0.08 * dt;
+      /* POMPAGE. Dans une transition, un skateur ne subit pas la courbe : il
+         se ramasse en y entrant et se détend au creux. Ce travail-là, fait
+         contre la force centrifuge, ajoute de la vitesse à chaque passage —
+         c'est ce qui permet de monter de plus en plus haut sans jamais poser
+         le pied, et c'est le geste central de tout le jeu.
+
+         Sans lui, la première transition venue avalait l'élan et le robot
+         restait à osciller au fond : on ne « passait plus les obstacles ».
+         Avec lui, un quarter pipe n'est plus un mur mais un tremplin qu'on
+         charge en deux ou trois allers-retours. */
+      const slope = Math.abs(slopePitch);
+      const v = Math.abs(nat.vx);
+      if (slope > 0.12 && v > 0.15 && v < 5.5) {
+        nat.pump = Math.min(1, slope / 0.7) * Math.min(1, v / 1.5);
+        nat.vx += Math.sign(nat.vx) * 0.90 * slope * Math.min(v, 2.5) * dt;
+      } else {
+        nat.pump = lerp(nat.pump, 0, Math.min(1, dt * 4));
+      }
+    } else if (!nat.freeRoll) {
+      nat.pump = 0;
     }
     const bankIdeal = Math.atan2(nat.vx * nat.wz, G_ACC);
     // plongée au freinage, cabrage à l'accélération : c'est ce qui donne le poids
@@ -2908,9 +2991,91 @@ window.YLO = window.YLO || {};
     state.roll = lerp(state.roll, slopeRoll - bankIdeal * 0.9, Math.min(1, dt * 8));
     state.sway = 0; state.yawWag = 0;
 
+    /* FIGURE EN L'AIR. Le vol est déjà en cours : la figure n'ajoute qu'une
+       ROTATION, elle ne relance rien. C'est toute la différence avec les
+       figures au sol, qui possèdent leur propre envol — et c'est ce qui
+       change le jeu : on quitte la lèvre d'abord, on choisit ensuite ce qu'on
+       fait pendant qu'on monte, et on enchaîne tant qu'on est en l'air.
+
+       La durée est calée sur le vol qui RESTE, calculé depuis l'état
+       balistique : la rotation se termine juste avant le contact, quelle que
+       soit la hauteur du saut. Trop courte, on retombe à l'envers. */
+    if (nat.trick) {
+      const tk = nat.trick;
+      tk.t += dt;
+      const raw = clamp(tk.t / tk.dur, 0, 1);
+      const s = smoother(raw);
+      state.pitch = tk.pitch0 - 2 * Math.PI * (tk.a.pitch || 0) * s;
+      state.roll = tk.roll0 + 2 * Math.PI * (tk.a.roll || 0) * s;
+      state.yaw = tk.yaw0 + 2 * Math.PI * (tk.a.yaw || 0) * s;
+      if (raw >= 1 && nat.wheelAir) {
+        /* Rotation bouclée en l'air : on valide et on libère la place. C'est
+           ce qui permet d'ENCHAÎNER — un salto puis un 360 dans le même saut,
+           tant qu'il reste du vol. Sans ça, une figure occupait tout le saut. */
+        /* Un tour entier ramène à la même assiette : on repose donc
+           l'assiette de DÉPART, pas l'angle accumulé. En laissant -2π, la
+           reprise le ramenait à zéro en un huitième de seconde — six radians
+           de caisse, que les jambes devaient suivre à 200 rad/s. */
+        state.pitch = tk.pitch0;
+        state.roll = tk.roll0;
+        state.yaw = tk.yaw0 + 2 * Math.PI * (tk.a.yaw || 0);
+        nat.trickFade = TRICK_FADE;
+        nat.trickQ = captureQ();
+        nat.landed = { id: tk.id, label: tk.a.label, score: tk.a.score, ok: true };
+        nat.trick = null;
+      } else if (!nat.wheelAir) {                  // on vient de toucher
+        state.yaw = tk.yaw0 + 2 * Math.PI * (tk.a.yaw || 0);
+        state.pitch = 0; state.roll = 0;
+        // un demi-tour net repart en fakie, roues à l'envers — comme au skate
+        if (Math.abs(((tk.a.yaw || 0) % 1) - 0.5) < 0.01) {
+          nat.vx = -nat.vx; nat.dir = -nat.dir;
+        }
+        nat.trickFade = TRICK_FADE;
+        nat.trickQ = captureQ();
+        // sous 85 % de la rotation, on se reçoit de travers : c'est une chute
+        nat.landed = { id: tk.id, label: tk.a.label, score: tk.a.score,
+                       ok: raw > 0.85 };
+        nat.trick = null;
+      }
+    }
+
     // obstacle trop haut : une roue ne monte pas une marche plus haute qu'elle
     const step = Y.Terrain ? Y.Terrain.stepAhead(state.px, state.py, state.yaw, 0.7) : 0;
     nat.wheelWarn = step > WHEEL_R * 0.9 ? step : 0;
+
+    if (nat.trick) {
+      /* Pendant la rotation, les jambes sont figées dans le repère de la
+         CAISSE : sinon elles courent après un sol qui tourne autour d'elles,
+         et ça coûte des centaines de rad/s pour rien. Groupé serré d'abord —
+         ça fait tourner vite —, puis ouverture pour aller chercher le sol. */
+      /* Le groupé et l'ouverture ont leur propre durée, indépendante de la
+         vitesse de rotation : une jambe ne se replie pas deux fois plus vite
+         parce qu'on tourne deux fois plus vite. Sans ça, accélérer les
+         figures accélérait aussi les genoux, pour rien. */
+      const tk = nat.trick;
+      /* Les deux fenêtres doivent TENIR dans la figure. Fixées à 0,22 et
+         0,26 s, elles se chevauchaient sur une figure de 0,34 s : le groupé
+         n'était qu'au tiers quand l'ouverture prenait la main, et la pose
+         sautait d'un coup — 180 rad/s pour un salto. */
+      const tin = Math.min(0.22, tk.dur * 0.45);
+      const tout = Math.min(0.26, tk.dur * 0.45);
+      if (tk.t < tk.dur - tout) poseFromQ(tk.q0, POSE.tuck, smooth(clamp(tk.t / tin, 0, 1)));
+      else poseMixQ(POSE.tuck, POSE.reach, smooth((tk.t - (tk.dur - tout)) / tout));
+      Y.LEGS.forEach(function (L) {
+        const n = Y.Robot.legs[L.id];
+        n.contact = false; n.phase = 0;
+        n.footWorld = null;
+        if (n.wheel) n.wheel.rotation.y = nat.spin[L.id];
+        nat.wheelZ[L.id] = null;              // on repartira du sol réel au poser
+      });
+      return;
+    }
+    // Réception d'une figure : on fond depuis la pose de vol vers l'appui.
+    // Sans ce fondu, passer de la pose groupée à la pose de sol en une image
+    // coûterait plus de cent rad/s.
+    if (nat.trickFade > 0) nat.trickFade = Math.max(0, nat.trickFade - dt);
+    const fade = nat.trickQ && nat.trickFade > 0
+      ? smooth(1 - nat.trickFade / TRICK_FADE) : 1;
 
     Y.LEGS.forEach(function (L, i) {
       const n = Y.Robot.legs[L.id];
@@ -2918,7 +3083,9 @@ window.YLO = window.YLO || {};
       const dx = c.x - state.px, dy = c.y - state.py;
       const level = [cy * dx + sy * dy, -sy * dx + cy * dy, c.z + WHEEL_R - state.z];
       const target = constrain(L, levelToBody(level, state.roll, state.pitch, 0));
-      assign(n, Y.Motion.ik(L, target[0], target[1], target[2]));
+      const q = Y.Motion.ik(L, target[0], target[1], target[2]);
+      assign(n, fade >= 1 ? q
+        : [0, 1, 2].map(function (j) { return lerp(nat.trickQ[i * 3 + j], q[j], fade); }));
       n.contact = c.contact !== false;
       n.phase = 0;
       n.footWorld = [c.x, c.y, c.z];
@@ -2934,6 +3101,22 @@ window.YLO = window.YLO || {};
     pike:  { front: [0, 1.70, -2.35], hind: [0, 1.15, -2.50] },
     reach: { front: [0, 0.55, -1.45], hind: [0, 0.85, -1.70] },
     twist: { front: [0.35, 1.45, -2.45], hind: [-0.35, 1.30, -2.50] }
+  };
+
+  /* --- figures EN L'AIR : ce qu'on déclenche après avoir quitté la lèvre ---
+     Elles n'ont ni armement ni envol : le vol est déjà là. Elles ne décrivent
+     donc qu'une rotation, en tours, et ce qu'elle vaut. */
+  const AIR = {
+    back:        { label: "Salto arrière", pitch: 1, dur: 0.34, score: 100 },
+    front:       { label: "Salto avant", pitch: -1, dur: 0.34, score: 100 },
+    double:      { label: "Double salto arrière", pitch: 2, dur: 0.56, score: 260 },
+    doublefront: { label: "Double salto avant", pitch: -2, dur: 0.56, score: 260 },
+    sideL:       { label: "Salto latéral gauche", roll: 1, dur: 0.36, score: 120 },
+    sideR:       { label: "Salto latéral droit", roll: -1, dur: 0.36, score: 120 },
+    dsideL:      { label: "Double latéral gauche", roll: 2, dur: 0.58, score: 300 },
+    dsideR:      { label: "Double latéral droit", roll: -2, dur: 0.58, score: 300 },
+    spin360:     { label: "360", yaw: 1, dur: 0.32, score: 90 },
+    mctwist:     { label: "540 McTwist", pitch: 1, yaw: 1.5, dur: 0.48, score: 400 }
   };
 
   function poseFor(L, pose) {
@@ -4256,6 +4439,42 @@ window.YLO = window.YLO || {};
     freeRolling: function () { return nat.freeRoll; },
     setBrake: function (on) { nat.brake = !!on; },
     wheelAirborne: function () { return nat.wheelAir; },
+    airFigures: AIR,
+
+    /**
+     * Déclenche une figure EN L'AIR.
+     *
+     * Refusée au sol : au sol, ce sont les figures du catalogue qui
+     * s'appliquent, avec leur propre armement et leur propre envol. Ici le
+     * robot vole déjà, et la figure n'ajoute qu'une rotation calée sur le vol
+     * qui reste — assez pour la finir, jamais plus.
+     */
+    trick: function (id) {
+      const a = AIR[id];
+      if (!a || !nat.freeRoll || !nat.wheelAir || nat.trick) return false;
+      const st = Y.Motion.state;
+      /* Chaque figure a sa VITESSE propre — un tour ne se boucle pas en un
+         clin d'œil. On ne refuse PAS celles qui semblent trop longues : c'est
+         au joueur de juger sa hauteur, et tenter une figure trop lente pour
+         le vol qui reste, c'est se recevoir de travers et tout perdre. Seul
+         un décollage manifestement trop bas est refusé, parce que là il n'y a
+         rien à juger. C'est ce qui donne du prix à la hauteur. */
+      const dz = Math.max(nat.zBody - nat.restZ, 0);
+      if (dz < 0.30 && nat.vz < 0.5) return false;
+      nat.trick = { id: id, a: a, t: 0, dur: a.dur,
+                    q0: captureQ(), yaw0: st.yaw, pitch0: st.pitch, roll0: st.roll };
+      return a.label;
+    },
+    /** Figure en cours d'exécution en l'air, s'il y en a une. */
+    tricking: function () { return nat.trick ? nat.trick.id : null; },
+    /** Dernière réception : ce qui a été posé, et si c'était propre. */
+    takeLanding: function () { const l = nat.landed; nat.landed = null; return l; },
+    /** Temps de vol qu'il reste, en secondes. */
+    airLeft: function () {
+      if (!nat.wheelAir) return 0;
+      const dz = Math.max(nat.zBody - nat.restZ, 0);
+      return (nat.vz + Math.sqrt(Math.max(nat.vz * nat.vz + 2 * G_ACC * dz, 0))) / G_ACC;
+    },
     isAuto: function () { return nat.auto; },
     airborne: function () { return nat.air; },
     lastFlight: function () { return nat.lastAir; },
@@ -4650,16 +4869,34 @@ window.YLO = window.YLO || {};
     { pad: "L2", key: "↓", act: "Freiner, puis marche arrière" },
     { pad: "L1", key: "A", act: "Double salto arrière" },
     { pad: "R1", key: "E", act: "540 McTwist" },
-    { pad: "L1 + R1", key: "A + E", act: "Pirouette (tenue)" },
+    { pad: "L1 + R1", key: "A + E", act: "Pirouette / 360 en l'air" },
     { pad: "Clic stick G", key: "T", act: "Salto arrière enchaîné (tenu)" },
     { pad: "↑ ↓ ← →", key: "Z S Q D", act: "Salto dans cette direction" },
     { pad: "flèche ×2", key: "touche ×2", act: "Salto double" },
+    { pad: "— en l'air —", key: "— en l'air —", act: "les mêmes touches font tourner le vol" },
     { pad: "Stick gauche", key: "← →", act: "Tourner" },
     { pad: "Stick D", key: "souris", act: "Caméra" }
   ];
 
   const S = {
-    on: false, source: "clavier", padName: "", padLayout: "", say: "", listeners: []
+    on: false, source: "clavier", padName: "", padLayout: "", say: "", listeners: [],
+    // enchaînement en cours, dernier enchaînement validé, total
+    combo: [], last: "", score: 0, air: false
+  };
+  let pending = 0, wasAir = false;
+
+  /**
+   * Au sol, chaque bouton lance la figure du catalogue — avec son armement et
+   * son propre envol. EN L'AIR, le même bouton ne relance rien : il ajoute une
+   * ROTATION au vol en cours. C'est la bascule qui fait tout le jeu : on
+   * quitte la lèvre d'abord, on choisit ensuite.
+   */
+  const AIRMAP = {
+    wheelflip: "back", wheelfrontflip: "front",
+    wheeldoubleflip: "double", wheeldoublefrontflip: "doublefront",
+    wheelsideflipL: "sideL", wheelsideflipR: "sideR",
+    wheeldoublesideflipL: "dsideL", wheeldoublesideflipR: "dsideR",
+    wheeltwist540: "mctwist", pirouette: "spin360"
   };
 
   function clampUnit(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
@@ -4684,6 +4921,12 @@ window.YLO = window.YLO || {};
   /** Lance une figure de roues, en signalant proprement les refus. */
   function fire(id, charge, hold) {
     if (Y.Motion.state.mode !== "roues") return;
+    // en l'air, le bouton ajoute une rotation au vol au lieu d'en relancer un
+    if (Y.Natural.wheelAirborne() && AIRMAP[id]) {
+      const done = Y.Natural.trick(AIRMAP[id]);
+      if (!done && !Y.Natural.tricking()) say("Trop bas pour tourner");
+      return;
+    }
     const f = Y.Stunt.figures[id];
     if (!f) return;
     if (Y.Stunt.active) {
@@ -4917,6 +5160,38 @@ window.YLO = window.YLO || {};
     if (hooks.setVx) hooks.setVx(v);
   }
 
+  /**
+   * Enchaînements et score.
+   *
+   * Une figure bouclée en l'air s'ajoute à l'enchaînement ; une figure qu'on
+   * n'a pas fini de tourner avant de toucher fait tout perdre. À la réception,
+   * l'enchaînement est validé et multiplié par le nombre de figures : deux
+   * figures dans le même saut valent quatre fois une seule. C'est ce qui
+   * pousse à en tenter une de plus au lieu de se poser.
+   */
+  function stepCombo() {
+    const air = Y.Natural.wheelAirborne();
+    let l = Y.Natural.takeLanding();
+    while (l) {
+      if (l.ok) { S.combo.push(l.label); pending += l.score; say(l.label); }
+      else {
+        S.combo.length = 0; pending = 0;
+        say("Chute — " + l.label + " pas bouclé");
+      }
+      l = Y.Natural.takeLanding();
+    }
+    if (wasAir && !air && S.combo.length) {
+      const mult = S.combo.length;
+      const won = pending * mult;
+      S.score += won;
+      S.last = S.combo.join(" + ") + (mult > 1 ? " ×" + mult : "");
+      say(S.last + "   +" + won);
+      S.combo.length = 0; pending = 0;
+    }
+    if (S.air !== air) { S.air = air; emit(); }
+    wasAir = air;
+  }
+
   function stepKeys() {
     drive(keys.ArrowUp ? 1 : 0, keys.ArrowDown ? 1 : 0);
     const turn = (keys.ArrowLeft ? 1 : 0) - (keys.ArrowRight ? 1 : 0);
@@ -4946,6 +5221,7 @@ window.YLO = window.YLO || {};
       waitDir = null; waitBoth = null;
       if (hooks.mode) hooks.mode("roues");     // toutes ces figures sont sur roues
       if (hooks.setBrake) hooks.setBrake(false);
+      S.combo.length = 0; S.last = ""; S.score = 0; pending = 0; wasAir = false;
       // Roue libre : en PLAY, la gravité agit le long des pentes et le sol
       // peut se dérober. C'est ce qui fait qu'une big ramp se roule.
       Y.Natural.setFreeRoll(true);
@@ -4990,7 +5266,15 @@ window.YLO = window.YLO || {};
       if (!S.on) return false;
       if (S.source === "manette") stepPad(); else stepKeys();
       resolvePending();
+      stepCombo();
       return true;
+    },
+
+    /** Remet le compteur à zéro : nouveau parcours, nouvelle ardoise. */
+    resetScore: function () {
+      S.combo.length = 0; S.last = ""; S.score = 0;
+      pending = 0; wasAir = false;
+      emit();
     }
   };
 })(window.YLO);
@@ -5101,6 +5385,15 @@ window.YLO = window.YLO || {};
   let dragging = false, lastX = 0, lastY = 0, pinch0 = 0, downAt = null, camTween = null;
   // vitesse de balayage demandée par le stick droit de la manette, en rad/s
   let padLook = null;
+  /* Vue de suivi. Sur les terrains qui sont des PARCOURS, la caméra se tient
+     derrière le robot : c'est la seule vue depuis laquelle on peut lire ce qui
+     arrive. Quand la main s'en mêle, elle rend la main — et elle y revient
+     toute seule, après une seconde et demie sans rien toucher. */
+  const CHASE = { el: 0.16, dist: 3.0, hold: 1.5, back: 6.0 };
+  let manualCam = 0;
+  function grabCam(long) { manualCam = long ? CHASE.back : CHASE.hold; }
+  /** Chronomètre du parcours : de la sortie du départ à l'entrée dans l'arrivée. */
+  const course = { t: 0, armed: false, running: false, best: 0, done: 0 };
   const pointers = new Map();
   const clamp = function (v, a, b) { return Math.min(Math.max(v, a), b); };
   const lerp = function (a, b, t) { return a + (b - a) * t; };
@@ -5163,6 +5456,7 @@ window.YLO = window.YLO || {};
     // L'axe vertical est INVERSÉ : tirer vers le haut monte le point de vue,
     // tirer vers le bas descend dessous le robot. C'est le sens qu'attend la
     // main quand on cherche à voir sous la caisse ou à travers une ouverture.
+    grabCam(false);
     orbit.az -= (e.clientX - lastX) * 0.006;
     orbit.el = clamp(orbit.el - (e.clientY - lastY) * 0.005, -0.35, 1.45);
     lastX = e.clientX; lastY = e.clientY;
@@ -5175,6 +5469,7 @@ window.YLO = window.YLO || {};
   canvas.addEventListener("pointercancel", endPointer);
   canvas.addEventListener("wheel", function (e) {
     e.preventDefault();
+    grabCam(false);
     orbit.dist = clamp(orbit.dist * (1 + Math.sign(e.deltaY) * 0.09), 0.45, 6);
   }, { passive: false });
 
@@ -5184,7 +5479,11 @@ window.YLO = window.YLO || {};
     front: { az: 0, el: 0.08, dist: 1.85 },
     top: { az: -Math.PI / 2, el: 1.40, dist: 2.45 }
   };
-  function setView(name) {
+  function setView(name, silent) {
+    // Un cadrage demandé explicitement tient plus longtemps qu'un coup de
+    // souris. Au démarrage, en revanche, personne n'a rien demandé : la page
+    // ne doit pas retenir la caméra six secondes avant de suivre le robot.
+    if (!silent) grabCam(true);
     view.name = name;
     camTween = Object.assign({}, VIEWS[name]);
     document.querySelectorAll("#views button").forEach(function (b) {
@@ -5907,7 +6206,8 @@ window.YLO = window.YLO || {};
     });
     const note = document.getElementById("padnote");
     if (wanted !== "manette") {
-      note.textContent = "Les raccourcis habituels sont suspendus tant que PLAY tient les commandes.";
+      note.textContent = "Au sol, chaque touche lance sa figure. En l'air, la même touche fait "
+        + "tourner le vol en cours : on quitte la lèvre d'abord, on choisit ensuite.";
     } else if (P.padName) {
       // La disposition retenue est affichée : sur une manette exposée en HID
       // brut, ce n'est pas la même que sur une manette « standard », et
@@ -5919,6 +6219,67 @@ window.YLO = window.YLO || {};
       note.textContent = "Aucune manette détectée. Branchez-la ou appairez-la, " +
         "puis appuyez sur un bouton : le navigateur ne la déclare qu'au premier appui.";
     }
+  }
+
+  /**
+   * Chronomètre du parcours.
+   *
+   * Il part quand le robot QUITTE la zone de départ — pas quand on appuie sur
+   * un bouton : c'est le premier mètre parcouru qui compte — et il s'arrête
+   * en entrant dans la zone d'arrivée. Revenir se poser sur le départ remet
+   * tout à zéro, ce qui permet de retenter sans rien réinitialiser.
+   */
+  function stepCourse(dt) {
+    if (!Y.Terrain.current.zones) {
+      if (course.running || course.done) { course.running = false; course.done = 0; }
+      return;
+    }
+    const here = Y.Terrain.zoneAt(M.state.px, M.state.py);
+    if (here === "start") {
+      if (course.running || course.done) flash("Départ armé");
+      course.t = 0; course.armed = true; course.running = false; course.done = 0;
+      return;
+    }
+    if (course.armed) { course.armed = false; course.running = true; }
+    if (!course.running) return;
+    course.t += dt;
+    if (here === "finish") {
+      course.running = false;
+      course.done = course.t;
+      const better = !course.best || course.t < course.best;
+      if (better) course.best = course.t;
+      flash("Arrivée — " + course.t.toFixed(2) + " s"
+        + (better ? "   meilleur temps" : "   record " + course.best.toFixed(2) + " s"));
+    }
+  }
+
+  /**
+   * Compteur d'enchaînements.
+   *
+   * En l'air, il affiche ce qui est en train de se construire — chaque figure
+   * bouclée s'y ajoute — et le vol qu'il reste pour en tenter une de plus. À
+   * la réception, il fige l'enchaînement validé. C'est le seul retour qui
+   * dise au joueur qu'il vient de gagner quelque chose.
+   */
+  function updateCombo() {
+    const box = document.getElementById("combo");
+    if (!box) return;
+    const P = Y.Play.state;
+    // le compteur ne sert qu'en PLAY, mais le chrono du parcours vaut aussi
+    // pour qui roule aux curseurs
+    box.hidden = !P.on && !course.running && !course.done;
+    if (box.hidden) return;
+    document.getElementById("comboScore").textContent = P.score.toLocaleString("fr-FR");
+    const chain = document.getElementById("comboChain");
+    const live = P.combo.length > 0;
+    chain.textContent = live ? P.combo.join(" + ") : (P.last || "");
+    chain.classList.toggle("live", live);
+    const left = Y.Natural.airLeft();
+    const chrono = course.running ? course.t.toFixed(2) + " s"
+      : course.done ? course.done.toFixed(2) + " s · arrivée"
+      : course.armed ? "au départ" : "";
+    document.getElementById("comboAir").textContent =
+      left > 0.05 ? "vol " + left.toFixed(2) + " s" : chrono;
   }
 
   /** Replie le bandeau de commandes : la scène est alors entièrement dégagée. */
@@ -6064,6 +6425,7 @@ window.YLO = window.YLO || {};
 
     updateTraces();
     updateSupport();
+    stepCourse(dt);
     if (Y.Robot.extras.lidarSpin) Y.Robot.extras.lidarSpin.rotation.z += dt * 9;
     (Y.Robot.extras.leds || []).forEach(function (o) {
       const d = ((o.userData.led / 12) - M.state.phase + 1) % 1;
@@ -6081,11 +6443,30 @@ window.YLO = window.YLO || {};
     orbit.target.lerp(camTarget, Math.min(1, dt * chase));
     if (padLook && (padLook[0] || padLook[1])) {
       camTween = null;                       // la main reprend sur le cadrage
+      grabCam(false);
       orbit.az -= padLook[0] * dt;
       // Le stick était déjà dans ce sens-là : poussé vers le haut, il monte le
       // point de vue. C'est la souris qui faisait l'inverse ; les deux
       // s'accordent maintenant.
       orbit.el = clamp(orbit.el - padLook[1] * dt, -0.35, 1.45);
+    }
+    /* Retour en vue de suivi. L'azimut vise l'arrière du SENS DE MARCHE et
+       non l'arrière du robot : après un 540 il roule en fakie, et la caméra
+       doit rester devant ce qui arrive, pas derrière ce qu'il regarde. */
+    manualCam = Math.max(0, manualCam - dt);
+    if (Y.Terrain.current.chase && !Y.Session.state.running && manualCam <= 0) {
+      camTween = null;                       // la vue de suivi reprend la main
+      {
+        const fakie = (Y.Natural.state.dir || 1) < 0;
+        const back = M.state.yaw + (fakie ? 0 : Math.PI);
+        let da = (back - orbit.az) % (Math.PI * 2);
+        if (da > Math.PI) da -= Math.PI * 2;
+        if (da < -Math.PI) da += Math.PI * 2;
+        const k = Math.min(1, dt * 1.6);
+        orbit.az += da * k;
+        orbit.el += (CHASE.el - orbit.el) * k;
+        orbit.dist += (CHASE.dist - orbit.dist) * k;
+      }
     }
     if (camTween) {
       const e = 1 - Math.exp(-dt * 6);
@@ -6110,6 +6491,7 @@ window.YLO = window.YLO || {};
       });
       updateJointTable();
       updateTags();
+      updateCombo();
       if (M.state.mode === "roues") {
         syncGaitButtons();
       } else if (Y.Natural.isAuto()) {
@@ -6343,7 +6725,7 @@ window.YLO = window.YLO || {};
     window.__ylo = { Y: Y, scene: scene, camera: camera, orbit: orbit, view: view };
 
     Y.Terrain.set("plat");
-    resize(); setView("iso"); placeCamera(); select(null);
+    resize(); setView("iso", true); placeCamera(); select(null);
     boot.hidden = true;
     if (!Y.Geo.ready) flash("Maillages indisponibles : " + Y.Geo.error);
     requestAnimationFrame(tick);

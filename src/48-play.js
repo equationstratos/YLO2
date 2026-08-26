@@ -126,16 +126,34 @@
     { pad: "L2", key: "↓", act: "Freiner, puis marche arrière" },
     { pad: "L1", key: "A", act: "Double salto arrière" },
     { pad: "R1", key: "E", act: "540 McTwist" },
-    { pad: "L1 + R1", key: "A + E", act: "Pirouette (tenue)" },
+    { pad: "L1 + R1", key: "A + E", act: "Pirouette / 360 en l'air" },
     { pad: "Clic stick G", key: "T", act: "Salto arrière enchaîné (tenu)" },
     { pad: "↑ ↓ ← →", key: "Z S Q D", act: "Salto dans cette direction" },
     { pad: "flèche ×2", key: "touche ×2", act: "Salto double" },
+    { pad: "— en l'air —", key: "— en l'air —", act: "les mêmes touches font tourner le vol" },
     { pad: "Stick gauche", key: "← →", act: "Tourner" },
     { pad: "Stick D", key: "souris", act: "Caméra" }
   ];
 
   const S = {
-    on: false, source: "clavier", padName: "", padLayout: "", say: "", listeners: []
+    on: false, source: "clavier", padName: "", padLayout: "", say: "", listeners: [],
+    // enchaînement en cours, dernier enchaînement validé, total
+    combo: [], last: "", score: 0, air: false
+  };
+  let pending = 0, wasAir = false;
+
+  /**
+   * Au sol, chaque bouton lance la figure du catalogue — avec son armement et
+   * son propre envol. EN L'AIR, le même bouton ne relance rien : il ajoute une
+   * ROTATION au vol en cours. C'est la bascule qui fait tout le jeu : on
+   * quitte la lèvre d'abord, on choisit ensuite.
+   */
+  const AIRMAP = {
+    wheelflip: "back", wheelfrontflip: "front",
+    wheeldoubleflip: "double", wheeldoublefrontflip: "doublefront",
+    wheelsideflipL: "sideL", wheelsideflipR: "sideR",
+    wheeldoublesideflipL: "dsideL", wheeldoublesideflipR: "dsideR",
+    wheeltwist540: "mctwist", pirouette: "spin360"
   };
 
   function clampUnit(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
@@ -160,6 +178,12 @@
   /** Lance une figure de roues, en signalant proprement les refus. */
   function fire(id, charge, hold) {
     if (Y.Motion.state.mode !== "roues") return;
+    // en l'air, le bouton ajoute une rotation au vol au lieu d'en relancer un
+    if (Y.Natural.wheelAirborne() && AIRMAP[id]) {
+      const done = Y.Natural.trick(AIRMAP[id]);
+      if (!done && !Y.Natural.tricking()) say("Trop bas pour tourner");
+      return;
+    }
     const f = Y.Stunt.figures[id];
     if (!f) return;
     if (Y.Stunt.active) {
@@ -393,6 +417,38 @@
     if (hooks.setVx) hooks.setVx(v);
   }
 
+  /**
+   * Enchaînements et score.
+   *
+   * Une figure bouclée en l'air s'ajoute à l'enchaînement ; une figure qu'on
+   * n'a pas fini de tourner avant de toucher fait tout perdre. À la réception,
+   * l'enchaînement est validé et multiplié par le nombre de figures : deux
+   * figures dans le même saut valent quatre fois une seule. C'est ce qui
+   * pousse à en tenter une de plus au lieu de se poser.
+   */
+  function stepCombo() {
+    const air = Y.Natural.wheelAirborne();
+    let l = Y.Natural.takeLanding();
+    while (l) {
+      if (l.ok) { S.combo.push(l.label); pending += l.score; say(l.label); }
+      else {
+        S.combo.length = 0; pending = 0;
+        say("Chute — " + l.label + " pas bouclé");
+      }
+      l = Y.Natural.takeLanding();
+    }
+    if (wasAir && !air && S.combo.length) {
+      const mult = S.combo.length;
+      const won = pending * mult;
+      S.score += won;
+      S.last = S.combo.join(" + ") + (mult > 1 ? " ×" + mult : "");
+      say(S.last + "   +" + won);
+      S.combo.length = 0; pending = 0;
+    }
+    if (S.air !== air) { S.air = air; emit(); }
+    wasAir = air;
+  }
+
   function stepKeys() {
     drive(keys.ArrowUp ? 1 : 0, keys.ArrowDown ? 1 : 0);
     const turn = (keys.ArrowLeft ? 1 : 0) - (keys.ArrowRight ? 1 : 0);
@@ -422,6 +478,7 @@
       waitDir = null; waitBoth = null;
       if (hooks.mode) hooks.mode("roues");     // toutes ces figures sont sur roues
       if (hooks.setBrake) hooks.setBrake(false);
+      S.combo.length = 0; S.last = ""; S.score = 0; pending = 0; wasAir = false;
       // Roue libre : en PLAY, la gravité agit le long des pentes et le sol
       // peut se dérober. C'est ce qui fait qu'une big ramp se roule.
       Y.Natural.setFreeRoll(true);
@@ -466,7 +523,15 @@
       if (!S.on) return false;
       if (S.source === "manette") stepPad(); else stepKeys();
       resolvePending();
+      stepCombo();
       return true;
+    },
+
+    /** Remet le compteur à zéro : nouveau parcours, nouvelle ardoise. */
+    resetScore: function () {
+      S.combo.length = 0; S.last = ""; S.score = 0;
+      pending = 0; wasAir = false;
+      emit();
     }
   };
 })(window.YLO);
