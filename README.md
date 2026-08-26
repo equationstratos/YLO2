@@ -587,7 +587,7 @@ mentir sur ce que fait la manette.
 | L2 | `↓` | Freiner, **puis marche arrière** une fois arrêté (jusqu'à 1,4 m/s) |
 | L1 | `A` | Double salto arrière |
 | R1 | `E` | 540 McTwist |
-| L1 + R1 **tenus** | `A` + `E` | Pirouette, tant que les deux restent enfoncés |
+| L1 + R1 **tenus ensemble** | `A` + `E` | Pirouette, tant que les deux restent enfoncés |
 | Clic stick gauche | `T` | **Salto arrière enchaîné**, tant qu'on tient |
 | ↑ ↓ ← → | `Z` `S` `Q` `D` | Salto dans la direction de la flèche |
 | flèche ×2 | touche ×2 | **Salto double** dans cette direction |
@@ -613,11 +613,20 @@ plutôt que de laisser croire à une panne.
 
 Trois choses ont demandé un peu de soin :
 
-- **deux gestes à deux temps.** Une flèche appuyée deux fois demande le salto
+- **un geste à deux temps.** Une flèche appuyée deux fois demande le salto
   double ; on ne peut donc pas lancer le simple au premier appui, il faut
-  laisser sa chance au second. Le simple part **300 ms** plus tard. Même chose
-  pour L1 + R1, à 130 ms. C'est le prix d'un geste à deux temps : sans cette
-  attente, un double salto commencerait toujours par un simple ;
+  laisser sa chance au second. Le simple part **300 ms** plus tard. C'est le
+  prix du geste : sans cette attente, un double salto commencerait toujours
+  par un simple ;
+- **L1 + R1 se lit sur la tenue, pas sur la simultanéité.** La première
+  version attendait les deux appuis dans une fenêtre de 130 ms, ce qui
+  demandait deux doigts synchrones au dixième de seconde près : en pratique la
+  première épaule partait seule en salto avant que la seconde n'arrive. La
+  figure simple d'une épaule part maintenant à son **relâchement** — un appui
+  bref reste un appui bref, et tant qu'on tient la première, la porte reste
+  ouverte à la seconde. Un minuteur de 0,40 s sert de filet : une épaule tenue
+  seule finit par partir, sinon la garder enfoncée aurait l'air de ne rien
+  faire ;
 - **ces deux attentes se comptent à l'horloge**, pas au pas de rendu. Un doigt
   ne ralentit pas quand la carte graphique peine : sur une machine tombée à
   huit images par seconde, un pas de rendu plafonné à 50 ms étirait la fenêtre

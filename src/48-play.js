@@ -11,15 +11,15 @@
    disposition « standard », et c'est cette disposition qu'on lit. Rien à
    installer, rien de spécifique à un système.
 
-   Deux gestes demandent d'attendre un instant avant d'agir :
+   Deux gestes se lisent en deux temps :
 
-     · une flèche appuyée DEUX FOIS demande le salto double. On ne peut
-       donc pas lancer le simple au premier appui — il faut laisser sa
-       chance au second. Le simple part 300 ms plus tard ;
-     · L1 et R1 ENSEMBLE demandent la pirouette. Même raison, 130 ms.
-
-   C'est le prix d'un geste à deux temps : sans cette attente, un double
-   salto commencerait toujours par un simple.
+     · une flèche appuyée DEUX FOIS demande le salto double. On ne peut donc
+       pas lancer le simple au premier appui — il faut laisser sa chance au
+       second. Le simple part 300 ms plus tard. C'est le prix du geste : sans
+       cette attente, un double salto commencerait toujours par un simple ;
+     · L1 et R1 TENUES ENSEMBLE donnent la pirouette. Pas de fenêtre de temps
+       ici : la figure simple d'une épaule part à son RELÂCHEMENT, donc tant
+       qu'on tient la première, la porte reste ouverte à la seconde.
 
    Trois commandes se TIENNENT au lieu de se déclencher : carré et rond
    dressent le robot le temps qu'on veut, L1 + R1 font tourner la pirouette
@@ -31,7 +31,7 @@
   "use strict";
 
   const DOUBLE_S = 0.30;            // fenêtre du double appui sur une flèche
-  const BOTH_S = 0.13;              // fenêtre de L1 + R1
+  const SOLO_S = 0.40;              // au-delà, une épaule seule tenue part quand même
   const DEAD = 0.15;                // zone morte des sticks
   const TRIG = 0.12;                // seuil des gâchettes analogiques
   const VX_MAX = 2.2;               // m/s à fond de R2
@@ -146,14 +146,33 @@
     waitDir = { dir: dir, t: now() };
   }
 
-  /** Appui sur une épaule : L1 et R1 ensemble donnent la pirouette. */
+  /**
+   * Appui sur une épaule. L1 et R1 ENSEMBLE donnent la pirouette.
+   *
+   * « Ensemble » veut dire les deux TENUES, pas les deux appuyées dans la même
+   * fenêtre de temps. C'est ce que fait la main : on garde la première et on
+   * ajoute la seconde. Une fenêtre de 130 ms demandait deux doigts synchrones
+   * au dixième de seconde près — en pratique la première épaule partait seule
+   * en salto avant que la seconde n'arrive.
+   *
+   * La figure simple d'une épaule part donc au RELÂCHEMENT, pas après un
+   * minuteur : un appui bref reste un appui bref, et tant qu'on tient, la
+   * porte reste ouverte à la pirouette. Le minuteur ne sert plus que de
+   * filet — au bout de 0,40 s, une épaule tenue seule part quand même, sinon
+   * la garder enfoncée aurait l'air de ne rien faire.
+   */
   function pressShoulder(side) {
-    if (waitBoth && waitBoth.side !== side) {
+    if (prev[side === "l" ? "r1" : "l1"]) {        // l'autre est déjà tenue
       waitBoth = null;
       fire("pirouette", false, true);
       return;
     }
     waitBoth = { side: side, t: now() };
+  }
+
+  /** La figure simple d'une épaule : double salto à gauche, McTwist à droite. */
+  function shoulderSolo(side) {
+    fire(side === "l" ? "wheeldoubleflip" : "wheeltwist540");
   }
 
   /**
@@ -171,9 +190,9 @@
     if (waitDir && t - waitDir.t >= DOUBLE_S) {
       const d = waitDir.dir; waitDir = null; fire(DIR[d].one);
     }
-    if (waitBoth && t - waitBoth.t >= BOTH_S) {
+    if (waitBoth && t - waitBoth.t >= SOLO_S) {
       const side = waitBoth.side; waitBoth = null;
-      fire(side === "l" ? "wheeldoubleflip" : "wheeltwist540");
+      shoulderSolo(side);
     }
   }
 
@@ -190,16 +209,15 @@
       prev[name] = down;
       const side = name === "l1" ? "l" : "r";
       if (down && !was) { pressShoulder(side); return; }
-      if (!down || !was) return;
-      // La pirouette tourne tant que les DEUX gâchettes restent enfoncées :
-      // le premier relâchement la fait ralentir puis s'arrêter.
-      if (Y.Stunt.active === "pirouette") Y.Stunt.release();
-      // Relâchée avant la fenêtre : ce n'était pas une pirouette, c'est la
-      // figure simple de cette gâchette — et elle part tout de suite.
-      if (waitBoth && waitBoth.side === side) {
-        waitBoth = null;
-        fire(side === "l" ? "wheeldoubleflip" : "wheeltwist540");
-      }
+      // Tant que la gâchette TIENT, il ne se passe rien de plus. Sans cette
+      // ligne, la pirouette était relâchée à l'image suivant son départ —
+      // toujours enfoncée, mais déjà arrêtée : elle ne tournait jamais.
+      if (down || !was) return;
+      // Front descendant : le premier relâchement arrête la pirouette.
+      if (Y.Stunt.active === "pirouette") { Y.Stunt.release(); return; }
+      // Sinon c'était un appui bref sur une seule épaule : sa figure part
+      // maintenant, au relâchement.
+      if (waitBoth && waitBoth.side === side) { waitBoth = null; shoulderSolo(side); }
       return;
     }
     if (name === "l3") {
