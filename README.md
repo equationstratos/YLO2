@@ -137,6 +137,7 @@ géométrie sont la même chose, il n'y a pas de collision approchée.
 | Rampe 20° | pente continue | assiette qui épouse la pente |
 | Gravats | blocs jusqu'à 90 mm | appuis à des hauteurs différentes |
 | **Skatepark** | mini-plaza : kicker, funbox, ledge, deux quarter pipes | reliefs enchaînés, en pattes comme en roues |
+| **Big ramp** | mini-ramp : deux transitions de 1,20 m face à face | un objet qu'on **roule** au lieu de le franchir |
 | Poutres | traverses de 140 mm | enjambement |
 
 ### Le skatepark
@@ -182,6 +183,76 @@ Sur l'escalier de 130 mm, la médiane des vitesses articulaires reste à
 6,7 rad/s ; 5 % des instants dépassent brièvement les 20 rad/s déclarés, au
 moment où la patte est fouettée sur la marche suivante. Les marches de 180 mm
 sont franchies mais sortent du gabarit : le robot y traîne les pieds.
+
+### La big ramp, et la roue libre
+
+Les rampes des autres terrains se **franchissent** : on arrive dessus, on passe
+par-dessus, on redescend. C'est voulu — elles sont là pour montrer qu'une patte
+de 445 mm avale un relief. La big ramp est l'inverse : un objet de skate, qu'on
+n'y franchit pas mais qu'on **roule**.
+
+| Élément | Cote | Position |
+| --- | --- | --- |
+| Flat | 6,40 m entre les deux courbes | x −3,20 → 3,20 |
+| Transitions | quart de cercle de 1,20 m, 48 tranches de 25 mm | x 3,20 → 4,40 et symétrique |
+| Decks | plateformes de 1,30 m derrière le coping | au-delà de 4,40 m |
+
+Deux mécaniques manquaient pour qu'elle serve à quelque chose.
+
+**La gravité le long de la pente.** Jusqu'ici la consigne de vitesse était une
+*consigne* : un régulateur la tenait, quelle que soit la pente. Une transition
+n'y changeait donc rien — on la remontait à vitesse constante comme un tapis
+roulant. En mode PLAY, la commande devient une **poussée** : le moteur pousse
+jusqu'à sa consigne et n'y retient jamais, c'est le frein qui retient, et entre
+les deux la pente rend ou reprend l'élan (0,85 g le long de la pente, moins un
+frottement de roulement de 0,22 s⁻¹). Lâché en haut d'une transition, le robot
+redescend seul et atteint 2,5 m/s en bas — exactement `√(2gh)` corrigé du
+frottement.
+
+**L'envol.** Quand le sol se dérobe — la lèvre d'une transition, le bord d'un
+deck — les roues ne peuvent plus le rattraper. Le robot part alors en
+balistique et la suspension amortit la réception au lieu de l'annuler. Mesuré :
+sorti du deck à 1,20 m et 2,2 m/s, **0,50 s de vol** (la chute libre de 1,20 m
+en fait 0,49), la caisse s'écrase de 8 cm au poser puis remonte, la vitesse est
+conservée.
+
+Ces deux mécaniques sont réservées au mode PLAY. La session AUTO et le
+simulateur Python doivent rendre la même trace à chaque exécution : une gravité
+qui s'ajoute à la consigne les rendrait dépendants de la moindre pente.
+
+### Une roue n'est pas un point
+
+« Des fois ça passe à travers. » C'était exact, et il y avait trois causes
+distinctes derrière le même symptôme.
+
+**Le contact ne regardait qu'un point.** La hauteur de sol était lue sous
+l'essieu. Un pneu de 75 mm touche pourtant la tranche d'une rampe bien avant
+que son centre ne la franchisse. `Terrain.support` prend maintenant le contact
+sur toute l'empreinte : pour un sol h(u) et un décalage u sous l'essieu, le
+contact impose z ≥ h(u) + √(R² − u²), et l'on garde le maximum. Sur sol plat le
+résultat est exactement l'ancien. Un relief plus haut que le **rayon** en est
+exclu — ce n'est pas un contact de roulement mais un mur, et le compter
+téléportait la roue au sommet d'une marche de 130 mm dès qu'elle en approchait.
+
+**La suspension avait le droit de s'enfoncer.** Le filtre de débattement
+pouvait traîner dans les deux sens ; il ne traîne plus que vers le bas, où
+c'est la suspension qui se détend. Et sa borne de vitesse suit l'allure : sur
+une transition raide à 2 m/s il faut autant de course verticale, là où un
+plafond fixe à 0,55 m/s ne suivait pas.
+
+**Le lever de patte se déclenchait sur une pente.** Le seuil valait 0,45 rayon
+sur les 220 mm regardés devant, soit une pente de 9° : un bank de funbox le
+franchissait. La patte suivait alors une droite pendant que le sol, lui,
+continuait de monter — la roue s'enfonçait de 40 mm dans le bank. Le seuil est
+passé à 0,9 rayon (17°) : en dessous, la roue **monte**, c'est son métier.
+
+Mesuré à 2 m/s, enfoncement maximal sous les quatre roues :
+
+| Terrain | Avant | Après |
+| --- | --- | --- |
+| Big ramp | *le robot passait par-dessus la transition* | 0 mm, il s'engage dans la courbe |
+| Skatepark | 51 mm | 0 mm |
+| Escalier | inchangé (la patte porte la roue par-dessus la marche) | — |
 
 ## Locomotion
 
@@ -317,11 +388,11 @@ roues, montée, palier et descente, avec un pic articulaire de 14,5 rad/s.
 Boutons du bandeau en mode roues, ou touches `B`, `D`, `T`, `F`, `G`, `H` dans
 l'ordre où ils s'affichent.
 
-| | Cabrage | Sur deux roues | Pirouette | Saut | Salto roues | Double salto roues | 540 McTwist roues |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Durée | 2,95 s | 3,35 s | 1,77 s | 1,53 s | 1,82 s | 2,26 s | 1,96 s |
-| Ce qui se passe | châssis dressé à **83°**, sur les deux roues arrière | couché à **80°** sur les deux roues du côté droit | 540° sur place, caisse inclinée à 11° | vol de 0,47 s, apex +0,27 m | tour complet, vol 0,60 s, apex +0,44 m | deux tours, vol 0,86 s, apex +0,90 m | un tour de tangage **et** 540° de vrille, gîte de 26°, vol 0,68 s |
-| Pic articulaire | 5,2 rad/s | 3,6 rad/s | 14,5 rad/s | 11,0 rad/s | 7,9 rad/s | 7,6 rad/s | 8,0 rad/s |
+| | Cabrage | Sur deux roues | Pirouette | Salto arrière enchaîné | Saut | Salto roues | Double salto roues | 540 McTwist roues |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Durée | 2,95 s | 3,35 s | 1,77 s | 1,42 s par tour | 1,53 s | 1,82 s | 2,26 s | 1,96 s |
+| Ce qui se passe | châssis dressé à **83°**, sur les deux roues arrière | couché à **80°** sur les deux roues du côté droit | 540° sur place, caisse inclinée à 11° | tour complet **sans quitter le sol plus de 0,42 s**, roues posées deux par deux | vol de 0,47 s, apex +0,27 m | tour complet, vol 0,60 s, apex +0,44 m | deux tours, vol 0,86 s, apex +0,90 m | un tour de tangage **et** 540° de vrille, gîte de 26°, vol 0,68 s |
+| Pic articulaire | 5,2 rad/s | 3,6 rad/s | 14,1 rad/s | 2,2 rad/s | 11,0 rad/s | 7,9 rad/s | 7,6 rad/s | 8,0 rad/s |
 
 **Les deux tenues se maintiennent jusqu'au prochain appui sur le bouton.** Le
 chrono de la figure ne s'écoule pas pendant la tenue : le robot reste dressé
@@ -508,18 +579,25 @@ mentir sur ce que fait la manette.
 
 | Manette | Clavier | Action |
 | --- | --- | --- |
-| ✕ | `Espace` | Saut — **maintenir arme, lâcher détend** |
+| ✕ | `Espace` | Saut — **maintenir arme, lâcher détend**, direction corrigeable |
 | △ | `H` | Hauteur de caisse : 200, 250, 300 mm |
-| □ | `C` | Cabrage (tenu jusqu'au prochain appui) |
-| ○ | `V` | Sur deux roues (tenu jusqu'au prochain appui) |
-| R2 | `↑` | Accélérer (gâchette analogique : 0 à 2,2 m/s) |
-| L2 | `↓` | Freiner |
+| □ | `C` | Cabrage — on roule, on tourne, on change de hauteur pendant la tenue |
+| ○ | `V` | Sur deux roues — idem |
+| Stick gauche ↑ | `↑` | Accélérer (analogique, 0 à 2,2 m/s) |
+| R2 | `↓` | **Marche arrière** (analogique) |
+| L2 | `F` | Freiner |
 | L1 | `A` | Double salto arrière |
 | R1 | `E` | 540 McTwist |
-| L1 + R1 | `A` + `E` | Pirouette |
+| L1 + R1 **tenus** | `A` + `E` | Pirouette, tant que les deux restent enfoncés |
+| Clic stick gauche | `T` | **Salto arrière enchaîné**, tant qu'on tient |
 | ↑ ↓ ← → | `Z` `S` `Q` `D` | Salto dans la direction de la flèche |
 | flèche ×2 | touche ×2 | **Salto double** dans cette direction |
-| Stick gauche | `← →` | Tourner |
+| Stick gauche ← → | `← →` | Tourner |
+| **Stick droit** | souris | Caméra : azimut et hauteur de prise de vue |
+
+R2 est la marche arrière et non l'accélération : c'est ce qui a été demandé, et
+la poussée en avant est passée sur le stick gauche, qui reste analogique. Les
+deux se dosent, et se contredisent proprement — pousser des deux annule.
 
 La manette passe par l'**API Gamepad** du navigateur, la même sur Ubuntu et sur
 Windows : le système présente la DualShock 4 sous la disposition « standard »,
@@ -549,15 +627,69 @@ Trois choses ont demandé un peu de soin :
   précis où la tenue commence. Couper une bascule en cours ferait tomber la
   caisse : c'est pour ça qu'on attend plutôt que d'interrompre.
 
+### Les commandes tenues, et ce qu'on peut faire pendant
+
+Cinq commandes se **tiennent** au lieu de se déclencher. Ce qui les distingue
+d'un simple appui, ce n'est pas leur durée mais le fait que le robot continue
+d'obéir au reste pendant qu'elles durent :
+
+- **carré** et **rond** dressent le robot ; pendant la tenue, il **roule,
+  tourne et change de hauteur de caisse**. Les bornes y sont plus serrées qu'à
+  plat — 1,20 m/s et 0,80 rad/s : sur deux roues, un virage sec couche la
+  caisse. Le repliement de la patte porteuse suit la consigne de hauteur, et
+  le sol sous l'essieu porteur est suivi image par image, sinon la caisse
+  gardait la hauteur du point de départ et s'enfonçait dans la première pente ;
+- **✕ maintenu** arme le saut ; pendant l'armement, on **corrige sa visée**.
+  Sans ça, on chargeait en visant droit devant sans plus pouvoir se replacer
+  avant la lèvre ;
+- **L1 + R1 tenus** font tourner la pirouette. La vrille s'intègre en
+  **vitesse** et non en angle paramétré par le temps : en angle paramétré,
+  chaque tour bouclé repassait par une vitesse nulle et la figure hoquetait à
+  chaque tour. Relâchée, elle freine et s'arrête proprement ; lancée d'un
+  simple clic sur le bouton de la page, elle rend ses 540° exactement, comme
+  avant ;
+- **clic du stick gauche** enchaîne les saltos arrière (ci-dessous).
+
+### Salto arrière enchaîné : le tour se fait en posant les roues
+
+La figure demandée : un salto arrière qui ne quitte pas vraiment le sol, où les
+roues se posent **deux par deux**. Trois temps, qui recommencent tant qu'on
+garde la commande :
+
+1. **élan** — le robot se dresse sur son essieu arrière jusqu'à 1,30 rad (74°).
+   La caisse ne recule pas : ce sont les roues arrière qui **roulent sous elle**
+   pour la garder en équilibre, comme le fait un robot auto-stabilisé qui cabre.
+   Les roues avant sont en l'air ;
+2. **vol** — il ne reste que 2π − 2 × 1,30 ≈ 3,68 rad à tourner. La caisse monte
+   droit et redescend à la même hauteur : le vol est symétrique, sa flèche vaut
+   g·T²/8 = **216 mm** pour 0,42 s ;
+3. **poser** — les roues **avant** touchent et deviennent l'essieu porteur. Elles
+   ont pris la place des arrière, et roulent à leur tour sous la caisse jusqu'à
+   ce qu'elle soit d'aplomb.
+
+Un tour dure **1,02 s**, les quatre roues ne sont jamais en l'air plus de
+0,42 s, et le diagramme d'appui montre bien deux roues à la fois : arrière,
+rien, avant. Relevé : **2,2 rad/s** au pire, aucune butée — la figure la moins
+coûteuse du catalogue, et de loin. C'est bas parce que
+la figure est une rotation de la **caisse** et non un mouvement de jambes — les
+pattes gardent leur pose d'appui du début à la fin.
+
+Relâchée, la commande ne coupe jamais un tour en cours : elle laisse finir, puis
+repose. Côté Python, `figure("wheeltumble", hold_seconds=2.2)` compte donc des
+**tours entiers**, pas des secondes.
+
 Quatre saltos doubles complètent le catalogue pour les doubles flèches —
 avant, arrière, latéral gauche, latéral droit. Tous les quatre prennent la
 même impulsion que le double salto arrière, 4,20 m/s : un tour de plus dans le
 même temps de vol serait invivable pour les genoux. Relevé : vol 0,86 s, apex
 0,90 m, **7,4 à 7,6 rad/s**, aucune butée, réception à plat.
 
-PLAY n'a pas de jumeau Python : la manette est une affaire de navigateur, et
-le simulateur n'a pas de manette. Les quatre figures doubles, elles, sont dans
-les deux moteurs et couvertes par les tests.
+PLAY n'a pas de jumeau Python : la manette est une affaire de navigateur, et le
+simulateur n'a pas de manette. Ce qui relève de la physique, lui, est dans les
+deux moteurs et couvert par les tests — le salto enchaîné, la pirouette tenue,
+le contact de roue, la big ramp. Restent côté navigateur seuls : la caméra au
+stick droit, la roue libre et le pilotage pendant une figure, qui n'existent
+que face à un flux de commandes vivant.
 
 ## Simulation Python
 
@@ -595,6 +727,7 @@ reçoit les consignes. Détails, API et scripts : [`sim/README.md`](sim/README.m
 | `W` | Bascule pattes / roues |
 | `S` | Arrêt (frein en roues) |
 | `F` | Quatrième figure du mode courant |
+| `T` | *(en PLAY clavier)* Salto arrière enchaîné, tant qu'on tient |
 | `C` | Replie le bandeau de commandes : scène entièrement dégagée |
 | Bouton **PLAY** | Prendre les commandes au clavier ou à la manette de PS4 |
 | `Échap` | Désélectionner |

@@ -15,11 +15,17 @@
 
      · une flèche appuyée DEUX FOIS demande le salto double. On ne peut
        donc pas lancer le simple au premier appui — il faut laisser sa
-       chance au second. Le simple part 260 ms plus tard ;
+       chance au second. Le simple part 300 ms plus tard ;
      · L1 et R1 ENSEMBLE demandent la pirouette. Même raison, 130 ms.
 
    C'est le prix d'un geste à deux temps : sans cette attente, un double
    salto commencerait toujours par un simple.
+
+   Trois commandes se TIENNENT au lieu de se déclencher : carré et rond
+   dressent le robot le temps qu'on veut, L1 + R1 font tourner la pirouette
+   tant que les deux gâchettes restent enfoncées, et le clic du stick gauche
+   enchaîne les saltos arrière jusqu'au relâchement. Pendant tout ce temps le
+   robot continue de rouler, de tourner et de changer de hauteur.
    ===================================================================== */
 (function (Y) {
   "use strict";
@@ -31,6 +37,8 @@
   const VX_MAX = 2.2;               // m/s à fond de R2
   const WZ_MAX = 1.4;               // rad/s à fond de stick
   const HEIGHTS = [0.20, 0.25, 0.30];
+  const CAM_AZ = 2.2;               // rad/s de balayage à fond de stick droit
+  const CAM_EL = 1.4;
 
   /**
    * Disposition « standard » de l'API Gamepad, celle que Chrome et Firefox
@@ -39,6 +47,7 @@
   const PAD = {
     cross: 0, circle: 1, square: 2, triangle: 3,
     l1: 4, r1: 5, l2: 6, r2: 7,
+    l3: 10, r3: 11,
     up: 12, down: 13, left: 14, right: 15
   };
 
@@ -56,18 +65,21 @@
    * pas de panneau qui ment sur ce que fait la manette.
    */
   const MAP = [
-    { pad: "✕", key: "Espace", act: "Saut — maintenir arme, lâcher détend" },
+    { pad: "✕", key: "Espace", act: "Saut — tenir arme, lâcher détend" },
     { pad: "△", key: "H", act: "Hauteur de caisse" },
-    { pad: "□", key: "C", act: "Cabrage (tenu)" },
-    { pad: "○", key: "V", act: "Sur deux roues (tenu)" },
-    { pad: "R2", key: "↑", act: "Accélérer" },
-    { pad: "L2", key: "↓", act: "Freiner" },
+    { pad: "□", key: "C", act: "Cabrage (tenu, on roule)" },
+    { pad: "○", key: "V", act: "Deux roues (tenu, on roule)" },
+    { pad: "Stick G ↑", key: "↑", act: "Accélérer" },
+    { pad: "R2", key: "↓", act: "Marche arrière" },
+    { pad: "L2", key: "F", act: "Freiner" },
     { pad: "L1", key: "A", act: "Double salto arrière" },
     { pad: "R1", key: "E", act: "540 McTwist" },
-    { pad: "L1 + R1", key: "A + E", act: "Pirouette" },
+    { pad: "L1 + R1", key: "A + E", act: "Pirouette (tenue)" },
+    { pad: "Clic stick G", key: "T", act: "Salto arrière enchaîné (tenu)" },
     { pad: "↑ ↓ ← →", key: "Z S Q D", act: "Salto dans cette direction" },
     { pad: "flèche ×2", key: "touche ×2", act: "Salto double" },
-    { pad: "Stick", key: "← →", act: "Tourner" }
+    { pad: "Stick G ← →", key: "← →", act: "Tourner" },
+    { pad: "Stick D", key: "souris", act: "Caméra" }
   ];
 
   const S = {
@@ -80,7 +92,8 @@
   let waitDir = null;               // { dir, t } — salto simple en attente
   let waitBoth = null;              // { side, t } — épaule simple en attente
   let heightStep = 1;
-  let hooks = { setVx: null, setWz: null, setHeight: null, flash: null, mode: null };
+  let hooks = { setVx: null, setWz: null, setHeight: null, setBrake: null,
+                look: null, flash: null, mode: null };
 
   function emit() { S.listeners.forEach(function (fn) { fn(S); }); }
 
@@ -91,7 +104,7 @@
   }
 
   /** Lance une figure de roues, en signalant proprement les refus. */
-  function fire(id, charge) {
+  function fire(id, charge, hold) {
     if (Y.Motion.state.mode !== "roues") return;
     const f = Y.Stunt.figures[id];
     if (!f) return;
@@ -107,7 +120,7 @@
       }
       return;                        // une figure à la fois
     }
-    const ok = Y.Stunt.start(id, charge);
+    const ok = Y.Stunt.start(id, charge, hold);
     if (ok === "pente") { say("Sol non plat : tenue refusée"); return; }
     if (ok) say(f.label);
   }
@@ -137,7 +150,7 @@
   function pressShoulder(side) {
     if (waitBoth && waitBoth.side !== side) {
       waitBoth = null;
-      fire("pirouette");
+      fire("pirouette", false, true);
       return;
     }
     waitBoth = { side: side, t: now() };
@@ -172,6 +185,36 @@
   }
 
   function actOn(name, down) {
+    if (name === "l2") {                            // frein : une tenue, pas un appui
+      prev.l2 = down;
+      if (hooks.setBrake) hooks.setBrake(down);
+      return;
+    }
+    if (name === "l1" || name === "r1") {
+      const was = !!prev[name];
+      prev[name] = down;
+      const side = name === "l1" ? "l" : "r";
+      if (down && !was) { pressShoulder(side); return; }
+      if (!down || !was) return;
+      // La pirouette tourne tant que les DEUX gâchettes restent enfoncées :
+      // le premier relâchement la fait ralentir puis s'arrêter.
+      if (Y.Stunt.active === "pirouette") Y.Stunt.release();
+      // Relâchée avant la fenêtre : ce n'était pas une pirouette, c'est la
+      // figure simple de cette gâchette — et elle part tout de suite.
+      if (waitBoth && waitBoth.side === side) {
+        waitBoth = null;
+        fire(side === "l" ? "wheeldoubleflip" : "wheeltwist540");
+      }
+      return;
+    }
+    if (name === "l3") {
+      // Clic du stick gauche : la bascule enchaînée tourne tant qu'on tient.
+      const was = !!prev.l3;
+      prev.l3 = down;
+      if (down && !was) fire("wheeltumble", false, true);
+      else if (!down && was && Y.Stunt.active === "wheeltumble") Y.Stunt.release();
+      return;
+    }
     if (name === "cross") {
       // Le saut chargé : l'appui arme, le relâchement détend. C'est le geste
       // du skate — on charge dans l'élan et on lâche sur la lèvre. La détente
@@ -187,8 +230,6 @@
       if (name === "triangle") cycleHeight();
       if (name === "square") fire("wheelie");
       if (name === "circle") fire("sidestand");
-      if (name === "l1") pressShoulder("l");
-      if (name === "r1") pressShoulder("r");
       if (DIR[name]) pressDir(name);
     }
   }
@@ -214,29 +255,40 @@
     const on = function (i) { const x = b[i]; return !!(x && x.pressed); };
 
     Object.keys(PAD).forEach(function (name) {
-      if (name === "l2" || name === "r2") return;
-      actOn(name, on(PAD[name]));
+      if (name === "r2" || name === "r3") return;
+      actOn(name, name === "l2" ? val(PAD.l2) > TRIG : on(PAD[name]));
     });
 
-    // gâchettes : analogiques, donc lues en valeur et pas en tout ou rien
-    const brakeOn = val(PAD.l2) > TRIG;
-    const gas = val(PAD.r2);
-    if (hooks.setVx) hooks.setVx(brakeOn ? 0 : gas > TRIG ? gas * VX_MAX : 0);
+    /* Marche : le stick gauche pousse en avant, R2 fait la marche arrière.
+       Les deux sont analogiques — un dosage, pas un tout ou rien. Le frein
+       est passé plus haut, comme une tenue. */
+    const fwd = -(ax[1] || 0);
+    const gas = Math.abs(fwd) > DEAD ? Math.max(0, fwd) : 0;
+    const rev = val(PAD.r2);
+    if (hooks.setVx) hooks.setVx((gas - (rev > TRIG ? rev : 0)) * VX_MAX);
     const stick = Math.abs(ax[0] || 0) > DEAD ? ax[0] : 0;
     if (hooks.setWz) hooks.setWz(-stick * WZ_MAX);
+
+    /* Stick droit : la caméra. On envoie une VITESSE de rotation, que
+       l'application intègre avec son propre pas de temps — un stick tenu à
+       fond doit balayer autant de degrés par seconde quel que soit le
+       nombre d'images affichées. */
+    const rx = Math.abs(ax[2] || 0) > DEAD ? ax[2] : 0;
+    const ry = Math.abs(ax[3] || 0) > DEAD ? ax[3] : 0;
+    if (hooks.look) hooks.look(rx * CAM_AZ, ry * CAM_EL);
   }
 
   function stepKeys() {
-    const gas = keys.ArrowUp ? 1 : 0;
-    const brakeOn = !!keys.ArrowDown;
-    if (hooks.setVx) hooks.setVx(brakeOn ? 0 : gas * VX_MAX);
+    const fwd = keys.ArrowUp ? 1 : 0, back = keys.ArrowDown ? 1 : 0;
+    if (hooks.setVx) hooks.setVx((fwd - back) * VX_MAX);
     const turn = (keys.ArrowLeft ? 1 : 0) - (keys.ArrowRight ? 1 : 0);
     if (hooks.setWz) hooks.setWz(turn * WZ_MAX);
   }
 
   const KEYMAP = {
     " ": "cross", h: "triangle", c: "square", v: "circle",
-    a: "l1", e: "r1", z: "up", s: "down", q: "left", d: "right"
+    a: "l1", e: "r1", f: "l2", t: "l3",
+    z: "up", s: "down", q: "left", d: "right"
   };
 
   Y.Play = {
@@ -255,6 +307,10 @@
       Object.keys(keys).forEach(function (k) { delete keys[k]; });
       waitDir = null; waitBoth = null;
       if (hooks.mode) hooks.mode("roues");     // toutes ces figures sont sur roues
+      if (hooks.setBrake) hooks.setBrake(false);
+      // Roue libre : en PLAY, la gravité agit le long des pentes et le sol
+      // peut se dérober. C'est ce qui fait qu'une big ramp se roule.
+      Y.Natural.setFreeRoll(true);
       emit();
       return true;
     },
@@ -264,6 +320,8 @@
       waitDir = null; waitBoth = null;
       if (hooks.setVx) hooks.setVx(0);
       if (hooks.setWz) hooks.setWz(0);
+      if (hooks.setBrake) hooks.setBrake(false);
+      Y.Natural.setFreeRoll(false);
       emit();
     },
 

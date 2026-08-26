@@ -60,17 +60,33 @@ class WheelFigure:
     twist: float = 0.0          # tours de lacet (540 McTwist : 1,5)
     cork: float = 0.0           # gîte pendant la vrille (rad)
     lean: float = 0.20
+    sustain: bool = False       # tenue : la figure dure tant qu'on commande
+    sustain_s: float = 0.0      # spin : durée de vrille tenue en plus
+    rear: float = 0.30          # tumble : montée sur l'essieu arrière
+    over: float = 0.42          # tumble : passage par-dessus, en balistique
+    plant: float = 0.30         # tumble : poser sur l'essieu avant
+    lift: float = 1.30          # tumble : assiette atteinte avant de basculer
+    cycles: float = 1.0         # tumble : nombre de tours enchaînés
     vz: float = 0.0
     crouch_z: float = 0.80
     tuck: float = 0.15
     mode: str = "roues"
 
     @property
+    def cycle(self) -> float:
+        """tumble : durée d'un tour complet, élan + vol + poser."""
+        return self.rear + self.over + self.plant
+
+    @property
     def flight(self) -> float:
+        if self.kind == "tumble":
+            return self.over
         return 2.0 * self.vz / G_ACC if self.vz else 0.0
 
     @property
     def apex(self) -> float:
+        if self.kind == "tumble":
+            return G_ACC * self.over ** 2 / 8.0     # flèche d'un vol symétrique
         return self.vz ** 2 / (2 * G_ACC) if self.vz else 0.0
 
     @property
@@ -80,7 +96,9 @@ class WheelFigure:
         if self.kind == "slide":
             return self.entry + self.slide + self.settle_slide
         if self.kind == "spin":
-            return self.arm + self.spin + self.settle
+            return self.arm + self.spin + self.sustain_s + self.settle
+        if self.kind == "tumble":
+            return self.cycle * self.cycles + self.recover
         return self.crouch + self.push + self.flight + self.land + self.recover
 
 
@@ -95,7 +113,17 @@ WHEEL_FIGURES: Dict[str, WheelFigure] = {
                              arm=0.30, rise=0.70, hold=1.60, drop=0.75,
                              angle=1.40, stand=0.30, wobble=0.035),
     "pirouette": WheelFigure("pirouette", "Pirouette", "spin", arm=0.22, spin=1.20,
-                             settle=0.35, turns=1.5, lean=0.20),
+                             settle=0.35, turns=1.5, lean=0.20, sustain=True),
+    # Salto arrière enchaîné : le robot ne quitte pas vraiment le sol, il se
+    # retourne en posant ses roues deux par deux. Il se dresse sur l'essieu
+    # arrière — celui-ci roule sous lui pour le garder en équilibre —, passe
+    # par-dessus, et les roues avant viennent prendre la place des arrière.
+    # Puis ça recommence. `lift` est l'assiette atteinte avant de basculer :
+    # à 1,30 rad (74°) le robot est presque debout sur ses roues arrière, et
+    # il ne reste qu'un peu plus de 3,6 rad à faire en l'air.
+    "wheeltumble": WheelFigure("wheeltumble", "Salto arrière enchaîné", "tumble",
+                               rear=0.30, over=0.42, plant=0.30, recover=0.40,
+                               lift=1.30, sustain=True),
     "wheeljump": WheelFigure("wheeljump", "Saut", "jump", crouch=0.30, push=0.16,
                              land=0.26, recover=0.34, vz=2.30, crouch_z=0.80, tuck=0.15),
     "wheelflip": WheelFigure("wheelflip", "Salto roues", "flip", crouch=0.34, push=0.20,
@@ -348,6 +376,8 @@ def perform_wheels(robot, fig: WheelFigure,
         e = entry_blend(t)
         robot.base[3] = entry_att[0] + (robot.base[3] - entry_att[0]) * e
         robot.base[4] = entry_att[1] + (robot.base[4] - entry_att[1]) * e
+    spin_state = {"a": 0.0, "w": 0.0, "target": None}
+    entry_q = list(robot.q)          # pose d'entrée, pour fondre la première image
     prev_a: Dict[str, List[float]] = {}
     # On amorce le limiteur de débattement sur la position réelle des pieds :
     # sinon la toute première image saute d'un rayon de roue (le pied est au
@@ -541,24 +571,153 @@ def perform_wheels(robot, fig: WheelFigure,
                             robot.foot_world[leg.name] = [wx, wy, h]
                             nat.fig_axle[leg.name] = None
         elif fig.kind == "spin":
-            t1, t2 = fig.arm, fig.arm + fig.spin
+            # La vrille s'intègre en VITESSE, pas en angle paramétré par le
+            # temps : c'est ce qui permet de la tenir aussi longtemps qu'on
+            # garde les deux gâchettes. En angle paramétré, chaque tour bouclé
+            # repassait par une vitesse nulle et la pirouette hoquetait.
+            t1 = fig.arm
+            t2 = t1 + fig.spin + fig.sustain_s
+            # Régime de croisière et mise en route, choisis pour que la vrille
+            # libre — montée, croisière, freinage — TIENNE dans sa fenêtre :
+            # 0,18 + spin/1,25 = 1,14 s pour une fenêtre de 1,20 s. Trop lente,
+            # elle se faisait couper avant d'avoir rendu son tour et demi.
+            w_max = math.tau * fig.turns / fig.spin * 1.25
+            ramp = w_max / 0.18
             if t < t1:
                 s = _smooth(t / t1)
                 robot.base[2] = base + ride * (1 - 0.10 * s) + radius
                 robot.base[3] = fig.lean * 0.4 * s
+                spin_state["a"] = spin_state["w"] = 0.0
             elif t < t2:
-                s = (t - t1) / fig.spin
-                robot.base[5] = yaw0 + math.tau * fig.turns * _smoother(s)
-                robot.base[3] = fig.lean * math.sin(math.pi * s)
-                robot.base[2] = base + ride * 0.90 + radius
-                nat.wz = math.tau * fig.turns / fig.spin
+                held = fig.sustain and t < t1 + fig.sustain_s
+                brake_a = spin_state["w"] ** 2 / (2 * ramp)
+                full = math.tau * fig.turns
+                if held or spin_state["a"] + brake_a < full:
+                    step = ramp * dt
+                    spin_state["w"] += min(max(w_max - spin_state["w"], -step), step)
+                    spin_state["target"] = None
+                else:
+                    # Freinage calculé pour tomber PILE sur l'angle visé : une
+                    # pirouette libre doit rendre ses 540°, pas 530. Avec une
+                    # décélération constante, l'angle d'arrêt dépendrait du pas
+                    # de temps. Tenue puis relâchée, elle s'arrête là où son
+                    # freinage la mène.
+                    if spin_state["target"] is None:
+                        spin_state["target"] = (full if spin_state["a"] < full
+                                                else spin_state["a"] + brake_a)
+                    left = max(spin_state["target"] - spin_state["a"], 1e-9)
+                    spin_state["w"] = max(
+                        0.0, spin_state["w"] - spin_state["w"] ** 2 / (2 * left) * dt)
+                    if spin_state["w"] < 0.05 and left < 0.02:
+                        spin_state["w"] = 0.0
+                        spin_state["a"] = spin_state["target"]
+                spin_state["a"] += spin_state["w"] * dt
+                robot.base[5] = yaw0 + spin_state["a"]
+                nat.wz = spin_state["w"]
+                s = min(max(spin_state["w"] / w_max, 0.0), 1.0)
+                robot.base[3] = fig.lean * s
+                robot.base[2] = base + ride * (1 - 0.10 * s) + radius
             else:
                 s = _smooth((t - t2) / fig.settle)
-                robot.base[5] = yaw0 + math.tau * fig.turns
+                robot.base[5] = yaw0 + spin_state["a"]
                 robot.base[3] = fig.lean * 0.2 * (1 - s)
                 robot.base[2] = base + ride * (0.90 + 0.10 * s) + radius
                 nat.wz *= 1 - min(1.0, dt * 6)
             place(lambda leg, h: h + radius)
+
+        elif fig.kind == "tumble":
+            # =============================================================
+            # Salto arrière enchaîné — le tour se fait en posant les roues.
+            #
+            #   1. ÉLAN  : le robot se dresse sur son essieu arrière jusqu'à
+            #      `lift`. La caisse ne recule pas — ce sont les roues arrière
+            #      qui roulent sous elle pour la garder en équilibre, comme
+            #      le fait un robot auto-stabilisé qui cabre.
+            #   2. VOL   : il ne reste que 2π − 2·lift à tourner, en
+            #      balistique. La caisse monte droit et redescend à la même
+            #      hauteur : le vol est symétrique, sa flèche vaut g·T²/8.
+            #   3. POSER : les roues AVANT touchent et deviennent l'essieu
+            #      porteur. Elles ont pris la place des arrière.
+            #
+            # À aucun moment les quatre roues ne sont en l'air plus de
+            # `over` secondes, et le diagramme d'appui montre bien deux roues
+            # à la fois.
+            # =============================================================
+            th1 = fig.lift
+            h_r = ride + radius
+            cyc = fig.cycle
+            total = cyc * fig.cycles
+            g_base = ground_ref()
+
+            def pivot_z(theta: float, a: float) -> float:
+                """Hauteur de caisse d'une bascule rigide sur l'essieu `a`."""
+                return math.sin(theta) * a + math.cos(theta) * h_r
+
+            def tumble_legs(theta: float, contact_on) -> None:
+                cp, sp = math.cos(theta), math.sin(theta)
+                cy2, sy2 = math.cos(robot.base[5]), math.sin(robot.base[5])
+                e = _smooth(min(1.0, t / 0.20))
+                for i, leg in enumerate(model.legs):
+                    ny = leg.y + leg.mirror * model.abad_plane
+                    # les pattes restent à leur pose d'appui : la figure est
+                    # une rotation de la CAISSE, pas un mouvement de jambes
+                    target = constrain(model, leg, (leg.x, ny, -ride))
+                    q = kin.inverse(leg, *target, model=model)
+                    blended = [entry_q[i * 3 + j] + (q[j] - entry_q[i * 3 + j]) * e
+                               for j in range(3)]
+                    unwrap(robot.q, i, blended)
+                    ox = cp * target[0] + sp * target[2]
+                    oz = -sp * target[0] + cp * target[2]
+                    on = contact_on(leg)
+                    robot.contacts[i] = on
+                    robot.foot_world[leg.name] = [
+                        robot.base[0] + cy2 * ox - sy2 * ny,
+                        robot.base[1] + sy2 * ox + cy2 * ny,
+                        robot.base[2] + oz - radius]
+                    # la roue porteuse roule sous la caisse : sa rotation se
+                    # lit sur le déplacement réel de son point de contact
+                    prev = prev_a.get(leg.name)
+                    if on and prev is not None:
+                        nat.spin[leg.name] = (nat.spin[leg.name]
+                                              + (ox - prev[0]) / radius) % math.tau
+                    prev_a[leg.name] = [ox]
+                    nat.fig_axle[leg.name] = None
+
+            if t < total:
+                u = t % cyc
+                robot.base[3] = 0.0
+                if u < fig.rear:
+                    # profil en s² : la vitesse de rotation au décollage
+                    # prolonge exactement celle du vol, sans cassure
+                    s = u / fig.rear
+                    th = -th1 * s * s
+                    robot.base[4] = th
+                    robot.base[2] = g_base + pivot_z(th, -model.leg_offset_x)
+                    tumble_legs(th, lambda leg: leg.front < 0)
+                elif u < fig.rear + fig.over:
+                    tf = u - fig.rear
+                    th = -th1 - (math.tau - 2 * th1) * (tf / fig.over)
+                    robot.base[4] = th
+                    robot.base[2] = (g_base + pivot_z(-th1, -model.leg_offset_x)
+                                     + G_ACC * fig.over / 2 * tf
+                                     - 0.5 * G_ACC * tf * tf)
+                    tumble_legs(th, lambda leg: False)
+                else:
+                    s = (u - fig.rear - fig.over) / fig.plant
+                    th = -math.tau + th1 * (1 - s) ** 2
+                    robot.base[4] = th
+                    robot.base[2] = g_base + pivot_z(th, model.leg_offset_x)
+                    tumble_legs(th, (lambda leg: True) if s > 0.97
+                                else (lambda leg: leg.front > 0))
+            else:
+                # La bascule se termine à sa hauteur de croisière : la
+                # reprise ne part donc pas plus bas — elle ne fait qu'amortir,
+                # d'un creux qui commence et finit à zéro. Repartir de 0,86
+                # faisait tomber la caisse de 32 mm en une image.
+                s = _smooth((t - total) / fig.recover)
+                robot.base[3] = robot.base[4] = 0.0
+                robot.base[2] = g_base + ride * (1 - 0.10 * math.sin(math.pi * s)) + radius
+                place(lambda leg, h: h + radius)
         elif fig.kind == "slide":
             # Powerslide : la caisse pivote en travers pendant que la quantité
             # de mouvement continue tout droit. Les pneus chassent — la roue ne
@@ -710,7 +869,7 @@ def perform_wheels(robot, fig: WheelFigure,
     # arracherait le robot de la courbe qu'il vient d'épouser
     robot.base[4] = slope_pitch()
     if fig.kind == "spin":
-        robot.base[5] = yaw0 + math.tau * fig.turns
+        robot.base[5] = yaw0 + spin_state["a"]
         nat.wz = 0.0
     if fig.kind == "slide":
         robot.base[5] = yaw0 + fig.yaw_sweep * fig.side
@@ -732,7 +891,8 @@ def perform_wheels(robot, fig: WheelFigure,
         "flight_s": round(fig.flight, 3),
         "apex_m": round(fig.apex, 3),
         "takeoff_vz_ms": fig.vz,
-        "rotation_deg": round(360.0 * fig.turns if fig.kind == "flip" else 0.0, 1),
+        "rotation_deg": round(360.0 * fig.turns if fig.kind == "flip"
+                              else 360.0 * fig.cycles if fig.kind == "tumble" else 0.0, 1),
         "twist_deg": round(360.0 * (fig.turns if fig.kind == "spin" else fig.twist), 1),
         "tilt_deg": round(math.degrees(abs(fig.angle)) if fig.kind == "tilt" else 0.0, 1),
         "travel_m": 0.0,

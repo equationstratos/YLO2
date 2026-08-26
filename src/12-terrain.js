@@ -59,9 +59,13 @@
    * finit vertical, comme une vraie transition de skatepark. `dir` vaut +1
    * si le mur est du côté des x croissants.
    */
-  function quarterPipe(base, R, halfWidth, dir, deck) {
+  function quarterPipe(base, R, halfWidth, dir, deck, slices) {
     const out = [];
-    const n = 24;
+    // Le nombre de tranches fixe la finesse de la courbe. 24 suffisent pour
+    // un quarter de 450 mm ; une grande transition de 1,20 m en demande deux
+    // fois plus, sinon chaque tranche fait une marche de 50 mm que la roue
+    // aborde comme un trottoir.
+    const n = slices || 24;
     for (let i = 0; i < n; i++) {
       const u0 = i / n * R, u1 = (i + 1) / n * R;
       const h = R - Math.sqrt(Math.max(0, R * R - u1 * u1));
@@ -154,6 +158,23 @@
         return out;
       })() },
 
+    // Mini-ramp : deux grandes transitions qui se font face, un flat entre
+    // les deux. C'est l'objet de skate le plus simple et le plus riche — on
+    // n'y franchit rien, on y roule : la pente rend l'élan qu'on lui a donné,
+    // et c'est la gravité qui fait le va-et-vient. Une transition de 1,20 m
+    // ne se « passe » pas comme les rampes des autres terrains : elle se
+    // remonte tant qu'on a de la vitesse, et on redescend en marche arrière.
+    { id: "bigramp", name: "Big ramp", maxStep: 0.30,
+      desc: "Mini-ramp de 1,20 m de transition, flat de 6,4 m entre les deux courbes. " +
+            "À rouler comme du skate : élan, pompe, retour par gravité, saut à la lèvre.",
+      boxes: (function () {
+        const out = [];
+        const R = 1.20, W = 2.40;
+        quarterPipe(3.20, R, W, +1, 1.30, 48).forEach(function (b) { out.push(b); });
+        quarterPipe(-3.20, R, W, -1, 1.30, 48).forEach(function (b) { out.push(b); });
+        return out;
+      })() },
+
     { id: "poutres", name: "Poutres", maxStep: 0.14,
       desc: "Traverses de 140 mm espacées de 700 mm, à enjamber.",
       boxes: (function () {
@@ -186,6 +207,41 @@
       h = Math.max(h, heightAt(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t));
     }
     return h;
+  }
+
+  /**
+   * Hauteur de sol EFFECTIVE sous une roue de rayon R.
+   *
+   * `heightAt` ne regarde qu'un point : une roue de 75 mm arrivant sur la
+   * tranche d'une rampe la traversait donc jusqu'à ce que son centre passe
+   * de l'autre côté. Un pneu touche pourtant dès que sa jante rencontre le
+   * relief. Pour un sol h(u) et un décalage u sous l'essieu, le contact
+   * impose z ≥ h(u) + √(R² − u²) : on prend le maximum sur l'empreinte, et
+   * on redescend d'un rayon pour rendre une hauteur de sol comparable.
+   *
+   * Sur sol plat le résultat est exactement `heightAt` — rien ne change.
+   */
+  function support(x, y, cx, cy, R) {
+    const r = R === undefined ? 0.075 : R;
+    const here = heightAt(x, y);
+    let best = here;
+    const n = 4;
+    for (let i = 1; i <= n; i++) {
+      const u = r * i / n;
+      const lift = Math.sqrt(Math.max(0, r * r - u * u)) - r;
+      const dirs = [[cx * u, cy * u], [-cx * u, -cy * u], [-cy * u, cx * u], [cy * u, -cx * u]];
+      for (let d = 0; d < 4; d++) {
+        const h = heightAt(x + dirs[d][0], y + dirs[d][1]);
+        // Un relief plus haut que le RAYON n'est pas un contact de roulement,
+        // c'est un mur : le pneu bute contre sa face, il ne monte pas dessus.
+        // Le compter ici téléporterait la roue au sommet d'une marche de
+        // 130 mm dès qu'elle en approche à 75 mm. Ces obstacles-là sont
+        // l'affaire du lever de patte, pas du contact de roue.
+        if (h - here > r) continue;
+        if (h + lift > best) best = h + lift;
+      }
+    }
+    return best;
   }
 
   /** Marche la plus haute devant le robot, pour prévenir en mode roues. */
@@ -238,6 +294,7 @@
     group: group,
     build: build,
     heightAt: heightAt,
+    support: support,
     maxHeightAlong: maxHeightAlong,
     stepAhead: stepAhead,
     get current() { return current; },

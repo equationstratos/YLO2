@@ -65,7 +65,7 @@ def _ramp(angle_deg=20.0) -> List[Box]:
     return out
 
 
-def _quarter_pipe(base, radius, half_width, direction, deck=0.9) -> List[Box]:
+def _quarter_pipe(base, radius, half_width, direction, deck=0.9, slices=24) -> List[Box]:
     """Transition de quarter pipe : un quart de cercle en tranches.
 
     Le profil h(u) = R - sqrt(R² - u²) part tangent au sol et finit vertical,
@@ -73,7 +73,7 @@ def _quarter_pipe(base, radius, half_width, direction, deck=0.9) -> List[Box]:
     x croissants. Chaque tranche prend la hauteur de son bord le plus haut :
     l'escalier reste au-dessus de la courbe, jamais dedans.
     """
-    out, n = [], 24
+    out, n = [], slices
     for i in range(n):
         u0, u1 = i / n * radius, (i + 1) / n * radius
         h = radius - math.sqrt(max(0.0, radius * radius - u1 * u1))
@@ -122,6 +122,21 @@ def _skatepark() -> List[Box]:
     return out
 
 
+def _big_ramp() -> List[Box]:
+    """Mini-ramp : deux grandes transitions qui se font face.
+
+    C'est l'objet de skate le plus simple et le plus riche — on n'y franchit
+    rien, on y roule : la pente rend l'élan qu'on lui a donné. Une transition
+    de 1,20 m ne se « passe » pas comme les rampes des autres terrains, elle
+    se remonte tant qu'on a de la vitesse.
+    """
+    out: List[Box] = []
+    radius, width = 1.20, 2.40
+    out += _quarter_pipe(3.20, radius, width, +1, 1.30, slices=48)
+    out += _quarter_pipe(-3.20, radius, width, -1, 1.30, slices=48)
+    return out
+
+
 @dataclass
 class Terrain:
     name: str = "Sol plat"
@@ -135,6 +150,37 @@ class Terrain:
             if b.x0 <= x < b.x1 and b.y0 <= y < b.y1 and b.h > h:
                 h = b.h
         return h
+
+    def support(self, x: float, y: float, cx: float, cy: float,
+                radius: float = 0.075, samples: int = 4) -> float:
+        """Sol vu par une ROUE de rayon `radius`, pas par un point.
+
+        `height_at` n'interroge qu'un point : une roue de 75 mm arrivant sur
+        la tranche d'une rampe la traversait donc jusqu'à ce que son centre
+        la franchisse. Un pneu touche pourtant dès que sa jante rencontre le
+        relief. Pour un sol h(u) et un décalage u sous l'essieu, le contact
+        impose z >= h(u) + sqrt(R² - u²) : on prend le maximum sur l'empreinte
+        et on redescend d'un rayon pour rendre une hauteur comparable. Sur sol
+        plat le résultat est exactement `height_at`.
+        """
+        here = self.height_at(x, y)
+        best = here
+        for i in range(1, samples + 1):
+            u = radius * i / samples
+            lift = math.sqrt(max(0.0, radius * radius - u * u)) - radius
+            for dx, dy in ((cx * u, cy * u), (-cx * u, -cy * u),
+                           (-cy * u, cx * u), (cy * u, -cx * u)):
+                h = self.height_at(x + dx, y + dy)
+                # Un relief plus haut que le RAYON n'est pas un contact de
+                # roulement, c'est un mur : le pneu bute contre sa face, il ne
+                # monte pas dessus. Le compter ici téléporterait la roue au
+                # sommet d'une marche de 130 mm dès qu'elle en approche à
+                # 75 mm. Ces obstacles-là sont l'affaire du lever de patte.
+                if h - here > radius:
+                    continue
+                if h + lift > best:
+                    best = h + lift
+        return best
 
     def max_height_along(self, x0, y0, x1, y1, samples: int = 8) -> float:
         return max(self.height_at(x0 + (x1 - x0) * i / samples, y0 + (y1 - y0) * i / samples)
@@ -158,6 +204,7 @@ PRESETS: Dict[str, Terrain] = {
     "rampe": Terrain("Rampe 20°", "rampe", 0.05, _ramp(20.0)),
     "gravats": Terrain("Gravats", "gravats", 0.09, _rubble(1.0, 5.0, 1.0, 0.28, 0.09)),
     "skatepark": Terrain("Skatepark", "skatepark", 0.18, _skatepark()),
+    "bigramp": Terrain("Big ramp", "bigramp", 0.30, _big_ramp()),
     "poutres": Terrain("Poutres", "poutres", 0.14,
                        [Box(1.4 + i * 0.7, 1.4 + i * 0.7 + 0.25, -1.2, 1.2, 0.14) for i in range(5)]),
 }

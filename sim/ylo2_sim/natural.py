@@ -517,14 +517,23 @@ class Natural:
             nx, ny = leg.x, leg.y + leg.mirror * model.abad_plane
             wx = robot.base[0] + cy * nx - sy * ny
             wy = robot.base[1] + sy * nx + cy * ny
-            raw = terrain.height_at(wx, wy)
+            # Le sol vu par une ROUE, pas par un point : un pneu de 75 mm
+            # touche la tranche d'une rampe bien avant que son centre ne la
+            # franchisse. Sans cela il la traversait.
+            raw = terrain.support(wx, wy, cy, sy, gaitmod.WHEEL_RADIUS)
 
             # une roue de 75 mm ne monte pas une marche de 130 mm : la patte
             # la soulève par-dessus, comme le fait un Go2-W
             look = 0.22 if self.vx >= 0 else -0.22
-            ahead_h = terrain.height_at(wx + cy * look, wy + sy * look)
+            ahead_h = terrain.support(wx + cy * look, wy + sy * look, cy, sy,
+                                      gaitmod.WHEEL_RADIUS)
             rise = ahead_h - raw
-            if (not self.wstep.get(leg.name) and abs(rise) > gaitmod.WHEEL_RADIUS * 0.45
+            # Seuil du lever de patte : 0,9 rayon, soit 67 mm sur les 220 mm
+            # regardés devant. En dessous la roue MONTE — c'est son métier. Le
+            # seuil précédent, 0,45 rayon, déclenchait un lever sur une pente à
+            # 9° et la patte suivait une droite pendant que le sol continuait
+            # de monter : la roue s'enfonçait de 40 mm dans le bank.
+            if (not self.wstep.get(leg.name) and abs(rise) > gaitmod.WHEEL_RADIUS * 0.9
                     and stepping < 2 and not self.wstep.get(partner[leg.name])
                     and abs(self.vx) < 1.5):
                 cur = self.wheel_z[leg.name]
@@ -549,8 +558,15 @@ class Natural:
                 if prev is None:
                     h = raw
                 else:                              # suspension : vitesse bornée
-                    target = prev + (raw - prev) * min(1.0, dt * 8)
-                    rate = 0.55 * dt
+                    # Le filtre a le droit de traîner vers le bas — la
+                    # suspension se détend en descente — jamais vers le haut :
+                    # un pneu ne rentre pas dans le béton. Le débattement reste
+                    # borné en vitesse, et cette borne suit l'allure : sur une
+                    # transition raide à 2 m/s il faut autant de course
+                    # verticale. C'est elle qui absorbe le saut de relief d'une
+                    # marche, que le contact de roue ignore volontairement.
+                    target = max(prev + (raw - prev) * min(1.0, dt * 8), raw)
+                    rate = (0.55 + abs(self.vx) * 1.2) * dt
                     h = min(max(target, prev - rate), prev + rate)
             self.wheel_z[leg.name] = h
             heights.append((leg, h))

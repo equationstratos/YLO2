@@ -103,6 +103,8 @@
   /* --- caméra orbitale --- */
   const orbit = { az: -0.85, el: 0.30, dist: 2.30, target: new T.Vector3(0, 0, 0.24) };
   let dragging = false, lastX = 0, lastY = 0, pinch0 = 0, downAt = null, camTween = null;
+  // vitesse de balayage demandée par le stick droit de la manette, en rad/s
+  let padLook = null;
   const pointers = new Map();
   const clamp = function (v, a, b) { return Math.min(Math.max(v, a), b); };
   const lerp = function (a, b, t) { return a + (b - a) * t; };
@@ -754,7 +756,9 @@
           " · " + Math.round(Math.abs(f.angle) * 180 / Math.PI) + "° de bascule"
         : (f.turns ? f.turns + " tour" + (f.turns > 1 ? "s" : "") : "sans rotation") +
           (f.twist ? " + " + (f.twist * 360) + "° de vrille" : "")) +
-        (f.sustain ? " · tenue jusqu'au prochain appui sur le bouton"
+        (f.sustain && f.kind === "tilt"
+         ? " · tenue jusqu'au prochain appui sur le bouton"
+         : f.sustain ? " · au bouton, une fois ; en PLAY, tenue tant qu'on garde la commande"
          : f.flight ? " · vol " + f.flight.toFixed(2) + " s · apex +" + f.apex.toFixed(2) +
                       " m · appui maintenu : le robot arme son saut en roulant, "
                       + "et détend au relâchement"
@@ -1056,6 +1060,11 @@
       lerp(baseZ, Math.max(baseZ, M.state.z * 0.72), view.stunt));
     const chase = 3.2 + Math.hypot(Y.Natural.state.vx, Y.Natural.state.vy) * 2.5;
     orbit.target.lerp(camTarget, Math.min(1, dt * chase));
+    if (padLook && (padLook[0] || padLook[1])) {
+      camTween = null;                       // la main reprend sur le cadrage
+      orbit.az -= padLook[0] * dt;
+      orbit.el = clamp(orbit.el - padLook[1] * dt, -0.35, 1.45);
+    }
     if (camTween) {
       const e = 1 - Math.exp(-dt * 6);
       orbit.az += (camTween.az - orbit.az) * e;
@@ -1242,6 +1251,10 @@
       setVx: function (v) { setSlider("sVx", v.toFixed(2)); },
       setWz: function (v) { setSlider("sWz", v.toFixed(2)); },
       setHeight: function (v) { setSlider("sH", v.toFixed(3)); },
+      setBrake: function (on) { Y.Natural.setBrake(on); },
+      // Le stick droit donne une VITESSE de caméra ; c'est la boucle de rendu
+      // qui l'intègre, avec son propre pas de temps.
+      look: function (az, el) { padLook = [az, el]; },
       flash: flash,
       mode: function (m) { if (M.state.mode !== m) setMode(m); }
     });

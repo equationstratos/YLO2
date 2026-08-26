@@ -270,7 +270,7 @@ canvas{position:absolute;inset:0;display:block;width:100%;height:100%;touch-acti
 .padmap{
   /* Sous la ligne d'aide, et volontairement étroit : c'est un aide-mémoire
      posé au bord de la scène, pas un panneau qui la mange. */
-  position:absolute;left:16px;top:104px;z-index:5;width:246px;
+  position:absolute;left:16px;top:104px;z-index:5;width:262px;
   background:#121613e0;backdrop-filter:blur(9px);border:1px solid var(--line);
   border-radius:3px;padding:10px 12px;pointer-events:none;
 }
@@ -471,7 +471,7 @@ input[type=range]::-moz-range-thumb{
         <div class="card">
           <h4>Consigne de marche</h4>
           <div class="sliders">
-            <div class="sl"><label for="sVx">Vitesse</label><input id="sVx" type="range" min="-0.6" max="2" step="0.01" value="0.35"><output id="oVx"></output></div>
+            <div class="sl"><label for="sVx">Vitesse</label><input id="sVx" type="range" min="-2.2" max="2.2" step="0.01" value="0.35"><output id="oVx"></output></div>
             <div class="sl"><label for="sWz">ωz</label><input id="sWz" type="range" min="-1.6" max="1.6" step="0.02" value="0"><output id="oWz"></output></div>
             <div class="sl"><label for="sH">Hauteur</label><input id="sH" type="range" min="0.16" max="0.32" step="0.005" value="0.25"><output id="oH"></output></div>
             <div class="sl"><label for="sSw">Garde</label><input id="sSw" type="range" min="0.01" max="0.09" step="0.002" value="0.04"><output id="oSw"></output></div>

@@ -174,10 +174,20 @@ class Robot:
                                % (name, sorted(stunts.WHEEL_FIGURES)))
             fig = stunts.WHEEL_FIGURES[name]
             if hold_seconds is not None:
-                if fig.kind != "tilt":
-                    raise ValueError("hold_seconds ne vaut que pour une tenue "
-                                     "(cabrage, sidestand), pas pour %s" % name)
-                fig = replace(fig, hold=hold_seconds)
+                if not getattr(fig, "sustain", False) and fig.kind != "tilt":
+                    raise ValueError("hold_seconds ne vaut que pour une figure "
+                                     "tenue (cabrage, sidestand, pirouette, "
+                                     "salto enchaîné), pas pour %s" % name)
+                if fig.kind == "tilt":
+                    fig = replace(fig, hold=hold_seconds)
+                elif fig.kind == "spin":
+                    # une pirouette tenue : la vrille dure d'autant plus
+                    fig = replace(fig, sustain_s=max(0.0, hold_seconds))
+                else:
+                    # un salto enchaîné : on compte des tours entiers, pas des
+                    # secondes — on ne coupe pas un tour en cours
+                    fig = replace(fig, cycles=max(
+                        1, round((hold_seconds + fig.cycle) / fig.cycle)))
             info = stunts.perform_wheels(self, fig, charge_seconds)
             self._note("%s : %.2f s" % (info["figure"], info["duration_s"]))
             self.stunt = info

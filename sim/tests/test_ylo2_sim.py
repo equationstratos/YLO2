@@ -401,6 +401,53 @@ class TestWheels(unittest.TestCase):
         self.assertGreater(robot.base[0], 6.0)              # l'escalier est passé
         self.assertLess(robot.report()["peak_joint_velocity_rad_s"], DEFAULT.velocity_max)
 
+    def test_a_wheel_never_sinks_into_a_transition(self):
+        """Le pneu touche la tranche, il ne la traverse pas.
+
+        `height_at` n'interroge qu'un point : une roue de 75 mm abordant une
+        transition la traversait donc jusqu'à ce que son centre passe de
+        l'autre côté — on voyait la roue dans le béton.
+        """
+        for key in ("bigramp", "skatepark"):
+            robot = Robot(rate=200, mode="roues", terrain=key)
+            robot.base[0] = -1.0
+            worst = 0.0
+            for _ in range(int(5 * 200)):
+                robot.command(2.0)
+                robot.step()
+                for leg in robot.model.legs:
+                    foot = robot.foot_world[leg.name]
+                    if robot.natural.wstep.get(leg.name):
+                        continue                   # une patte levée n'est pas un contact
+                    worst = max(worst, robot.terrain.height_at(foot[0], foot[1]) - foot[2])
+            self.assertLess(worst, 0.005, key)     # 5 mm, l'épaisseur du trait
+
+    def test_the_big_ramp_is_ridden_not_crossed(self):
+        """Une transition de 1,20 m se remonte tant qu'on a de la vitesse.
+
+        Les autres rampes du jeu se franchissent — c'est voulu. Celle-ci est
+        un objet de skate : la roue n'y grimpe que ce que son élan lui paye.
+        """
+        ramp = terrain.get("bigramp")
+        self.assertAlmostEqual(ramp.height_at(4.45, 0.0), 1.20, places=2)   # le coping
+        self.assertEqual(ramp.height_at(0.0, 0.0), 0.0)                     # le flat
+        # la courbe est assez fine pour qu'une roue de 75 mm la suive :
+        # aucune tranche ne fait une marche plus haute que son rayon
+        xs = [3.20 + i * 0.005 for i in range(int(1.20 / 0.005))]
+        rises = [ramp.height_at(b, 0.0) - ramp.height_at(a, 0.0)
+                 for a, b in zip(xs, xs[1:])]
+        # sauf tout en haut, où la transition est verticale : c'est un mur
+        self.assertLess(max(rises[:200]), gait.WHEEL_RADIUS)
+        robot = Robot(rate=200, mode="roues", terrain="bigramp")
+        robot.base[0] = 1.0
+        for _ in range(int(3 * 200)):
+            robot.command(2.0)
+            robot.step()
+        # il est engagé dans la courbe, pas passé par-dessus le deck
+        self.assertGreater(robot.base[0], 3.20)
+        self.assertLess(robot.base[0], 4.45)
+        self.assertLess(robot.report()["peak_joint_velocity_rad_s"], DEFAULT.velocity_max)
+
     def test_switch_back_to_legs(self):
         robot = Robot(rate=200, mode="roues")
         robot.walk(vx=1.5, seconds=3.0)
@@ -565,7 +612,8 @@ class TestWheelFigures(unittest.TestCase):
                           "wheeldoubleflip", "wheeldoublefrontflip",
                           "wheeldoublesideflipL", "wheeldoublesideflipR",
                           "wheelflip", "wheelfrontflip", "wheelie", "wheeljump",
-                          "wheelsideflipL", "wheelsideflipR", "wheeltwist540"])
+                          "wheelsideflipL", "wheelsideflipR", "wheeltumble",
+                          "wheeltwist540"])
         with self.assertRaises(KeyError):
             wheels.figure("backflip")
 
@@ -576,6 +624,51 @@ class TestWheelFigures(unittest.TestCase):
             self.assertEqual(report["limit_violations"], {}, name)
             self.assertLess(report["peak_joint_velocity_rad_s"], DEFAULT.velocity_max, name)
             self.assertLess(abs(robot.base[4]), 0.05, name)        # repose à plat
+
+    def test_the_chained_backflip_lands_its_wheels_two_by_two(self):
+        """Le salto enchaîné ne quitte pas vraiment le sol : arrière, vol, avant."""
+        robot = Robot(rate=200, mode="roues")
+        robot.figure("wheeltumble")
+        fig = stunts.WHEEL_FIGURES["wheeltumble"]
+        # on lit les appuis image par image sur le premier tour
+        pattern = []
+        for frame in robot.frames:
+            on = tuple(bool(c) for c in frame["contact"])
+            if not pattern or pattern[-1] != on:
+                pattern.append(on)
+        rear = tuple(leg.front < 0 for leg in DEFAULT.legs)
+        front = tuple(leg.front > 0 for leg in DEFAULT.legs)
+        self.assertIn(rear, pattern)                     # d'abord l'essieu arrière
+        self.assertIn((False,) * 4, pattern)             # un vol court
+        self.assertIn(front, pattern)                    # puis l'essieu avant
+        self.assertLess(pattern.index(rear), pattern.index(front))
+        # les quatre roues ne sont jamais en l'air plus longtemps que le vol
+        air = sum(1 for f in robot.frames if not any(f["contact"])) / 200.0
+        self.assertLess(air, fig.over + 0.03)
+        # et la caisse a bien fait un tour complet, sans sortir de l'enveloppe
+        self.assertLess(robot.report()["peak_joint_velocity_rad_s"], DEFAULT.velocity_max)
+
+    def test_holding_the_chained_backflip_adds_whole_turns(self):
+        """Tenu, il enchaîne — et il ne coupe jamais un tour en cours."""
+        fig = stunts.WHEEL_FIGURES["wheeltumble"]
+        short = Robot(rate=100, mode="roues").figure("wheeltumble")
+        long_ = Robot(rate=100, mode="roues").figure("wheeltumble", hold_seconds=2.2)
+        self.assertEqual(short["rotation_deg"], 360.0)
+        self.assertEqual(long_["rotation_deg"], 1080.0)
+        self.assertAlmostEqual(long_["duration_s"] - short["duration_s"],
+                               2 * fig.cycle, places=2)
+
+    def test_a_held_pirouette_keeps_turning(self):
+        """La vrille s'intègre en vitesse : elle tourne tant qu'on la tient."""
+        free = Robot(rate=200, mode="roues")
+        free.figure("pirouette")
+        held = Robot(rate=200, mode="roues")
+        held.figure("pirouette", hold_seconds=2.0)
+        self.assertGreater(abs(held.base[5]), abs(free.base[5]) * 1.8)
+        # tenue plus longtemps ne veut pas dire plus vite : le régime est le même
+        self.assertAlmostEqual(held.report()["peak_joint_velocity_rad_s"],
+                               free.report()["peak_joint_velocity_rad_s"], places=1)
+        self.assertLess(held.report()["peak_joint_velocity_rad_s"], DEFAULT.velocity_max)
 
     def test_wheelie_stands_the_chassis_up(self):
         robot, _ = self._run("wheelie")

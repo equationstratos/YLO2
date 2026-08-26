@@ -62,6 +62,10 @@
     air: false, vz: 0, zBody: 0.25, zTarget: 0.25,
     airTime: 0, lastAir: 0,
     rough: 0, governor: 1, wheelWarn: 0,
+    // Mode libre : la gravité agit le long de la pente et le sol peut se
+    // dérober sous les roues. Réservé au pilotage — la session AUTO et le
+    // simulateur Python doivent rester reproductibles au millimètre.
+    freeRoll: false, wheelAir: false, brake: false,
     // sens de marche des roues : un 540 se reçoit en fakie, roues en arrière
     dir: 1
   };
@@ -81,6 +85,34 @@
 
   function terrainAt(x, y) {
     return Y.Terrain ? Y.Terrain.heightAt(x, y) : 0;
+  }
+
+  /**
+   * Sol vu par une ROUE, pas par un point.
+   *
+   * Une roue de 75 mm touche la tranche d'une rampe bien avant que son centre
+   * ne la franchisse : en n'interrogeant que le point sous l'essieu, elle
+   * passait au travers. `Terrain.support` prend le maximum du contact sur
+   * toute l'empreinte du pneu et rend une hauteur de sol équivalente.
+   */
+  function supportAt(x, y, cx, cy) {
+    return Y.Terrain && Y.Terrain.support
+      ? Y.Terrain.support(x, y, cx, cy, WHEEL_R) : terrainAt(x, y);
+  }
+
+  /**
+   * Pilotage pendant une figure : le robot roule, donc il se dirige.
+   *
+   * Un armement gardé sous tension et une tenue sur deux roues durent le
+   * temps qu'on veut ; pendant ce temps le robot avance. Sans ces deux
+   * lignes, on chargeait son saut en visant droit devant sans plus pouvoir
+   * corriger avant la lèvre, et une tenue partait tout droit. Les bornes sont
+   * plus serrées qu'à plat : sur deux roues, un virage sec couche la caisse.
+   */
+  function pilot(dt, state, vMax, wMax) {
+    nat.vx = approach(nat.vx, clamp(state.vx * nat.dir, -vMax, vMax), 2.0, dt);
+    nat.wz = approach(nat.wz, clamp(state.wz, -wMax, wMax), 2.4, dt);
+    state.yaw += nat.wz * dt;
   }
 
   /* --- échelle d'allures : la vitesse commande l'allure et la cadence --- */
@@ -433,13 +465,28 @@
     // relief devant : on lève le pied du champignon avant de l'aborder
     const ahead = Y.Terrain ? Y.Terrain.stepAhead(state.px, state.py, state.yaw, 0.9) : 0;
     nat.rough = lerp(nat.rough, ahead, Math.min(1, dt * 3));
-    nat.governor = clamp(1 - nat.rough / 0.30, 0.28, 1);
+    // Le limiteur de relief ralentit devant un obstacle. En roue libre on le
+    // laisse tranquille : un skateur n'attend pas la transition, il l'attaque.
+    nat.governor = nat.freeRoll ? 1 : clamp(1 - nat.rough / 0.30, 0.28, 1);
 
     const cmdVx = clamp(state.vx * nat.dir, -Y.SPEED.wheelMax, Y.SPEED.wheelMax) * nat.governor;
-    // freinage plus vif que l'accélération : les roues mordent
-    const braking = Math.abs(cmdVx) < Math.abs(nat.vx) * 0.98;
-    nat.vx = approach(nat.vx, cmdVx, braking ? 4.5 : 2.4, dt);
-    if (Math.abs(cmdVx) < 1e-3 && Math.abs(nat.vx) < 0.02) nat.vx = 0;   // arrêt franc
+    if (nat.freeRoll) {
+      /* En roue libre, la commande est une POUSSÉE, pas une consigne de
+         vitesse. Un régulateur qui tient la consigne annule la gravité : la
+         transition ne rendrait jamais l'élan qu'on lui a donné, et une
+         mini-ramp se réduirait à un décor. Le moteur pousse donc jusqu'à sa
+         consigne et n'y retient jamais ; c'est le frein qui retient. */
+      if (nat.brake) nat.vx = approach(nat.vx, 0, 5.0, dt);
+      else if ((cmdVx > 0 && nat.vx < cmdVx) || (cmdVx < 0 && nat.vx > cmdVx)) {
+        nat.vx = approach(nat.vx, cmdVx, 2.4, dt);
+      }
+      nat.vx = clamp(nat.vx, -Y.SPEED.wheelMax * 1.6, Y.SPEED.wheelMax * 1.6);
+    } else {
+      // freinage plus vif que l'accélération : les roues mordent
+      const braking = Math.abs(cmdVx) < Math.abs(nat.vx) * 0.98;
+      nat.vx = approach(nat.vx, cmdVx, braking ? 4.5 : 2.4, dt);
+      if (Math.abs(cmdVx) < 1e-3 && Math.abs(nat.vx) < 0.02) nat.vx = 0;   // arrêt franc
+    }
     nat.vy = approach(nat.vy, 0, 2.4, dt);           // pas de dérive latérale
     nat.wz = approach(nat.wz, state.wz, 3.2, dt);
     nat.ax = lerp(nat.ax, (nat.vx - prevVx) / Math.max(dt, 1e-3), Math.min(1, dt * 8));
@@ -454,6 +501,7 @@
     // sur relief, la caisse se redresse pour laisser du débattement
     const height = state.height * 0.92 * (1 + clamp(nat.rough / 0.25, 0, 1) * 0.22);
     let groundZ = 0, grounded = 0, front = 0, rear = 0, left = 0, right = 0;
+    let rawAvg = 0;
 
     const contacts = [];
     const speedNow = Math.abs(nat.vx);
@@ -464,15 +512,21 @@
       const nx = L.x, ny = L.y + L.m * K.abadPlane;
       const wx = state.px + cy * nx - sy * ny;
       const wy = state.py + sy * nx + cy * ny;
-      const raw = terrainAt(wx, wy);
+      const raw = supportAt(wx, wy, cy, sy);
+      rawAvg += raw / 4;
 
       // marche sous la roue : une roue de 75 mm ne monte pas une marche de
       // 130 mm, la patte la soulève par-dessus — c'est ce que fait un Go2-W
       const look = 0.22 * (nat.vx >= 0 ? 1 : -1);
-      const aheadH = terrainAt(wx + cy * look, wy + sy * look);
+      const aheadH = supportAt(wx + cy * look, wy + sy * look, cy, sy);
       const rise = aheadH - raw;
       const partner = { lf: "rh", rh: "lf", rf: "lh", lh: "rf" }[L.id];
-      if (!nat.wstep[L.id] && Math.abs(rise) > WHEEL_R * 0.45 &&
+      // Seuil du lever de patte : 0,9 rayon, soit 67 mm sur les 220 mm
+      // regardés devant. En dessous, la roue MONTE — c'est son métier. Le
+      // seuil précédent, 0,45 rayon, déclenchait un lever sur une pente à 9°,
+      // et la patte suivait alors une droite pendant que le sol, lui,
+      // continuait de monter : la roue s'enfonçait de 40 mm dans le bank.
+      if (!nat.wstep[L.id] && Math.abs(rise) > WHEEL_R * 0.9 &&
           stepping < 2 && !nat.wstep[partner] && speedNow < 1.5) {
         const cur = nat.wheelZ[L.id];
         nat.wstep[L.id] = { t: 0, dur: 0.34,
@@ -497,8 +551,19 @@
         const prevH = nat.wheelZ[L.id];
         if (prevH === null || prevH === undefined) h = raw;
         else {
-          const target = lerp(prevH, raw, Math.min(1, dt * 8));
-          const maxRate = 0.55 * dt;
+          /* Le filtre a le droit de traîner vers le BAS — c'est la
+             suspension qui se détend en descente — jamais vers le haut : un
+             pneu ne rentre pas dans le béton. Sans cette borne, aborder une
+             transition à 2 m/s enfonçait la roue de 40 mm dedans le temps que
+             le filtre rattrape, et on la voyait passer au travers.
+
+             Le débattement reste borné en vitesse, et cette borne suit
+             l'allure : sur une transition raide à 2 m/s il faut autant de
+             course verticale, là où un plafond fixe à 0,55 m/s ne suivait
+             pas. C'est elle qui absorbe le saut de relief d'une marche, que
+             le contact de roue ignore volontairement. */
+          const target = Math.max(lerp(prevH, raw, Math.min(1, dt * 8)), raw);
+          const maxRate = (0.55 + Math.abs(nat.vx) * 1.2) * dt;
           h = clamp(target, prevH - maxRate, prevH + maxRate);
         }
       }
@@ -516,13 +581,44 @@
     // suspension : la caisse suit le sol filtré des roues au contact
     groundZ = grounded ? groundZ / grounded : nat.zBody - height - WHEEL_R;
     nat.zTarget = groundZ + height + WHEEL_R;
-    const k = 60, c = 2 * Math.sqrt(k) * 0.9;
-    nat.vz += (k * (nat.zTarget - nat.zBody) - c * nat.vz) * dt;
-    nat.zBody += nat.vz * dt;
+    /* Envol sur roues : quand le sol se dérobe — la lèvre d'une transition,
+       le bord d'un plateau — les roues ne peuvent plus le rattraper et le
+       robot part en balistique. C'est ce qui fait qu'une big ramp se ROULE
+       au lieu de se franchir. Réservé à la roue libre : ailleurs la
+       suspension seule suffit, et la session doit rester reproductible. */
+    const restZ = rawAvg + height + WHEEL_R;
+    if (nat.freeRoll && nat.wheelAir) {
+      nat.vz -= G_ACC * dt;
+      nat.zBody += nat.vz * dt;
+      if (nat.zBody <= restZ) {
+        // Réception : on rend la main au ressort SANS annuler la vitesse de
+        // chute. C'est lui qui l'absorbe, et la caisse s'écrase de quelques
+        // centimètres avant de remonter — une réception franche se voit.
+        // Le plafond garde l'écrasement dans le débattement des pattes.
+        nat.wheelAir = false;
+        nat.vz = Math.max(nat.vz, -2.5);
+      }
+    } else {
+      const k = 60, c = 2 * Math.sqrt(k) * 0.9;
+      nat.vz += (k * (nat.zTarget - nat.zBody) - c * nat.vz) * dt;
+      nat.zBody += nat.vz * dt;
+      if (nat.freeRoll && nat.zBody - restZ > 0.035) {
+        nat.wheelAir = true;
+        nat.vz = Math.max(nat.vz, 0);
+      }
+    }
     state.z = nat.zBody;
 
     const slopePitch = Math.atan2(rear - front, 2 * K.legX);
     const slopeRoll = Math.atan2(left - right, 2 * K.legY);
+    /* Gravité le long de la pente : à la montée elle reprend l'élan, à la
+       descente elle le rend. C'est tout le principe d'un run de skate — une
+       mini-ramp ne se franchit pas, elle se pompe. Le second terme est le
+       frottement de roulement, sans lequel le va-et-vient serait perpétuel. */
+    if (nat.freeRoll && !nat.wheelAir) {
+      nat.vx += G_ACC * Math.sin(slopePitch) * 0.85 * dt;
+      nat.vx -= nat.vx * 0.22 * dt;
+    }
     const bankIdeal = Math.atan2(nat.vx * nat.wz, G_ACC);
     // plongée au freinage, cabrage à l'accélération : c'est ce qui donne le poids
     state.pitch = lerp(state.pitch, slopePitch + clamp(nat.ax, -4, 4) * 0.10, Math.min(1, dt * 8));
@@ -632,9 +728,23 @@
       angle: 1.40, stand: 0.30, wobble: 0.035, sustain: true
     },
     pirouette: {
-      label: "Pirouette", mode: "roues", kind: "spin",
+      label: "Pirouette", mode: "roues", kind: "spin", sustain: true,
       arm: 0.22, spin: 1.20, settle: 0.35,
       turns: 1.5, lean: 0.20
+    },
+    /* Salto arrière enchaîné : le robot ne quitte pas vraiment le sol, il se
+       retourne en posant ses roues deux par deux. Il se dresse sur l'essieu
+       arrière — celui-ci roule sous lui pour le garder en équilibre —, passe
+       par-dessus, et les roues avant viennent prendre la place des arrière.
+       Puis ça recommence, tant qu'on garde le clic du stick gauche.
+
+       `lift` est l'assiette atteinte avant de basculer : à 1,30 rad (74°) le
+       robot est presque debout sur ses roues arrière, et il ne reste qu'un
+       peu plus de 3,6 rad à faire en l'air. C'est ce qui distingue cette
+       figure du salto roues, où tout le tour se fait pendant le vol. */
+    wheeltumble: {
+      label: "Salto arrière enchaîné", mode: "roues", kind: "tumble", sustain: true,
+      rear: 0.30, over: 0.42, plant: 0.30, recover: 0.40, lift: 1.30, turns: 1
     },
     wheeljump: {
       label: "Saut", mode: "roues", kind: "jump",
@@ -725,6 +835,11 @@
     } else if (f.kind === "slide") {
       f.duration = f.entry + f.slide + f.settle;
       f.flight = 0; f.apex = 0;
+    } else if (f.kind === "tumble") {
+      f.cycle = f.rear + f.over + f.plant;
+      f.duration = f.cycle + f.recover;
+      f.flight = f.over;
+      f.apex = G_ACC * f.over * f.over / 8;      // flèche d'un vol symétrique
     } else {
       f.duration = f.arm + f.spin + f.settle;
       f.flight = 0; f.apex = 0;
@@ -747,7 +862,8 @@
                 carry: null, fakie: false, holdT: 0, release: false, prevA: {},
                 entryQ: null, landZ0: null, takeoffZ: null,
                 groundRef: null, entryZ: null, charging: false, chargeT: 0,
-                wantRelease: false };
+                wantRelease: false, spinA: 0, spinW: 0, spinHold: false,
+                spinTarget: null, tumbleT: 0, hold: false };
 
 
   /**
@@ -923,8 +1039,21 @@
       run.chargeT += dt;
       if (run.t > f.crouch) run.t = f.crouch - 1e-4;
     }
+    /* Même gel pour la vrille tenue. Il doit être pris AVANT de lire le
+       chrono : le clamper en fin de branche laissait l'image suivante sauter
+       directement à la stabilisation, et la pirouette s'arrêtait pile à son
+       nombre de tours nominal quoi qu'on fasse des gâchettes. */
+    if (run.spinHold && run.t > f.arm + f.spin) run.t = f.arm + f.spin - 1e-4;
+
+    /* Armement tenu, tenue sur deux roues : le robot roule toujours, donc il
+       doit toujours se diriger. C'est la même ligne qui sert au saut chargé
+       (on corrige sa visée jusqu'à la lèvre) et aux deux tenues (on roule sur
+       deux roues en changeant de trajectoire). */
+    if (run.charging) pilot(dt, state, Y.SPEED.wheelMax, 1.20);
+    else if (f.kind === "tilt" && run.t > f.arm) pilot(dt, state, 1.20, 0.80);
+
     const t = run.t;
-    const base = run.ground;
+    let base = run.ground;
     const cy = Math.cos(state.yaw), sy = Math.sin(state.yaw);
     const ride = state.height * 0.92;
 
@@ -954,7 +1083,7 @@
         // on borne le débattement RELATIF à la caisse : pendant un vol
         // balistique, la caisse monte à 3 m/s et les jambes doivent suivre,
         // ce sont les mouvements par rapport au tronc qui coûtent des rad/s
-        let rel = axle(L, terrainAt(wx, wy)) - state.z;
+        let rel = axle(L, supportAt(wx, wy, cy, sy)) - state.z;
         const prevRel = nat.figAxle[L.id];
         if (prevRel !== null && prevRel !== undefined) {
           rel = clamp(rel, prevRel - 1.6 * dt, prevRel + 1.6 * dt);
@@ -981,6 +1110,25 @@
         ? function (L) { return L.m < 0; }
         : function (L) { return L.f < 0; };
 
+      /* En roulant sur deux roues, le sol sous l'essieu porteur change. Sans
+         ce suivi, la caisse gardait la hauteur du point de départ et
+         s'enfonçait dans la première pente venue. */
+      let gh = 0, gn = 0;
+      Y.LEGS.forEach(function (L) {
+        if (!onGround(L)) return;
+        const gx = L.x, gy = L.y + L.m * K.abadPlane;
+        gh += terrainAt(state.px + cy * gx - sy * gy, state.py + sy * gx + cy * gy);
+        gn++;
+      });
+      if (gn) {
+        run.ground = lerp(run.ground, gh / gn, Math.min(1, dt * 6));
+        base = run.ground;
+      }
+      /* Hauteur de caisse pilotable en tenue : le repliement de la patte
+         porteuse suit la consigne, exactement comme à plat. Les bornes
+         gardent l'essieu dans l'enveloppe de la patte. */
+      const stand = f.stand * clamp(state.height / 0.25, 0.74, 1.26);
+
       /**
        * Position de l'essieu d'une patte dans le repère caisse.
        *
@@ -996,8 +1144,8 @@
         if (!onGround(L)) return [L.x, ny, run.holdZ];
         // cible : essieu droit sous l'origine caisse une fois basculé
         const a1 = f.axis === "roll"
-          ? [L.x, -Math.sin(f.angle) * f.stand, -Math.cos(f.angle) * f.stand]
-          : [Math.sin(f.angle) * f.stand, ny, -Math.cos(f.angle) * f.stand];
+          ? [L.x, -Math.sin(f.angle) * stand, -Math.cos(f.angle) * stand]
+          : [Math.sin(f.angle) * stand, ny, -Math.cos(f.angle) * stand];
         return [lerp(L.x, a1[0], k), lerp(ny, a1[1], k), lerp(run.holdZ, a1[2], k)];
       };
 
@@ -1127,28 +1275,180 @@
         }
       }
     } else if (f.kind === "spin") {
+      /* La vrille s'intègre en VITESSE, pas en angle paramétré par le temps.
+         C'est ce qui permet de la tenir aussi longtemps qu'on garde les deux
+         gâchettes : en angle paramétré, chaque tour bouclé repassait par une
+         vitesse nulle et la pirouette hoquetait à chaque tour. */
       const t1 = f.arm, t2 = t1 + f.spin;
+      /* Régime de croisière et mise en route. Ils sont choisis pour que la
+         vrille libre — montée, croisière, freinage — TIENNE dans sa fenêtre :
+         0,18 + spin/1,25 = 1,14 s pour une fenêtre de 1,20 s. Trop lent, elle
+         se faisait couper avant d'avoir rendu son tour et demi. */
+      const wMax = 2 * Math.PI * f.turns / f.spin * 1.25;
+      const ramp = wMax / 0.18;                             // rad/s² de mise en route
       if (t < t1) {
         phase = "appui";
         const s = smooth(t / t1);
         state.z = base + ride * (1 - 0.10 * s) + WHEEL_R;
         state.roll = lerp(0, f.lean * 0.4, s);
+        run.spinA = 0; run.spinW = 0;
       } else if (t < t2) {
         phase = "vrille";
-        const s = (t - t1) / f.spin;
-        state.yaw = run.yaw0 + 2 * Math.PI * f.turns * smoother(s);
-        state.roll = f.lean * Math.sin(Math.PI * s);
-        state.z = base + ride * 0.90 + WHEEL_R;
-        nat.wz = 2 * Math.PI * f.turns / f.spin;      // pour la rotation des roues
+        if (run.wantRelease) { run.wantRelease = false; run.release = true; }
+        const held = f.sustain && run.hold && !run.release;
+        const brakeA = run.spinW * run.spinW / (2 * ramp);  // angle qu'il reste à freiner
+        const full = 2 * Math.PI * f.turns;
+        if (held || run.spinA + brakeA < full) {
+          run.spinW = approach(run.spinW, wMax, ramp, dt);
+          run.spinTarget = null;
+        } else {
+          /* Freinage calculé pour tomber PILE sur l'angle visé. Une pirouette
+             libre doit rendre ses 540°, pas 530 : avec une décélération
+             constante, l'angle d'arrêt dépend du pas de temps. Tenue puis
+             relâchée, elle s'arrête là où son freinage la mène. */
+          if (run.spinTarget === null) {
+            run.spinTarget = run.spinA < full ? full : run.spinA + brakeA;
+          }
+          const left = Math.max(run.spinTarget - run.spinA, 1e-9);
+          run.spinW = Math.max(0, run.spinW - run.spinW * run.spinW / (2 * left) * dt);
+          if (run.spinW < 0.05 && left < 0.02) { run.spinW = 0; run.spinA = run.spinTarget; }
+        }
+        run.spinA += run.spinW * dt;
+        state.yaw = run.yaw0 + run.spinA;
+        nat.wz = run.spinW;
+        const s = clamp(run.spinW / wMax, 0, 1);
+        state.roll = f.lean * s;
+        state.z = base + ride * (1 - 0.10 * s) + WHEEL_R;
+        // le chrono ne franchit la fin de la vrille qu'une fois arrêté
+        run.spinHold = run.spinW > 0.02 || run.spinA < 0.2;
       } else {
         phase = "stabilisation";
         const s = smooth((t - t2) / f.settle);
-        state.yaw = run.yaw0 + 2 * Math.PI * f.turns;
+        state.yaw = run.yaw0 + run.spinA;
         state.roll = lerp(f.lean * 0.2, 0, s);
         state.z = base + ride * (0.90 + 0.10 * s) + WHEEL_R;
         nat.wz = lerp(nat.wz, 0, Math.min(1, dt * 6));
       }
       place(function (L, h) { return h + WHEEL_R; });
+
+    } else if (f.kind === "tumble") {
+      /* =================================================================
+         Salto arrière enchaîné — le tour se fait en posant les roues.
+
+         Trois temps, qui recommencent tant qu'on tient la commande :
+
+           1. ÉLAN  — le robot se dresse sur son essieu arrière jusqu'à
+              `lift`. La caisse ne recule pas : ce sont les roues arrière qui
+              roulent sous elle pour la garder en équilibre, comme le fait un
+              robot auto-stabilisé qui cabre. Les roues avant sont en l'air.
+           2. VOL   — il ne reste que 2π − 2·lift à tourner, en balistique.
+              La caisse monte droit et redescend à la même hauteur : le vol
+              est symétrique, sa flèche vaut g·T²/8.
+           3. POSER — les roues AVANT touchent et deviennent l'essieu
+              porteur ; elles roulent à leur tour sous la caisse jusqu'à ce
+              qu'elle soit d'aplomb. Elles ont pris la place des arrière.
+
+         À aucun moment les quatre roues ne sont en l'air plus de 0,42 s, et
+         le diagramme d'appui montre bien deux roues à la fois.
+         ================================================================= */
+      const th1 = f.lift, cyc = f.cycle;
+      const hR = ride + WHEEL_R;                    // caisse au-dessus du contact
+      run.tumbleT += dt;
+      // le sol suit le relief sous le robot, filtré comme ailleurs
+      const here = terrainAt(state.px, state.py);
+      if (run.groundRef === null) run.groundRef = here;
+      run.groundRef = lerp(run.groundRef, here, Math.min(1, dt * 8));
+      base = run.groundRef;
+
+      /** Hauteur de caisse d'une bascule rigide sur l'essieu `a` (repère caisse). */
+      const pivotZ = function (theta, a) {
+        return Math.sin(theta) * a + Math.cos(theta) * hR;
+      };
+      const zEdge = pivotZ(-th1, -K.legX);          // hauteur au décollage
+      const vz0 = G_ACC * f.over / 2;               // vol symétrique
+
+      /** Pose les quatre roues d'une caisse en rotation rigide. */
+      const tumbleLegs = function (theta, contactOn) {
+        const cp = Math.cos(theta), sp = Math.sin(theta);
+        const e = smooth(clamp(run.tumbleT / 0.20, 0, 1));
+        Y.LEGS.forEach(function (L, li) {
+          const n = Y.Robot.legs[L.id];
+          const ny = L.y + L.m * K.abadPlane;
+          // les pattes restent à leur pose d'appui : la figure est une
+          // rotation de la CAISSE, pas un mouvement de jambes
+          const target = constrain(L, [L.x, ny, -ride]);
+          const q = Y.Motion.ik(L, target[0], target[1], target[2]);
+          assign(n, [0, 1, 2].map(function (i) {
+            return lerp(run.entryQ[li * 3 + i], q[i], e);
+          }));
+          const ox = cp * target[0] + sp * target[2];
+          const oz = -sp * target[0] + cp * target[2];
+          const on = contactOn(L);
+          n.contact = on;
+          n.footWorld = [state.px + cy * ox - sy * ny,
+                         state.py + sy * ox + cy * ny,
+                         state.z + oz - WHEEL_R];
+          // la roue porteuse roule sous la caisse : on lit sa rotation sur le
+          // déplacement réel de son point de contact
+          const prev = run.prevA[L.id];
+          if (on && prev !== undefined) nat.spin[L.id] += (ox - prev) / WHEEL_R;
+          run.prevA[L.id] = ox;
+          if (n.wheel) n.wheel.rotation.y = nat.spin[L.id];
+          nat.figAxle[L.id] = null;
+        });
+      };
+
+      const rearOn = function (L) { return L.f < 0; };
+      const frontOn = function (L) { return L.f > 0; };
+      const noneOn = function () { return false; };
+
+      if (run.wantRelease) { run.wantRelease = false; run.release = true; }
+      // Tour bouclé : on repart pour un autre tant que la commande tient. Le
+      // relâchement ne coupe jamais un tour en cours — il laisse le chrono
+      // filer vers la stabilisation une fois les quatre roues reposées.
+      if (run.t >= cyc && f.sustain && run.hold && !run.release) {
+        run.t -= cyc;
+        run.prevA = {};
+      }
+      const tu = run.t;
+
+      if (tu < cyc) {
+        state.roll = 0;
+        if (tu < f.rear) {
+          phase = "élan";
+          // profil en s² : la vitesse de rotation au décollage prolonge
+          // exactement celle du vol, sans cassure d'une image à l'autre
+          const s = tu / f.rear;
+          const th = -th1 * s * s;
+          state.pitch = th;
+          state.z = base + pivotZ(th, -K.legX);
+          tumbleLegs(th, rearOn);
+        } else if (tu < f.rear + f.over) {
+          phase = "vol";
+          const tf = tu - f.rear;
+          const th = -th1 - (2 * Math.PI - 2 * th1) * (tf / f.over);
+          state.pitch = th;
+          state.z = base + zEdge + vz0 * tf - 0.5 * G_ACC * tf * tf;
+          tumbleLegs(th, noneOn);
+        } else {
+          phase = "poser";
+          const s = (tu - f.rear - f.over) / f.plant;
+          const th = -2 * Math.PI + th1 * (1 - s) * (1 - s);
+          state.pitch = th;
+          state.z = base + pivotZ(th, K.legX);
+          tumbleLegs(th, s > 0.97 ? function () { return true; } : frontOn);
+        }
+      } else {
+        phase = "stabilisation";
+        // La bascule se termine à sa hauteur de croisière : la reprise ne
+        // part donc pas plus bas — elle ne fait qu'amortir, d'un creux qui
+        // commence et finit à zéro. Repartir de 0,86 faisait tomber la caisse
+        // de 32 mm en une image.
+        const s = smooth((tu - cyc) / f.recover);
+        state.pitch = 0; state.roll = 0;
+        state.z = base + ride * (1 - 0.10 * Math.sin(Math.PI * s)) + WHEEL_R;
+        place(function (L, h) { return h + WHEEL_R; });
+      }
     } else if (f.kind === "slide") {
       /**
        * Powerslide : la caisse pivote en travers pendant que la quantité de
@@ -1355,11 +1655,11 @@
 
     if (run.charging) phase = "chargement";
     Y.Stunt.phase = phase;
-    Y.Stunt.progress = clamp(t / f.duration, 0, 1);
+    Y.Stunt.progress = clamp(run.t / f.duration, 0, 1);
 
-    if (t >= f.duration) {
+    if (run.t >= f.duration) {
       state.pitch = 0; state.roll = 0;
-      if (f.kind === "spin") { state.yaw = run.yaw0 + 2 * Math.PI * f.turns; nat.wz = 0; }
+      if (f.kind === "spin") { state.yaw = run.yaw0 + run.spinA; nat.wz = 0; }
       if (f.kind === "slide") { state.yaw = run.yaw0 + f.yawSweep * (f.side || 1); nat.vx = 0; }
       if (f.twist) state.yaw = run.yaw0 + 2 * Math.PI * f.twist;
       state.z = terrainAt(state.px, state.py) + ride + WHEEL_R;
@@ -1407,8 +1707,14 @@
      * Déclenche une figure. `charge` tient l'armement : la figure se prépare
      * puis attend `fire()`. Réservé aux figures qui décollent — une tenue ou
      * une pirouette n'a pas d'armement à garder sous tension.
+     *
+     * `hold` demande une figure TENUE : la vrille tourne et la bascule
+     * s'enchaîne jusqu'à `release()`. C'est ce que fait une commande gardée
+     * enfoncée. Sans lui, la pirouette rend son tour et demi et s'arrête,
+     * comme elle l'a toujours fait au bouton. Les deux tenues sur roues, elles,
+     * n'ont jamais eu d'autre mode : elles se maintiennent par nature.
      */
-    start: function (name, charge) {
+    start: function (name, charge, hold) {
       const f = FIGURES[name];
       if (!f) return false;
       if ((f.mode || "pattes") !== Y.Motion.state.mode) return false;
@@ -1417,8 +1723,11 @@
       run.holdQ = null; run.shiftX = 0; run.shiftY = 0;
       run.fakie = false; run.holdT = 0; run.release = false; run.landZ0 = null; run.takeoffZ = null;
       run.groundRef = null; run.entryZ = Y.Motion.state.z;
-      run.charging = !!charge && f.flight > 0; run.chargeT = 0;
+      run.charging = !!charge && f.flight > 0 && f.kind !== "tumble"; run.chargeT = 0;
       run.wantRelease = false;
+      run.spinA = 0; run.spinW = 0; run.spinHold = false; run.spinTarget = null;
+      run.hold = f.kind === "tilt" ? true : !!hold;
+      run.tumbleT = 0; run.prevA = {};
       // on amorce le limiteur de débattement sur la position réelle des pieds :
       // sinon la première image saute d'un rayon de roue et coûte 57 rad/s
       Y.LEGS.forEach(function (L) {
@@ -1495,7 +1804,11 @@
 
     /** Une tenue est-elle en cours, en attente qu'on la relâche ? */
     sustaining: function () {
-      return !!(run.fig && run.fig.sustain && !run.release && this.phase === "tenue");
+      if (!run.fig || !run.fig.sustain || !run.hold || run.release) return false;
+      // chaque famille tenue a sa phase de croisière
+      if (run.fig.kind === "spin") return this.phase === "vrille";
+      if (run.fig.kind === "tumble") return this.phase !== "stabilisation";
+      return this.phase === "tenue";
     },
 
     /**
@@ -1506,7 +1819,15 @@
      * rappuyer trop vite ne faisait rien et le robot restait dressé.
      */
     release: function () {
-      if (!run.fig || !run.fig.sustain || run.release || run.wantRelease) return false;
+      if (!run.fig || !run.fig.sustain || !run.hold || run.release || run.wantRelease) return false;
+      // Vrille et bascule enchaînée s'arrêtent d'elles-mêmes proprement : la
+      // première freine son régime, la seconde finit son tour avant de se
+      // reposer. Une bascule sur deux roues, elle, ne peut pas être coupée
+      // en pleine montée sans laisser tomber la caisse.
+      if (run.fig.kind === "spin" || run.fig.kind === "tumble") {
+        run.release = true;
+        return true;
+      }
       if (this.phase !== "tenue") { run.wantRelease = true; return true; }
       run.release = true;
       run.t = run.fig.arm + run.fig.rise + run.fig.hold;   // on enchaîne la reprise
@@ -1553,6 +1874,19 @@
       });
     },
     setAuto: function (on) { nat.auto = !!on; },
+    /**
+     * Roue libre : la gravité agit le long de la pente et le sol peut se
+     * dérober. C'est ce qui transforme une transition en objet de skate. La
+     * session AUTO et le simulateur ne l'activent jamais — ils doivent rendre
+     * la même trace à chaque exécution.
+     */
+    setFreeRoll: function (on) {
+      nat.freeRoll = !!on;
+      if (!on) { nat.wheelAir = false; nat.brake = false; }
+    },
+    freeRolling: function () { return nat.freeRoll; },
+    setBrake: function (on) { nat.brake = !!on; },
+    wheelAirborne: function () { return nat.wheelAir; },
     isAuto: function () { return nat.auto; },
     airborne: function () { return nat.air; },
     lastFlight: function () { return nat.lastAir; },
