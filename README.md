@@ -694,13 +694,38 @@ c'est cette marche avant-là que le frein doit retenir. La marche arrière est
 plafonnée à 1,4 m/s — on ne recule pas aussi vite qu'on avance.
 
 La manette passe par l'**API Gamepad** du navigateur, la même sur Ubuntu et sur
-Windows : le système présente la DualShock 4 sous la disposition « standard »,
-et c'est cette disposition qu'on lit — croix 0, rond 1, carré 2, triangle 3,
-L1 4, R1 5, L2 6, R2 7, croix directionnelle 12 à 15. Rien à installer, rien de
-spécifique à un système, USB ou Bluetooth indifféremment. Un navigateur ne
-déclare une manette qu'au **premier appui** sur un de ses boutons : tant que
-rien n'a été pressé, `navigator.getGamepads()` la cache. Le panneau le dit
-plutôt que de laisser croire à une panne.
+Windows. **DualShock 4 (PS4) et DualSense (PS5) marchent l'une comme l'autre**,
+en USB comme en Bluetooth : rien à installer, rien de spécifique à un système,
+rien à choisir dans l'interface. Un navigateur ne déclare une manette qu'au
+**premier appui** sur un de ses boutons : tant que rien n'a été pressé,
+`navigator.getGamepads()` la cache. Le panneau le dit plutôt que de laisser
+croire à une panne.
+
+### Deux dispositions, parce que la promesse n'est pas toujours tenue
+
+L'API promet une disposition « standard » — croix 0, rond 1, carré 2,
+triangle 3, L1 4, R1 5, L2 6, R2 7, clic des sticks 10 et 11, croix
+directionnelle 12 à 15 — et c'est bien celle que Chrome présente pour les deux
+manettes Sony. Mais Firefox, et Chrome sur un noyau Linux d'avant le pilote
+`hid-playstation`, exposent la manette telle que le HID Sony la décrit :
+
+| | Standard | HID Sony brut |
+| --- | --- | --- |
+| `mapping` | `"standard"` | vide |
+| Croix / rond / carré / triangle | 0 / 1 / 2 / 3 | 1 / 2 / 0 / 3 |
+| L2, R2 | boutons 6 et 7, valeur 0 → 1 | **axes** 3 et 4, valeur −1 → 1 |
+| Croix directionnelle | quatre boutons, 12 à 15 | un **axe « chapeau »**, huit positions |
+| Stick droit vertical | axe 3 | axe 5 |
+
+On lit donc ce que la manette **déclare** et on choisit ; une disposition
+inconnue retombe sur la standard, qui est le pari le plus sûr. Le panneau
+affiche laquelle a été reconnue — c'est la première chose à regarder si un
+bouton ne tombe pas juste. Les deux chemins sont vérifiés bout en bout sur une
+DualSense simulée : les douze commandes répondent à l'identique, gâchettes
+analogiques et croix directionnelle comprises.
+
+Une manette de Xbox, elle, est toujours déclarée standard : elle marche aussi,
+avec A / B / X / Y à la place de croix / rond / carré / triangle.
 
 Trois choses ont demandé un peu de soin :
 

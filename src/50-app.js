@@ -910,7 +910,12 @@
     if (wanted !== "manette") {
       note.textContent = "Les raccourcis habituels sont suspendus tant que PLAY tient les commandes.";
     } else if (P.padName) {
-      note.textContent = "Manette : " + P.padName;
+      // La disposition retenue est affichée : sur une manette exposée en HID
+      // brut, ce n'est pas la même que sur une manette « standard », et
+      // savoir laquelle a été reconnue est la première chose à vérifier si
+      // un bouton ne tombe pas juste.
+      note.textContent = "Manette : " + P.padName +
+        (P.padLayout ? " · " + P.padLayout : "");
     } else {
       note.textContent = "Aucune manette détectée. Branchez-la ou appairez-la, " +
         "puis appuyez sur un bouton : le navigateur ne la déclare qu'au premier appui.";

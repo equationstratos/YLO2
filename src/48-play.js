@@ -7,9 +7,16 @@
    de PS4 branchée en USB ou appairée en Bluetooth.
 
    La manette passe par l'API Gamepad du navigateur, qui est la même sur
-   Ubuntu et sur Windows : le système présente la DualShock 4 sous la
-   disposition « standard », et c'est cette disposition qu'on lit. Rien à
-   installer, rien de spécifique à un système.
+   Ubuntu et sur Windows. DualShock 4 (PS4) et DualSense (PS5) marchent l'une
+   comme l'autre : le navigateur les présente normalement sous la disposition
+   « standard », et c'est celle qu'on lit. Rien à installer, rien de
+   spécifique à un système.
+
+   Quand une manette n'est PAS déclarée standard — Firefox, ou Chrome sur un
+   noyau Linux d'avant le pilote `hid-playstation` —, on lit la disposition
+   HID Sony d'origine : ordre des boutons différent, croix directionnelle sur
+   un axe « chapeau », gâchettes sur des axes. Le panneau dit laquelle des
+   deux a été reconnue.
 
    Deux gestes se lisent en deux temps :
 
@@ -42,15 +49,60 @@
   const CAM_EL = 1.4;
 
   /**
-   * Disposition « standard » de l'API Gamepad, celle que Chrome et Firefox
-   * présentent pour une DualShock 4, en USB comme en Bluetooth.
+   * Dispositions de manette.
+   *
+   * L'API Gamepad promet une disposition « standard » — croix 0, rond 1,
+   * carré 2, triangle 3, L1 4, R1 5, L2 6, R2 7, clic des sticks 10 et 11,
+   * croix directionnelle 12 à 15 — et c'est bien celle que Chrome présente
+   * pour une DualShock 4 comme pour une DualSense, en USB comme en Bluetooth.
+   * Une manette de PS5 marche donc telle quelle, sans rien changer.
+   *
+   * Mais la promesse n'est pas tenue partout. Firefox, et Chrome sur des
+   * noyaux Linux d'avant le pilote `hid-playstation`, exposent la manette
+   * telle que le HID Sony la décrit : `mapping` vide, carré en 0, croix en 1,
+   * rond en 2, la croix directionnelle sur un AXE « chapeau » plutôt que sur
+   * quatre boutons, et les gâchettes sur des axes au lieu de boutons.
+   *
+   * On lit donc ce que la manette DÉCLARE, et on choisit. Une disposition
+   * inconnue retombe sur la standard : c'est le pari le plus sûr.
    */
-  const PAD = {
-    cross: 0, circle: 1, square: 2, triangle: 3,
-    l1: 4, r1: 5, l2: 6, r2: 7,
-    l3: 10, r3: 11,
-    up: 12, down: 13, left: 14, right: 15
+  const LAYOUTS = {
+    standard: {
+      label: "disposition standard",
+      button: { cross: 0, circle: 1, square: 2, triangle: 3, l1: 4, r1: 5, l3: 10,
+                up: 12, down: 13, left: 14, right: 15 },
+      trigger: { l2: { btn: 6 }, r2: { btn: 7 } },
+      stick: { lx: 0, rx: 2, ry: 3 },
+      hat: -1
+    },
+    sony: {
+      label: "disposition Sony brute",
+      button: { square: 0, cross: 1, circle: 2, triangle: 3, l1: 4, r1: 5, l3: 10 },
+      // en HID brut, les gâchettes sont analogiques sur des axes, à plat en -1
+      trigger: { l2: { axis: 3 }, r2: { axis: 4 } },
+      stick: { lx: 0, rx: 2, ry: 5 },
+      hat: 9
+    }
   };
+
+  /** Les huit positions d'un axe « chapeau », dans l'ordre horaire. */
+  const HAT = [["up"], ["up", "right"], ["right"], ["down", "right"],
+               ["down"], ["down", "left"], ["left"], ["up", "left"]];
+
+  /**
+   * Quelle disposition pour cette manette ?
+   *
+   * `mapping === "standard"` est une déclaration du navigateur : on la croit.
+   * Sinon, une manette Sony reconnue à son nom ou à son identifiant USB, avec
+   * assez d'axes pour porter ses gâchettes, suit la disposition HID d'origine.
+   */
+  function layoutFor(gp) {
+    if (gp.mapping === "standard") return LAYOUTS.standard;
+    const id = (gp.id || "").toLowerCase();
+    const sony = /dualsense|dualshock|playstation|wireless controller|054c|0ce6|0df2|09cc|05c4/.test(id);
+    if (sony && gp.axes.length >= 6) return LAYOUTS.sony;
+    return LAYOUTS.standard;
+  }
 
   /** Salto simple et salto double, pour chacune des quatre flèches. */
   const DIR = {
@@ -83,8 +135,10 @@
   ];
 
   const S = {
-    on: false, source: "clavier", padName: "", say: "", listeners: []
+    on: false, source: "clavier", padName: "", padLayout: "", say: "", listeners: []
   };
+
+  function clampUnit(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
 
   // état d'entrée : appuis précédents, gestes en attente, consigne courante
   const prev = {};
@@ -259,30 +313,62 @@
   function stepPad() {
     const gp = findPad();
     if (!gp) {
-      if (S.padName) { S.padName = ""; emit(); }
+      if (S.padName) { S.padName = ""; S.padLayout = ""; emit(); }
       return;
     }
-    if (S.padName !== gp.id) { S.padName = gp.id; emit(); }
+    const L = layoutFor(gp);
+    if (S.padName !== gp.id || S.padLayout !== L.label) {
+      S.padName = gp.id; S.padLayout = L.label; emit();
+    }
     const b = gp.buttons, ax = gp.axes;
-    const val = function (i) { const x = b[i]; return x ? (x.value || (x.pressed ? 1 : 0)) : 0; };
-    const on = function (i) { const x = b[i]; return !!(x && x.pressed); };
+    const on = function (name) {
+      const i = L.button[name];
+      if (i === undefined) return false;
+      const x = b[i];
+      return !!(x && x.pressed);
+    };
+    /** Gâchette analogique, qu'elle soit sur un bouton ou sur un axe. */
+    const trig = function (name) {
+      const t = L.trigger[name];
+      if (!t) return 0;
+      if (t.btn !== undefined) {
+        const x = b[t.btn];
+        return x ? (x.value || (x.pressed ? 1 : 0)) : 0;
+      }
+      const v = ax[t.axis];
+      // sur un axe, une gâchette au repos vaut -1 et non 0
+      return v === undefined ? 0 : clampUnit((v + 1) / 2);
+    };
 
-    Object.keys(PAD).forEach(function (name) {
-      if (name === "l2" || name === "r2" || name === "r3") return;
-      actOn(name, on(PAD[name]));
-    });
+    // croix directionnelle : quatre boutons, ou un axe « chapeau »
+    const dpad = { up: false, down: false, left: false, right: false };
+    if (L.hat >= 0) {
+      const v = ax[L.hat];
+      if (v !== undefined && v >= -1.01 && v <= 1.01) {
+        HAT[Math.min(7, Math.max(0, Math.round((v + 1) * 3.5)))]
+          .forEach(function (d) { dpad[d] = true; });
+      }
+    } else {
+      ["up", "down", "left", "right"].forEach(function (d) { dpad[d] = on(d); });
+    }
+
+    ["cross", "circle", "square", "triangle", "l1", "r1", "l3"]
+      .forEach(function (name) { actOn(name, on(name)); });
+    ["up", "down", "left", "right"].forEach(function (d) { actOn(d, dpad[d]); });
 
     // les gâchettes sont analogiques : un dosage, pas un tout ou rien
-    drive(val(PAD.r2), val(PAD.l2));
-    const stick = Math.abs(ax[0] || 0) > DEAD ? ax[0] : 0;
+    drive(trig("r2"), trig("l2"));
+    const lx = ax[L.stick.lx] || 0;
+    const stick = Math.abs(lx) > DEAD ? lx : 0;
     if (hooks.setWz) hooks.setWz(-stick * WZ_MAX);
 
     /* Stick droit : la caméra. On envoie une VITESSE de rotation, que
        l'application intègre avec son propre pas de temps — un stick tenu à
        fond doit balayer autant de degrés par seconde quel que soit le
        nombre d'images affichées. */
-    const rx = Math.abs(ax[2] || 0) > DEAD ? ax[2] : 0;
-    const ry = Math.abs(ax[3] || 0) > DEAD ? ax[3] : 0;
+    const rxv = ax[L.stick.rx] || 0, ryv = ax[L.stick.ry] || 0;
+    const rx = Math.abs(rxv) > DEAD ? rxv : 0;
+    const ry = Math.abs(ryv) > DEAD ? ryv : 0;
     if (hooks.look) hooks.look(rx * CAM_AZ, ry * CAM_EL);
   }
 
@@ -355,6 +441,9 @@
 
     /** Manette détectée en ce moment, quel que soit le mode choisi. */
     padPresent: function () { return !!findPad(); },
+
+    /** Disposition retenue pour une manette donnée — exposée pour les essais. */
+    layoutOf: function (gp) { return layoutFor(gp || findPad() || { axes: [] }).label; },
 
     /**
      * Touche du clavier en mode PLAY. Rend `true` si PLAY s'en est saisi :
