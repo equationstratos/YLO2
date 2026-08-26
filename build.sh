@@ -13,11 +13,16 @@ mkdir -p dist
 GEN=src/_geometry.gen.js
 if [ -f assets/ylo2-geometry.bin ]; then
   python3 - <<'PY' > "$GEN"
-import base64, gzip, json
+import base64, gzip, io, json
 blob = open('assets/ylo2-geometry.bin', 'rb').read()
 index = json.load(open('assets/ylo2-geometry.json'))
 print('window.YLO2_GEO_INDEX=%s;' % json.dumps(index, separators=(',', ':')))
-print('window.YLO2_GEO_B64="%s";' % base64.b64encode(gzip.compress(blob, 9)).decode())
+# mtime=0 : sans lui, gzip horodate le flux et deux builds du même maillage
+# donnent deux fichiers différents — impossible de diffuser un diff propre.
+buf = io.BytesIO()
+with gzip.GzipFile(fileobj=buf, mode='wb', compresslevel=9, mtime=0) as gz:
+    gz.write(blob)
+print('window.YLO2_GEO_B64="%s";' % base64.b64encode(buf.getvalue()).decode())
 PY
 else
   echo "// maillages absents : lancer tools/convert_meshes.py" > "$GEN"
