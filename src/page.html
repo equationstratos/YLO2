@@ -56,14 +56,22 @@ select,input[type=text]{font:inherit;color:var(--ink);background:var(--panel-2);
 }
 .tgl button:hover{border-color:var(--faint);color:var(--ink)}
 .tgl button[aria-pressed="true"]{border-color:var(--accent-dim);color:var(--accent);background:#20150F}
-.railtoggle{display:none}
+.railtoggle{display:flex}
 
 /* ---------- corps ---------- */
-.main{position:relative;display:grid;grid-template-columns:262px 1fr 318px;min-height:0}
+.main{
+  position:relative;display:grid;min-height:0;
+  /* Les deux panneaux prennent 580 px : sur un portable c'est la moitié de
+     l'écran. Leur largeur passe par une variable pour qu'on puisse les
+     replier et rendre toute la place à la scène. */
+  --rail-w:262px;--detail-w:318px;
+  grid-template-columns:var(--rail-w) 1fr var(--detail-w);
+  transition:grid-template-columns .22s ease;
+}
 .rail,.detail{background:var(--panel);overflow:auto;min-height:0}
 .rail{border-right:1px solid var(--line);display:flex;flex-direction:column}
 .detail{border-left:1px solid var(--line)}
-.stage{position:relative;min-width:0;min-height:0;overflow:hidden;background:
+.stage{position:relative;min-width:0;min-height:0;overflow:hidden;container-type:inline-size;background:
   radial-gradient(120% 90% at 50% 8%, #191E1A 0%, var(--ground) 62%)}
 canvas{position:absolute;inset:0;display:block;width:100%;height:100%;touch-action:none}
 
@@ -191,7 +199,22 @@ canvas{position:absolute;inset:0;display:block;width:100%;height:100%;touch-acti
 .hud{
   position:absolute;left:16px;right:16px;bottom:16px;display:flex;gap:12px;align-items:flex-end;
   pointer-events:none;flex-wrap:wrap;
+  /* La scène passe avant les commandes : le bandeau ne dépasse jamais le
+     tiers de la hauteur, et se replie entièrement au besoin. */
+  max-height:min(34vh,272px);
 }
+.hud.folded{display:none}
+/* Rangées de boutons : une seule ligne qui défile, plutôt que trois lignes
+   empilées qui mangeaient 150 px de scène. */
+.hud .scroller{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;
+  scrollbar-color:var(--faint) transparent;padding-bottom:3px;
+  /* Le dernier bouton s'estompe au bord : sans ça une rangée coupée net se
+     lit comme un défaut d'affichage, pas comme « ça continue à droite ». */
+  -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 26px),transparent);
+  mask-image:linear-gradient(90deg,#000 calc(100% - 26px),transparent);}
+.hud .scroller::-webkit-scrollbar{height:5px}
+.hud .scroller::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+.hud .scroller > *{flex:0 0 auto}
 .card{
   pointer-events:auto;background:#121613cc;backdrop-filter:blur(9px);
   border:1px solid var(--line);border-radius:3px;padding:10px 12px;
@@ -230,7 +253,7 @@ canvas{position:absolute;inset:0;display:block;width:100%;height:100%;touch-acti
 .flipbar{position:relative;height:3px;background:var(--line);margin-top:8px;border-radius:2px;overflow:hidden;display:none}
 .flipbar.on{display:block}
 .flipbar i{display:block;height:100%;background:var(--warn);width:0}
-.sliders{display:grid;gap:7px;min-width:216px}
+.sliders{display:grid;gap:7px;min-width:196px}
 .sl{display:grid;grid-template-columns:64px 1fr 58px;gap:9px;align-items:center}
 .sl label{font-size:11px;color:var(--dim)}
 .sl output{font-family:var(--mono);font-size:11px;color:var(--ink);text-align:right;font-variant-numeric:tabular-nums}
@@ -283,6 +306,32 @@ input[type=range]::-moz-range-thumb{
 .boot .bar2 i{display:block;height:100%;width:40%;background:var(--accent);animation:slide 1.1s ease-in-out infinite}
 @keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
 
+@media (min-width:1081px){
+  .main[data-rail="off"]{--rail-w:0px}
+  .main[data-detail="off"]{--detail-w:0px}
+  .main[data-rail="off"] .rail,.main[data-detail="off"] .detail{overflow:hidden;border:0}
+}
+/* Le bandeau s'adapte à la largeur de LA SCÈNE, pas à celle de la fenêtre :
+   replier un panneau lui rend 300 px, et c'est cette largeur-là qui décide. */
+@container (min-width:640px){
+  /* Trois cartes côte à côte : empilées, elles couvraient la moitié basse de
+     la scène — le robot passait derrière. */
+  .hud{flex-wrap:nowrap;align-items:flex-end}
+  .hud > .card:first-child{flex:1 1 300px;min-width:0}
+}
+@container (max-width:880px){
+  /* Scène étroite : le diagramme d'appui rend ses 180 px aux commandes, qui
+     n'ont alors plus besoin de défiler pour se montrer. */
+  .card-phase{display:none}
+}
+/* Un pourcentage de hauteur ne résout pas contre un parent en hauteur
+   automatique : la carte débordait alors par le haut du bandeau. */
+.hud > .card{max-height:min(32vh,256px);overflow-y:auto}
+@media (max-width:1400px){
+  /* La ligne de spécifications est décorative : elle prend 300 px dont la
+     barre a besoin pour tenir ses commandes sur une seule ligne. */
+  .mark span{display:none}
+}
 @media (max-width:1080px){
   .main{grid-template-columns:1fr;min-width:0}
   .rail,.detail{
@@ -320,8 +369,9 @@ input[type=range]::-moz-range-thumb{
     </div>
     <div class="spacer"></div>
     <div class="tgl railtoggle">
-      <button id="btnRail" aria-pressed="false">Panneau</button>
-      <button id="btnDetail" aria-pressed="false">Fiche</button>
+      <button id="btnRail" aria-pressed="true" title="Replie le panneau de gauche et rend la place à la scène">Panneau</button>
+      <button id="btnDetail" aria-pressed="true" title="Replie la fiche de droite et rend la place à la scène">Fiche</button>
+      <button id="btnHud" aria-pressed="true" title="Replie le bandeau de commandes : la scène est alors entièrement dégagée (touche C)">Commandes</button>
     </div>
     <div class="seg" id="views" role="group" aria-label="Points de vue">
       <button data-view="iso" aria-pressed="true">ISO</button>
@@ -359,7 +409,7 @@ input[type=range]::-moz-range-thumb{
       <div class="hud">
         <div class="card">
           <h4>Allure</h4>
-          <div class="gaits" id="gaits"></div>
+          <div class="gaits scroller" id="gaits"></div>
           <div class="stylerow">
             <div class="seg small" id="styles" role="group" aria-label="Style de marche">
               <button data-style="brut" aria-pressed="false">Brut</button>
@@ -367,7 +417,7 @@ input[type=range]::-moz-range-thumb{
               <button data-style="felin" aria-pressed="false">Félin</button>
             </div>
           </div>
-          <div class="stylerow" id="stunts"></div>
+          <div class="stylerow scroller" id="stunts"></div>
           <div class="stylerow" id="sessionrow" hidden>
             <button class="session" id="session" title="Un run complet dans le skatepark : le robot enchaîne les figures là où le relief les appelle, et finit en slide">Session AUTO</button>
             <span class="sessionsay" id="sessionsay"></span>

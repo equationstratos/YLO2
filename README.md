@@ -533,10 +533,39 @@ reçoit les consignes. Détails, API et scripts : [`sim/README.md`](sim/README.m
 | `W` | Bascule pattes / roues |
 | `S` | Arrêt (frein en roues) |
 | `F` | Quatrième figure du mode courant |
+| `C` | Replie le bandeau de commandes : scène entièrement dégagée |
 | `Échap` | Désélectionner |
 
 Bandeau : vue éclatée (fige la machine et étiquette les sous-ensembles), axes
 articulaires, trajectoires de pieds, polygone de sustentation.
+
+### La scène d'abord
+
+Sur un portable, les commandes couvraient la moitié basse de la scène : les
+trois cartes s'empilaient faute de largeur, et le robot passait derrière — 446
+px de bandeau sur 842 px de scène en 1440×900, **485 sur 742 en 1280×800**.
+
+Quatre changements, du plus discret au plus radical :
+
+- les rangées de boutons — allures et figures — tiennent sur **une seule ligne
+  qui défile** au lieu de trois lignes empilées ; le dernier bouton s'estompe
+  au bord pour que la coupure se lise comme « ça continue à droite » et non
+  comme un défaut d'affichage ;
+- les trois cartes se rangent **côte à côte**, et le bandeau ne dépasse jamais
+  le tiers de la hauteur ;
+- **`Panneau` et `Fiche` replient les colonnes latérales**, jusqu'ici figées au
+  delà de 1080 px de large. Elles prennent 580 px à elles deux : sur un
+  1280×800 c'est presque la moitié de l'écran, rendue à la scène d'un clic ;
+- **`Commandes` (touche `C`) replie le bandeau** : la scène est alors
+  entièrement dégagée.
+
+Le bandeau s'adapte à la largeur de **la scène**, pas à celle de la fenêtre —
+une requête de conteneur, pas une requête de média. C'est ce qui permet au
+diagramme d'appui de s'effacer quand la scène est étroite et de revenir dès
+qu'on replie un panneau, sans que la taille de la fenêtre ait bougé.
+
+Relevé, en 1280×800 : bandeau **485 → 252 px**, et **700 → 1280 px** de scène
+une fois les deux panneaux repliés.
 
 ## Structure
 

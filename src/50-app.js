@@ -853,15 +853,34 @@
     el.addEventListener("input", sync); sync();
   }
 
-  /* --- panneaux mobiles --- */
+  /* --- panneaux : superposés en étroit, colonnes repliables en large --- */
   function openPanel(which, force) {
     const el = document.getElementById(which);
     const btn = document.getElementById(which === "rail" ? "btnRail" : "btnDetail");
+    if (innerWidth > 1080) {
+      // Sur grand écran le panneau est une colonne de la grille : le replier
+      // rend ses 262 ou 318 px à la scène au lieu de les lui prendre. Les
+      // deux ensemble, c'est la moitié d'un écran de portable.
+      const main = document.querySelector(".main");
+      const on = force !== undefined ? force : main.dataset[which] === "off";
+      main.dataset[which] = on ? "on" : "off";
+      btn.setAttribute("aria-pressed", String(on));
+      return;
+    }
     const on = force !== undefined ? force : !el.classList.contains("open");
     el.classList.toggle("open", on);
     btn.setAttribute("aria-pressed", String(on));
   }
   function closeRail() { openPanel("rail", false); }
+
+  /** Replie le bandeau de commandes : la scène est alors entièrement dégagée. */
+  function toggleHud(force) {
+    const hud = document.querySelector(".hud");
+    const btn = document.getElementById("btnHud");
+    const on = force !== undefined ? force : hud.classList.contains("folded");
+    hud.classList.toggle("folded", !on);
+    btn.setAttribute("aria-pressed", String(on));
+  }
 
   /* --- avertissements : capacité des actionneurs, obstacle vs roues --- */
   function updateWarning(speed) {
@@ -1182,6 +1201,7 @@
     });
     document.getElementById("btnRail").addEventListener("click", function () { openPanel("rail"); });
     document.getElementById("btnDetail").addEventListener("click", function () { openPanel("detail"); });
+    document.getElementById("btnHud").addEventListener("click", function () { toggleHud(); });
 
     addEventListener("keydown", function (e) {
       if (e.target.matches("input, select, textarea")) return;
@@ -1202,6 +1222,7 @@
       if (e.key === "s" || e.key === "S") brake();
       if (e.key === "r" || e.key === "R") recenter();
       if (e.key === "a" || e.key === "A") document.getElementById("session").click();
+      if (e.key === "c" || e.key === "C") toggleHud();
     });
 
     addEventListener("keyup", function (e) {
