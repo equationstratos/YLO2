@@ -724,22 +724,29 @@
     clearTraces();
   }
 
-  /** Remet le robot au centre, à plat, face au +X : pratique sur obstacles. */
+  /**
+   * Remet le robot à son point de départ, à plat.
+   *
+   * « Au centre » sur la plupart des terrains ; en haut du roll-in sur la
+   * mega ramp, parce qu'une transition de 2,60 m ne se remonte pas et qu'un
+   * robot posé en bas n'aurait aucun moyen d'y accéder.
+   */
   function recenter() {
     if (Y.Stunt.active) Y.Stunt.stop();
-    M.state.px = 0; M.state.py = 0; M.state.yaw = 0;
+    const home = Y.Terrain.start();
+    M.state.px = home[0]; M.state.py = home[1]; M.state.yaw = home[2];
     M.state.roll = 0; M.state.pitch = 0; M.state.yawWag = 0;
     M.state.phase = 0;
     // la garde au sol n'est pas la même sur pattes et sur roues : en roues
     // la caisse est portée par l'essieu, à un rayon au-dessus du sol
-    const ground = Y.Terrain.heightAt(0, 0);
+    const ground = Y.Terrain.heightAt(home[0], home[1]);
     M.state.z = M.state.mode === "roues"
       ? ground + M.state.height * 0.92 + Y.Natural.wheelRadius
       : ground + M.state.height;
     Y.Natural.reset();
     M.blendFrom(0.3);
     clearTraces();
-    flash("Robot replacé au centre");
+    flash(home[0] || home[1] ? "Robot replacé au départ" : "Robot replacé au centre");
   }
 
   function buildStuntButtons() {
@@ -926,7 +933,15 @@
     let msg = "";
     if (M.state.mode === "roues") {
       const step = Y.Natural.wheelWarning();
-      if (step) msg = "Marche de " + Math.round(step * 1000) + " mm devant : au-delà de ce " +
+      const v = Math.abs(Y.Natural.state.vx);
+      if (Y.Natural.freeRolling() && v > 3.0) {
+        // Une grande rampe rend bien plus de vitesse que les moteurs n'en
+        // donnent. À ce régime, suivre le relief coûte plus que les 20 rad/s
+        // de l'URDF : le mouvement est montré, il n'est pas certifié.
+        msg = v.toFixed(1) + " m/s en roue libre : à cette vitesse, suivre le " +
+          "relief demande plus que les 20 rad/s déclarés — mouvement montré, " +
+          "hors spécification";
+      } else if (step) msg = "Marche de " + Math.round(step * 1000) + " mm devant : au-delà de ce " +
         "qu'une roue de 75 mm franchit — repasser sur pattes (touche W)";
     } else if (speed > Y.SPEED.declared) {
       msg = "Au-delà de " + Y.SPEED.declared.toFixed(2) + " m/s, les articulations " +

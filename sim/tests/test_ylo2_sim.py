@@ -448,6 +448,45 @@ class TestWheels(unittest.TestCase):
         self.assertLess(robot.base[0], 4.45)
         self.assertLess(robot.report()["peak_joint_velocity_rad_s"], DEFAULT.velocity_max)
 
+    def test_a_wall_is_not_a_ramp(self):
+        """Le robot bute contre une paroi au lieu de la traverser.
+
+        Le contact de roue fait monter les roues sur ce qu'elles peuvent
+        franchir ; au-delà, rien ne s'opposait à ce que le robot entre DANS
+        l'obstacle. Le bord de la réception d'une mega ramp fait 900 mm de
+        haut : c'est un mur, pas une rampe.
+        """
+        robot = Robot(rate=200, mode="roues", terrain="megaramp")
+        robot.base[0] = 2.5                            # dans le gap, face au mur
+        robot.base[2] = robot.height * 0.92 + gait.WHEEL_RADIUS
+        for _ in range(int(4 * 200)):
+            robot.command(2.0)
+            robot.step()
+        self.assertLess(robot.base[0], 3.20)           # il n'est pas entré dedans
+        self.assertGreater(robot.base[0], 2.5)         # mais il a bien roulé jusque-là
+        self.assertLess(robot.report()["peak_joint_velocity_rad_s"], DEFAULT.velocity_max)
+
+    def test_the_mega_ramp_is_a_run_from_top_to_bottom(self):
+        """Roll-in, tremplin, gap, réception, transition — dans cet ordre."""
+        ramp = terrain.get("megaramp")
+        self.assertEqual(ramp.start, (-16.0, 0.0, 0.0))          # départ en haut
+        self.assertAlmostEqual(ramp.height_at(-16.0, 0.0), 2.60, places=2)
+        self.assertAlmostEqual(ramp.height_at(-7.5, 0.0), 0.16, delta=0.05)
+        self.assertAlmostEqual(ramp.height_at(-5.0, 0.0), 0.0, places=2)   # le flat
+        self.assertAlmostEqual(ramp.height_at(2.19, 0.0), 0.70, places=2)  # la lèvre
+        self.assertAlmostEqual(ramp.height_at(3.00, 0.0), 0.0, places=2)   # le gap
+        self.assertAlmostEqual(ramp.height_at(3.25, 0.0), 0.39, delta=0.03)
+        self.assertAlmostEqual(ramp.height_at(6.59, 0.0), 0.0, delta=0.03)
+        self.assertAlmostEqual(ramp.height_at(15.55, 0.0), 2.0, delta=0.65)
+        # Le roll-in est une PENTE, pas une transition : aucune tranche ne
+        # dépasse ce qu'une roue franchit, donc les roues ne le quittent
+        # jamais et les 2,60 m se convertissent en vitesse.
+        xs = [-15.0 + i * 0.01 for i in range(800)]
+        rises = [ramp.height_at(a, 0.0) - ramp.height_at(b, 0.0)
+                 for a, b in zip(xs, xs[1:])]
+        self.assertLess(max(rises), gait.WHEEL_RADIUS)
+        self.assertGreater(math.sqrt(2 * 9.81 * 2.60 * 0.85), 6.0)   # ≈ 6,6 m/s
+
     def test_switch_back_to_legs(self):
         robot = Robot(rate=200, mode="roues")
         robot.walk(vx=1.5, seconds=3.0)
@@ -647,6 +686,34 @@ class TestWheelFigures(unittest.TestCase):
         self.assertLess(air, fig.over + 0.03)
         # et la caisse a bien fait un tour complet, sans sortir de l'enveloppe
         self.assertLess(robot.report()["peak_joint_velocity_rad_s"], DEFAULT.velocity_max)
+
+    def test_the_chained_backflip_moves_its_legs_like_a_gymnast(self):
+        """Les pattes accompagnent le tour au lieu de rester figées.
+
+        La première version gardait les quatre jambes immobiles dans le
+        repère de la caisse : le tour se lisait comme un bloc qui bascule.
+        Une gymnaste pousse sur ses appuis, se groupe, ouvre pour aller
+        chercher la poutre, puis amortit — et chacun de ces gestes doit se
+        voir dans les angles.
+        """
+        robot = Robot(rate=200, mode="roues")
+        robot.figure("wheeltumble")
+        cols = list(zip(*[f["q"] for f in robot.frames]))
+        sweep = [max(c) - min(c) for c in cols]
+        # hanches et genoux balaient plus d'un radian : ça se groupe et ça ouvre
+        moving = [sweep[j] for j in range(12) if j % 3]   # HFE et KFE
+        self.assertGreater(min(moving), 0.35)          # aucune n'est figée
+        self.assertGreater(max(moving), 1.05)          # et le groupé est franc
+        # la réception s'amortit : la caisse descend sous sa garde au poser,
+        # puis la retrouve
+        fig = stunts.WHEEL_FIGURES["wheeltumble"]
+        plant = [f["base"][2] for f in robot.frames
+                 if fig.rear + fig.over < f["t"] < fig.cycle]
+        ride = robot.height * 0.92 + gait.WHEEL_RADIUS
+        self.assertLess(min(plant), ride - 0.02)
+        self.assertAlmostEqual(plant[-1], ride, delta=0.02)
+        self.assertLess(robot.report()["peak_joint_velocity_rad_s"], DEFAULT.velocity_max)
+        self.assertEqual(robot.report()["limit_violations"], {})
 
     def test_holding_the_chained_backflip_adds_whole_turns(self):
         """Tenu, il enchaîne — et il ne coupe jamais un tour en cours."""

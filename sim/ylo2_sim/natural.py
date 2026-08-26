@@ -106,6 +106,17 @@ def level_to_body(v: Tuple[float, float, float], roll: float, pitch: float,
     )
 
 
+# Ce qu'une roue peut finir par surmonter : pas son rayon, mais ce que sa
+# patte peut la poser plus haut. Un Go2-W passe des marches bien plus hautes
+# que ses pneus parce qu'il lève la jambe. Au-delà, c'est un mur.
+WHEEL_CLIMB = 0.30
+# Dessous de caisse : au-delà, un relief ne heurte plus les roues mais le tronc
+# lui-même, et là il n'y a plus rien à négocier.
+BODY_UNDER = 0.10
+# Vitesse à laquelle l'anticipation de suspension suit la consigne.
+FF_RATE = 6.0
+
+
 def constrain(model, leg, t):
     """Ramène la cible dans l'enveloppe de la patte : au-dessus de la hanche
     ou trop loin, la cinématique inverse changerait de branche."""
@@ -171,6 +182,10 @@ class Natural:
     air: bool = False
     vz: float = 0.0
     z_body: float = 0.25
+    # consigne de suspension de l'image précédente : sert d'anticipation à
+    # l'amortisseur, qui travaille sur la vitesse relative roue / caisse
+    prev_target: Optional[float] = None
+    ff_z: float = 0.0
     air_time: float = 0.0
     last_air: float = 0.0
     wheel_warn: float = 0.0
@@ -479,6 +494,45 @@ class Natural:
         self._apply_morph(robot, dt)
 
     # --- mode roues, à la manière des Go2-W --------------------------------
+    def _wall_blocks(self, robot, nx: float, ny: float, climb: float) -> bool:
+        """Un mur arrête le robot.
+
+        Le contact de roue fait monter les roues sur ce qu'elles peuvent
+        franchir. Au-delà, plus rien ne s'y opposait : le robot entrait DANS
+        l'obstacle — la paroi verticale d'un quarter pipe, le flanc d'un
+        ledge — comme si elle n'existait pas.
+
+        La référence est la hauteur COURANTE de chaque roue et non celle du
+        sol : une roue déjà soulevée par sa patte a le droit de se poser plus
+        haut, sinon un escalier deviendrait un mur.
+        """
+        cy, sy = math.cos(robot.base[5]), math.sin(robot.base[5])
+        for leg in robot.model.legs:
+            ox, oy = leg.x, leg.y + leg.mirror * robot.model.abad_plane
+            # Référence : le SOL réel sous la roue, pas sa hauteur filtrée —
+            # la suspension traîne, et une décision de collision prise sur un
+            # retard de filtre bloquerait le robot au milieu d'une courbe
+            # lisse. Pendant un franchissement, c'est bien la roue soulevée
+            # qui compte : sinon un escalier deviendrait un mur.
+            if self.wstep.get(leg.name):
+                cur = self.wheel_z.get(leg.name)
+            else:
+                cur = robot.terrain.height_at(robot.base[0] + cy * ox - sy * oy,
+                                              robot.base[1] + sy * ox + cy * oy)
+            if cur is None:
+                cur = 0.0
+            h = robot.terrain.height_at(nx + cy * ox - sy * oy, ny + sy * ox + cy * oy)
+            if h - cur <= climb:
+                continue                     # la patte peut y poser la roue
+            # Sinon ce n'est un mur que si ça vient taper la CAISSE. Un robot
+            # qui vient de se recevoir sur ses roues avant, tronc haut, passe
+            # au-dessus du nez de la réception : sa roue arrière est en l'air,
+            # pas contre la paroi. Sans cette nuance, il se bloquait net sur le
+            # bord d'un atterrissage qu'il venait pourtant de franchir.
+            if h > robot.base[2] - BODY_UNDER:
+                return True
+        return False
+
     def step_wheels(self, robot, dt: float) -> None:
         from . import kinematics as kin
 
@@ -503,8 +557,14 @@ class Natural:
 
         robot.phase = (robot.phase + dt * 0.6) % 1.0
         robot.base[5] += self.wz * dt
-        robot.base[0] += self.vx * math.cos(robot.base[5]) * dt
-        robot.base[1] += self.vx * math.sin(robot.base[5]) * dt
+        step_x = self.vx * math.cos(robot.base[5]) * dt
+        step_y = self.vx * math.sin(robot.base[5]) * dt
+        if self._wall_blocks(robot, robot.base[0] + step_x, robot.base[1] + step_y,
+                             WHEEL_CLIMB):
+            self.vx = 0.0                    # on bute : l'élan se perd là
+        else:
+            robot.base[0] += step_x
+            robot.base[1] += step_y
 
         cy, sy = math.cos(robot.base[5]), math.sin(robot.base[5])
         rough_k = min(max(self.rough / 0.25, 0.0), 1.0)
@@ -527,13 +587,21 @@ class Natural:
             look = 0.22 if self.vx >= 0 else -0.22
             ahead_h = terrain.support(wx + cy * look, wy + sy * look, cy, sy,
                                       gaitmod.WHEEL_RADIUS)
-            rise = ahead_h - raw
-            # Seuil du lever de patte : 0,9 rayon, soit 67 mm sur les 220 mm
-            # regardés devant. En dessous la roue MONTE — c'est son métier. Le
-            # seuil précédent, 0,45 rayon, déclenchait un lever sur une pente à
-            # 9° et la patte suivait une droite pendant que le sol continuait
-            # de monter : la roue s'enfonçait de 40 mm dans le bank.
-            if (not self.wstep.get(leg.name) and abs(rise) > gaitmod.WHEEL_RADIUS * 0.9
+            # Une patte se lève pour une MARCHE, pas pour une pente : sur une
+            # pente la roue monte toute seule. Les deux se distinguent par la
+            # répartition du dénivelé — tout dans un pas pour une marche,
+            # étalé pour une pente. Le critère précédent ne regardait que la
+            # hauteur : il déclenchait un lever sur un bank de funbox et sur
+            # une transition, où la patte suivait ensuite une droite pendant
+            # que le sol continuait de monter, et la roue s'enfonçait dedans.
+            # Au-delà de ce qu'une patte peut poser la roue, ce n'est plus une
+            # marche mais un mur : on ne lève pas non plus.
+            sgn = 1.0 if look >= 0 else -1.0
+            jump, spread = terrain.jump_ahead(wx, wy, cy * sgn, sy * sgn, abs(look))
+            jump, spread = abs(jump), abs(spread)
+            if (not self.wstep.get(leg.name)
+                    and gaitmod.WHEEL_RADIUS * 0.9 < jump < WHEEL_CLIMB
+                    and jump > 0.55 * spread
                     and stepping < 2 and not self.wstep.get(partner[leg.name])
                     and abs(self.vx) < 1.5):
                 cur = self.wheel_z[leg.name]
@@ -565,8 +633,9 @@ class Natural:
                     # transition raide à 2 m/s il faut autant de course
                     # verticale. C'est elle qui absorbe le saut de relief d'une
                     # marche, que le contact de roue ignore volontairement.
-                    target = max(prev + (raw - prev) * min(1.0, dt * 8), raw)
-                    rate = (0.55 + abs(self.vx) * 1.2) * dt
+                    band = min(1.0, dt * (8 + abs(self.vx) * 10))
+                    target = max(prev + (raw - prev) * band, raw)
+                    rate = min(0.55 + abs(self.vx) * 1.2, 3.0) * dt
                     h = min(max(target, prev - rate), prev + rate)
             self.wheel_z[leg.name] = h
             heights.append((leg, h))
@@ -579,9 +648,24 @@ class Natural:
 
         ground = sum(grounded) / len(grounded) if grounded else self.z_body - height - gaitmod.WHEEL_RADIUS
         z_target = ground + height + gaitmod.WHEEL_RADIUS
+        # L'amortisseur travaille sur la vitesse RELATIVE entre la roue et la
+        # caisse, pas sur la vitesse absolue de celle-ci : c'est ce qu'il fait
+        # dans la réalité, et c'est ce qui lui permet de suivre une pente sans
+        # erreur permanente. Avec un amortissement absolu, descendre une rampe
+        # à 18° laissait la caisse une trentaine de centimètres au-dessus de
+        # sa garde en régime établi. La borne évite qu'un saut de consigne — à
+        # la sortie d'une figure — soit lu comme une vitesse.
         k, c = 60.0, 2 * math.sqrt(60.0) * 0.9
-        self.vz += (k * (z_target - self.z_body) - c * self.vz) * dt
+        raw_v = (0.0 if self.prev_target is None
+                 else min(max((z_target - self.prev_target) / max(dt, 1e-6), -4.0), 4.0))
+        # L'anticipation est FILTRÉE : une pente descendue longtemps finit par
+        # être compensée entièrement, mais un saut de consigne — une tranche de
+        # quarter pipe, la sortie d'une figure — ne devient pas une impulsion.
+        self.ff_z += (raw_v - self.ff_z) * min(1.0, dt * FF_RATE)
+        v_target = self.ff_z
+        self.vz += (k * (z_target - self.z_body) - c * (self.vz - v_target)) * dt
         self.z_body += self.vz * dt
+        self.prev_target = z_target
         robot.base[2] = self.z_body
 
         front = [h for l, h in heights if l.front > 0]

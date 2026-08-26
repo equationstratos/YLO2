@@ -251,6 +251,7 @@ class Robot:
         nat.vx = nat.vy = nat.wz = nat.ax = 0.0
         nat.direction = 1
         nat.z_body, nat.vz, nat.air = self.base[2], 0.0, False
+        nat.prev_target, nat.ff_z = None, 0.0
         for leg in self.model.legs:
             nat.plant[leg.name] = None
             nat.lift[leg.name] = None

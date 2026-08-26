@@ -60,6 +60,8 @@ class WheelFigure:
     twist: float = 0.0          # tours de lacet (540 McTwist : 1,5)
     cork: float = 0.0           # gîte pendant la vrille (rad)
     lean: float = 0.20
+    press: float = 1.18         # tumble : allongement de la patte qui pousse
+    absorb: float = 0.78        # tumble : repli de la patte qui reçoit
     sustain: bool = False       # tenue : la figure dure tant qu'on commande
     sustain_s: float = 0.0      # spin : durée de vrille tenue en plus
     rear: float = 0.30          # tumble : montée sur l'essieu arrière
@@ -123,7 +125,7 @@ WHEEL_FIGURES: Dict[str, WheelFigure] = {
     # il ne reste qu'un peu plus de 3,6 rad à faire en l'air.
     "wheeltumble": WheelFigure("wheeltumble", "Salto arrière enchaîné", "tumble",
                                rear=0.30, over=0.42, plant=0.30, recover=0.40,
-                               lift=1.30, sustain=True),
+                               lift=1.30, press=1.18, absorb=0.78, sustain=True),
     "wheeljump": WheelFigure("wheeljump", "Saut", "jump", crouch=0.30, push=0.16,
                              land=0.26, recover=0.34, vz=2.30, crouch_z=0.80, tuck=0.15),
     "wheelflip": WheelFigure("wheelflip", "Salto roues", "flip", crouch=0.34, push=0.20,
@@ -644,32 +646,60 @@ def perform_wheels(robot, fig: WheelFigure,
             # à la fois.
             # =============================================================
             th1 = fig.lift
-            h_r = ride + radius
             cyc = fig.cycle
             total = cyc * fig.cycles
             g_base = ground_ref()
 
-            def pivot_z(theta: float, a: float) -> float:
-                """Hauteur de caisse d'une bascule rigide sur l'essieu `a`."""
-                return math.sin(theta) * a + math.cos(theta) * h_r
+            def pivot_z(theta: float, a: float, ell: float) -> float:
+                """Hauteur de caisse d'une bascule rigide sur l'essieu `a`.
 
-            def tumble_legs(theta: float, contact_on) -> None:
+                C'est par `ell`, la longueur de la patte porteuse, que la
+                poussée et l'amorti entrent dans la TRAJECTOIRE : allonger la
+                patte pendant l'élan ne change pas que la pose, ça lève la
+                caisse.
+                """
+                return math.sin(theta) * a + math.cos(theta) * (ell + radius)
+
+            ell_push = ride * fig.press
+
+            def stand_q(leg, ell: float):
+                """Angles d'appui d'une patte de longueur `ell`."""
+                target = constrain(model, leg,
+                                   (leg.x, leg.y + leg.mirror * model.abad_plane, -ell))
+                return kin.inverse(leg, *target, model=model)
+
+            def towards(pose: str, k: float, ell: float):
+                """Pose de vol : des angles d'appui vers `pose`."""
+                def at(leg):
+                    a, b = stand_q(leg, ell), _pose_for(leg, pose)
+                    return [a[j] + (b[j] - a[j]) * k for j in range(3)]
+                return at
+
+            def back_from(pose: str, k: float, ell: float):
+                """Pose de vol : de `pose` vers les angles d'appui."""
+                def at(leg):
+                    a, b = _pose_for(leg, pose), stand_q(leg, ell)
+                    return [a[j] + (b[j] - a[j]) * k for j in range(3)]
+                return at
+
+            def tumble_legs(theta: float, ell: float, contact_on, air_q) -> None:
                 cp, sp = math.cos(theta), math.sin(theta)
                 cy2, sy2 = math.cos(robot.base[5]), math.sin(robot.base[5])
                 e = _smooth(min(1.0, t / 0.20))
                 for i, leg in enumerate(model.legs):
                     ny = leg.y + leg.mirror * model.abad_plane
-                    # les pattes restent à leur pose d'appui : la figure est
-                    # une rotation de la CAISSE, pas un mouvement de jambes
-                    target = constrain(model, leg, (leg.x, ny, -ride))
-                    q = kin.inverse(leg, *target, model=model)
+                    on = contact_on(leg)
+                    q = stand_q(leg, ell) if on else air_q(leg)
                     blended = [entry_q[i * 3 + j] + (q[j] - entry_q[i * 3 + j]) * e
                                for j in range(3)]
                     unwrap(robot.q, i, blended)
+                    robot.contacts[i] = on
+                    if not on:
+                        nat.fig_axle[leg.name] = None
+                        continue
+                    target = constrain(model, leg, (leg.x, ny, -ell))
                     ox = cp * target[0] + sp * target[2]
                     oz = -sp * target[0] + cp * target[2]
-                    on = contact_on(leg)
-                    robot.contacts[i] = on
                     robot.foot_world[leg.name] = [
                         robot.base[0] + cy2 * ox - sy2 * ny,
                         robot.base[1] + sy2 * ox + cy2 * ny,
@@ -677,7 +707,7 @@ def perform_wheels(robot, fig: WheelFigure,
                     # la roue porteuse roule sous la caisse : sa rotation se
                     # lit sur le déplacement réel de son point de contact
                     prev = prev_a.get(leg.name)
-                    if on and prev is not None:
+                    if prev is not None:
                         nat.spin[leg.name] = (nat.spin[leg.name]
                                               + (ox - prev[0]) / radius) % math.tau
                     prev_a[leg.name] = [ox]
@@ -691,24 +721,61 @@ def perform_wheels(robot, fig: WheelFigure,
                     # prolonge exactement celle du vol, sans cassure
                     s = u / fig.rear
                     th = -th1 * s * s
+                    ell = ride + (ell_push - ride) * _smooth(s)      # la poussée
                     robot.base[4] = th
-                    robot.base[2] = g_base + pivot_z(th, -model.leg_offset_x)
-                    tumble_legs(th, lambda leg: leg.front < 0)
+                    robot.base[2] = g_base + pivot_z(th, -model.leg_offset_x, ell)
+                    # les pattes libres se replient à mi-groupé, prêtes à serrer
+                    tumble_legs(th, ell, lambda leg: leg.front < 0,
+                                towards("tuck", _smooth(s) * 0.55, ride))
+                    takeoff_q[:] = list(robot.q)
                 elif u < fig.rear + fig.over:
                     tf = u - fig.rear
-                    th = -th1 - (math.tau - 2 * th1) * (tf / fig.over)
+                    s = tf / fig.over
+                    th = -th1 - (math.tau - 2 * th1) * s
                     robot.base[4] = th
-                    robot.base[2] = (g_base + pivot_z(-th1, -model.leg_offset_x)
+                    robot.base[2] = (g_base
+                                     + pivot_z(-th1, -model.leg_offset_x, ell_push)
                                      + G_ACC * fig.over / 2 * tf
                                      - 0.5 * G_ACC * tf * tf)
-                    tumble_legs(th, lambda leg: False)
+                    # Groupé puis ouverture — le geste de la gymnaste : on se
+                    # serre pour tourner vite, on ouvre pour aller chercher la
+                    # poutre. On repart de la pose RÉELLE du décollage, sinon
+                    # la première image de vol saute.
+                    if s < 0.42:
+                        pose_from(takeoff_q, "tuck", _smooth(s / 0.42))
+                    else:
+                        pose_mix("tuck", "reach", _smooth((s - 0.42) / 0.58))
+                    for leg in model.legs:
+                        nat.fig_axle[leg.name] = None
                 else:
                     s = (u - fig.rear - fig.over) / fig.plant
                     th = -math.tau + th1 * (1 - s) ** 2
+                    # Amorti : la patte qui reçoit se replie, puis rend la
+                    # garde. Sans ce creux, la réception se lisait comme un
+                    # poser de pièce mécanique — le poids ne se voyait pas.
+                    if s < 0.45:
+                        k = _smooth(s / 0.45)
+                        ell = ride * (fig.press + (fig.absorb - fig.press) * k)
+                    else:
+                        k = _smooth((s - 0.45) / 0.55)
+                        ell = ride * (fig.absorb + (1.0 - fig.absorb) * k)
                     robot.base[4] = th
-                    robot.base[2] = g_base + pivot_z(th, model.leg_offset_x)
-                    tumble_legs(th, (lambda leg: True) if s > 0.97
-                                else (lambda leg: leg.front > 0))
+                    robot.base[2] = g_base + pivot_z(th, model.leg_offset_x, ell)
+                    on_now = ((lambda leg: True) if s > 0.97
+                              else (lambda leg: leg.front > 0))
+                    tumble_legs(th, ell, on_now, back_from("reach", _smooth(s), ride))
+                    # la patte porteuse rejoint son appui depuis l'ouverture :
+                    # sans ce fondu, le passage vol -> sol saute de 0,25 rad
+                    catch = _smooth(min(1.0, s / 0.22))
+                    e = _smooth(min(1.0, t / 0.20))
+                    for i, leg in enumerate(model.legs):
+                        if not on_now(leg):
+                            continue
+                        a, b = _pose_for(leg, "reach"), stand_q(leg, ell)
+                        q = [a[j] + (b[j] - a[j]) * catch for j in range(3)]
+                        unwrap(robot.q, i,
+                               [entry_q[i * 3 + j] + (q[j] - entry_q[i * 3 + j]) * e
+                                for j in range(3)])
             else:
                 # La bascule se termine à sa hauteur de croisière : la
                 # reprise ne part donc pas plus bas — elle ne fait qu'amortir,
@@ -878,7 +945,7 @@ def perform_wheels(robot, fig: WheelFigure,
         robot.base[5] = yaw0 + math.tau * fig.twist
     robot.base[2] = (robot.terrain.height_at(robot.base[0], robot.base[1])
                      + ride + radius)
-    nat.z_body, nat.vz = robot.base[2], 0.0
+    nat.z_body, nat.vz, nat.prev_target, nat.ff_z = robot.base[2], 0.0, None, 0.0
     nat.blend_from(robot.q, 0.28)
     for leg in model.legs:
         nat.wheel_z[leg.name] = None
@@ -1027,6 +1094,7 @@ def perform(robot, flip: Figure = DEFAULT_FLIP,
     # la couche de marche repart d'appuis neufs, sinon les pieds sautent
     nat = robot.natural
     nat.z_body, nat.vz, nat.air = robot.base[2], 0.0, False
+    nat.prev_target, nat.ff_z = None, 0.0
     for leg in model.legs:
         nat.plant[leg.name] = None
         nat.land[leg.name] = None

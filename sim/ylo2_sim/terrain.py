@@ -90,9 +90,14 @@ def _quarter_pipe(base, radius, half_width, direction, deck=0.9, slices=24) -> L
     return out
 
 
-def _bank(x0, x1, y0, y1, h0, h1) -> List[Box]:
-    """Plan incliné en tranches : un bank, ou le flanc d'un funbox."""
-    out, n = [], 14
+def _bank(x0, x1, y0, y1, h0, h1, slices: int = 14) -> List[Box]:
+    """Plan incliné en tranches : un bank, ou le flanc d'un funbox.
+
+    Sur un grand tremplin, 14 tranches feraient des marches de 68 mm — à la
+    limite de ce qu'une roue de 75 mm franchit. On en met assez pour que la
+    pente reste une pente.
+    """
+    out, n = [], slices
     for i in range(n):
         a = x0 + (x1 - x0) * i / n
         b = x0 + (x1 - x0) * (i + 1) / n
@@ -137,12 +142,48 @@ def _big_ramp() -> List[Box]:
     return out
 
 
+def _mega_ramp() -> List[Box]:
+    """Grande rampe de skate : roll-in, tremplin, gap, réception, transition.
+
+    On part de haut, on convertit la hauteur en vitesse, on saute un gap, on
+    se reçoit sur une pente qui rend la chute supportable, et on finit dans
+    une grande transition. Rien ici ne se « franchit » — tout se roule, et
+    c'est la gravité qui fournit le travail.
+
+    Les cotes sont à l'échelle du robot mais volontairement grandes : 2,60 m
+    de roll-in pour un robot de 0,44 m de patte, c'est six fois sa jambe. La
+    descente rend environ 6,6 m/s en bas.
+    """
+    out: List[Box] = []
+    width = 3.00
+    # Le roll-in est une pente DROITE de 18°, pas un quarter pipe. C'est la
+    # forme des vraies grandes rampes, et ce n'est pas un détail : sur une
+    # transition, le haut est vertical, le robot quitte le coping en chute
+    # libre et perd dans l'impact la moitié de la hauteur gagnée. Sur une
+    # pente droite, les roues ne quittent jamais le sol et les 2,60 m se
+    # convertissent presque entièrement en vitesse — 6,6 m/s en bas.
+    out.append(Box(-17.00, -15.00, -width, width, 2.60))             # plateforme
+    out += _bank(-15.00, -7.00, -width, width, 2.60, 0.0, slices=80)  # roll-in
+    out += _bank(0.00, 2.20, -1.30, 1.30, 0.0, 0.70, slices=40)      # tremplin, 18°
+    # Entre les deux : 1,00 m de gap. Puis une pente descendante, qui absorbe
+    # la chute au lieu de la prendre à plat. Elle est longue et douce à
+    # dessein : on s'y reçoit du saut le plus court comme du plus long. Sa
+    # face, elle, fait 400 mm : rater le gap, ça reste rater le gap.
+    out += _bank(3.20, 6.60, -1.70, 1.70, 0.40, 0.0, slices=40)      # réception
+    out += _quarter_pipe(13.00, 2.60, width, +1, 2.20, slices=72)    # transition
+    return out
+
+
 @dataclass
 class Terrain:
     name: str = "Sol plat"
     key: str = "plat"
     max_step: float = 0.0
     boxes: List[Box] = field(default_factory=list)
+    # Où poser le robot. L'origine convient partout, sauf sur la mega ramp :
+    # le départ est en haut du roll-in, et une transition de 2,60 m ne se
+    # remonte pas — un robot posé en bas n'aurait aucun moyen d'y accéder.
+    start: Tuple[float, float, float] = (0.0, 0.0, 0.0)
 
     def height_at(self, x: float, y: float) -> float:
         h = 0.0
@@ -182,6 +223,28 @@ class Terrain:
                     best = h + lift
         return best
 
+    def jump_ahead(self, x: float, y: float, cx: float, cy: float,
+                   dist: float) -> Tuple[float, float]:
+        """Le plus gros SAUT local du relief devant, et le dénivelé total.
+
+        Une roue ne se fait pas porter par sa patte pour monter une PENTE —
+        elle y roule, c'est son métier. Elle en a besoin pour une MARCHE. Les
+        deux se distinguent non pas par leur hauteur mais par la façon dont
+        elle est répartie : sur une marche, tout le dénivelé tient dans un
+        pas ; sur une pente, il est étalé. On rend les deux, l'appelant
+        compare.
+        """
+        here = self.height_at(x, y)
+        prev, jump = here, 0.0
+        n = max(2, round(dist / 0.05))
+        for i in range(1, n + 1):
+            d = dist * i / n
+            h = self.height_at(x + cx * d, y + cy * d)
+            if abs(h - prev) > abs(jump):
+                jump = h - prev
+            prev = h
+        return jump, prev - here
+
     def max_height_along(self, x0, y0, x1, y1, samples: int = 8) -> float:
         return max(self.height_at(x0 + (x1 - x0) * i / samples, y0 + (y1 - y0) * i / samples)
                    for i in range(samples + 1))
@@ -205,6 +268,8 @@ PRESETS: Dict[str, Terrain] = {
     "gravats": Terrain("Gravats", "gravats", 0.09, _rubble(1.0, 5.0, 1.0, 0.28, 0.09)),
     "skatepark": Terrain("Skatepark", "skatepark", 0.18, _skatepark()),
     "bigramp": Terrain("Big ramp", "bigramp", 0.30, _big_ramp()),
+    "megaramp": Terrain("Mega ramp", "megaramp", 0.40, _mega_ramp(),
+                        start=(-16.0, 0.0, 0.0)),
     "poutres": Terrain("Poutres", "poutres", 0.14,
                        [Box(1.4 + i * 0.7, 1.4 + i * 0.7 + 0.25, -1.2, 1.2, 0.14) for i in range(5)]),
 }

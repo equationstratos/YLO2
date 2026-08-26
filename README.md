@@ -138,6 +138,7 @@ géométrie sont la même chose, il n'y a pas de collision approchée.
 | Gravats | blocs jusqu'à 90 mm | appuis à des hauteurs différentes |
 | **Skatepark** | mini-plaza : kicker, funbox, ledge, deux quarter pipes | reliefs enchaînés, en pattes comme en roues |
 | **Big ramp** | mini-ramp : deux transitions de 1,20 m face à face | un objet qu'on **roule** au lieu de le franchir |
+| **Mega ramp** | roll-in de 2,60 m, tremplin, gap, réception, transition de 2,60 m | un run complet, de la vitesse jusqu'au saut |
 | Poutres | traverses de 140 mm | enjambement |
 
 ### Le skatepark
@@ -220,6 +221,75 @@ Ces deux mécaniques sont réservées au mode PLAY. La session AUTO et le
 simulateur Python doivent rendre la même trace à chaque exécution : une gravité
 qui s'ajoute à la consigne les rendrait dépendants de la moindre pente.
 
+### La mega ramp : un run entier
+
+La big ramp est un objet ; la mega ramp est un **parcours**. On part de haut,
+on convertit la hauteur en vitesse, on saute un gap, on se reçoit sur une pente
+qui rend la chute supportable, et on finit dans une grande transition. Le robot
+démarre en haut du roll-in — une transition de 2,60 m ne se remonte pas, un
+robot posé en bas n'y aurait aucun accès — et le bouton **Réinitialiser** l'y
+remet.
+
+| Élément | Cote | Position |
+| --- | --- | --- |
+| Plateforme de départ | 2,60 m | x −17,0 → −15,0 |
+| Roll-in | pente **droite** à 18°, 80 tranches | x −15,0 → −7,0 |
+| Tremplin | 700 mm sur 2,20 m, soit 18° | x 0 → 2,20 |
+| Gap | 1,00 m de vide | x 2,20 → 3,20 |
+| Réception | pente descendante de 400 mm sur 3,40 m | x 3,20 → 6,60 |
+| Transition finale | quart de cercle de 2,60 m + plateforme | x 13,0 → 15,6 |
+
+**Le roll-in est une pente droite, pas un quarter pipe**, et ce n'est pas un
+détail de forme. Sur une transition, le haut est vertical : le robot quitte le
+coping en chute libre, et à l'impact il ne récupère que la composante de sa
+vitesse le long de la surface — la moitié de la hauteur part en chaleur. Sur
+une pente droite, les roues ne quittent jamais le sol. Mesuré : **5,88 m/s** en
+bas, contre 6,6 m/s en théorie parfaite et 4,8 avec un roll-in en transition.
+
+Un run complet, gaz à 1,2 m/s seulement (le reste, c'est la pente) :
+
+| | |
+| --- | --- |
+| Bas du roll-in | 5,88 m/s |
+| Arrivée au tremplin | 5,10 m/s |
+| Décollage | x 2,03 · point haut **1,17 m** |
+| Réception | sur la pente, **3,6 m/s conservés** |
+| Transition finale | remontée à 1 m, retour en fakie |
+
+Trois mécaniques ont dû être ajoutées pour que ça tienne debout.
+
+**Le tremplin lance vraiment.** Au décollage, la vitesse verticale n'est pas
+nulle : elle vaut celle que la pente donnait à la caisse juste avant la lèvre,
+v·tan(pente). Sans ce terme, le robot quittait le tremplin à plat et tombait
+dans le gap.
+
+**La réception redirige au lieu d'encaisser.** Une transition conserve la
+composante de la vitesse le long de la surface — c'est pour ça qu'un drop-in
+rend de la vitesse. La pente de réception se lit sur le **sol** et non sur les
+hauteurs de roue : au moment de toucher, une roue arrière peut encore survoler
+le gap, sa hauteur filtrée vaut zéro, et l'assiette calculée sur les roues
+donnait 46° de nez en l'air là où la pente réelle en fait 7. La réception
+mangeait alors toute la vitesse du saut — 3,7 m/s à l'entrée, 0,4 à la sortie.
+
+**En vol, les roues pendent.** Elles ne vont pas chercher un sol qui peut être
+un mètre plus bas. Sans ça, la patte partait en butée d'allonge pendant tout le
+saut et devait tout rattraper en une image au poser : 180 rad/s.
+
+Et un défaut de suspension est apparu au passage : **l'amortisseur travaillait
+sur la vitesse absolue de la caisse** et non sur la vitesse relative entre la
+roue et elle. C'est un système du second ordre suivant une rampe : il garde une
+erreur permanente. En descendant le roll-in, la caisse restait une trentaine de
+centimètres au-dessus de sa garde, assez pour que le robot **se croie en l'air
+pendant toute la descente** — et n'y gagne donc aucune vitesse. L'anticipation
+est filtrée à 6 s⁻¹ : une pente descendue longtemps finit compensée, un saut de
+consigne ne devient pas une impulsion.
+
+Le run entier coûte **26 rad/s** au pire, au décollage du tremplin. C'est
+au-dessus des 20 rad/s de l'URDF, et la page le dit : à plus de 3 m/s en roue
+libre, le bandeau d'avertissement signale que le mouvement est montré et non
+certifié. Une grande rampe rend bien plus de vitesse que les moteurs n'en
+donnent — c'est tout l'intérêt, et c'est aussi la limite.
+
 ### Une roue n'est pas un point
 
 « Des fois ça passe à travers. » C'était exact, et il y avait trois causes
@@ -240,11 +310,25 @@ c'est la suspension qui se détend. Et sa borne de vitesse suit l'allure : sur
 une transition raide à 2 m/s il faut autant de course verticale, là où un
 plafond fixe à 0,55 m/s ne suivait pas.
 
-**Le lever de patte se déclenchait sur une pente.** Le seuil valait 0,45 rayon
-sur les 220 mm regardés devant, soit une pente de 9° : un bank de funbox le
-franchissait. La patte suivait alors une droite pendant que le sol, lui,
-continuait de monter — la roue s'enfonçait de 40 mm dans le bank. Le seuil est
-passé à 0,9 rayon (17°) : en dessous, la roue **monte**, c'est son métier.
+**Le lever de patte se déclenchait sur une pente.** Le seuil ne regardait que
+la hauteur du relief devant : un bank de funbox le franchissait, la patte
+suivait alors une droite pendant que le sol continuait de monter, et la roue
+s'enfonçait de 40 mm dedans. Une patte se lève pour une **marche**, pas pour
+une pente — sur une pente la roue monte toute seule, c'est son métier. Les deux
+se distinguent non par leur hauteur mais par la **répartition** du dénivelé :
+sur une marche tout tient dans un pas, sur une pente c'est étalé. On mesure
+maintenant le plus gros saut local devant, et on ne lève que s'il fait plus de
+la moitié du dénivelé total. Au-delà de ce qu'une patte peut poser la roue
+(300 mm), ce n'est plus une marche mais un mur : on ne lève pas non plus.
+
+**Et rien n'arrêtait le robot devant un mur.** Le contact de roue le faisait
+monter sur ce qu'il pouvait franchir ; au-delà, plus rien ne s'opposait à ce
+qu'il entre DANS l'obstacle — la paroi verticale d'un quarter pipe, le flanc
+d'un ledge, le nez d'une réception. L'avance est maintenant testée avant d'être
+faite. La règle a deux temps : si la patte peut y poser la roue, on passe ;
+sinon, c'est un mur **seulement si ça vient taper la caisse**. Cette nuance
+compte — un robot qui vient de se recevoir sur ses roues avant, tronc haut,
+passe au-dessus du nez de la réception qu'il vient pourtant de franchir.
 
 Mesuré à 2 m/s, enfoncement maximal sous les quatre roues :
 
@@ -252,7 +336,14 @@ Mesuré à 2 m/s, enfoncement maximal sous les quatre roues :
 | --- | --- | --- |
 | Big ramp | *le robot passait par-dessus la transition* | 0 mm, il s'engage dans la courbe |
 | Skatepark | 51 mm | 0 mm |
+| Mur de réception, mega ramp | *traversé* | arrêt à 4 cm de la paroi |
 | Escalier | inchangé (la patte porte la roue par-dessus la marche) | — |
+
+Reste un cas non traité, et il vaut mieux le dire : sur un escalier, quand les
+quatre roues arrivent au nez de la même marche, la règle qui limite les levers
+simultanés à deux en refuse un, et cette roue-là franchit la marche sans que sa
+patte la porte. C'est un problème d'ordonnancement des appuis, pas de modèle de
+contact.
 
 ## Locomotion
 
@@ -392,7 +483,7 @@ l'ordre où ils s'affichent.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Durée | 2,95 s | 3,35 s | 1,77 s | 1,42 s par tour | 1,53 s | 1,82 s | 2,26 s | 1,96 s |
 | Ce qui se passe | châssis dressé à **83°**, sur les deux roues arrière | couché à **80°** sur les deux roues du côté droit | 540° sur place, caisse inclinée à 11° | tour complet **sans quitter le sol plus de 0,42 s**, roues posées deux par deux | vol de 0,47 s, apex +0,27 m | tour complet, vol 0,60 s, apex +0,44 m | deux tours, vol 0,86 s, apex +0,90 m | un tour de tangage **et** 540° de vrille, gîte de 26°, vol 0,68 s |
-| Pic articulaire | 5,2 rad/s | 3,6 rad/s | 14,1 rad/s | 2,2 rad/s | 11,0 rad/s | 7,9 rad/s | 7,6 rad/s | 8,0 rad/s |
+| Pic articulaire | 5,2 rad/s | 3,6 rad/s | 14,1 rad/s | 11,6 rad/s | 11,0 rad/s | 7,9 rad/s | 7,6 rad/s | 8,0 rad/s |
 
 **Les deux tenues se maintiennent jusqu'au prochain appui sur le bouton.** Le
 chrono de la figure ne s'écoule pas pendant la tenue : le robot reste dressé
@@ -583,7 +674,7 @@ mentir sur ce que fait la manette.
 | △ | `H` | Hauteur de caisse : 200, 250, 300 mm |
 | □ | `C` | Cabrage — on roule, on tourne, on change de hauteur pendant la tenue |
 | ○ | `V` | Sur deux roues — idem |
-| R2 | `↑` | Accélérer (analogique, 0 à 2,2 m/s) |
+| R2 | `↑` | Accélérer (analogique, 0 à 2,2 m/s) — en roue libre la pente fait le reste |
 | L2 | `↓` | Freiner, **puis marche arrière** une fois arrêté (jusqu'à 1,4 m/s) |
 | L1 | `A` | Double salto arrière |
 | R1 | `E` | 540 McTwist |
@@ -681,10 +772,25 @@ garde la commande :
 
 Un tour dure **1,02 s**, les quatre roues ne sont jamais en l'air plus de
 0,42 s, et le diagramme d'appui montre bien deux roues à la fois : arrière,
-rien, avant. Relevé : **2,2 rad/s** au pire, aucune butée — la figure la moins
-coûteuse du catalogue, et de loin. C'est bas parce que
-la figure est une rotation de la **caisse** et non un mouvement de jambes — les
-pattes gardent leur pose d'appui du début à la fin.
+rien, avant.
+
+**Les pattes accompagnent.** La première version gardait les quatre jambes
+figées dans le repère de la caisse : le tour se lisait comme un bloc qui
+bascule, pas comme un corps qui se retourne. Une gymnaste sur une poutre ne
+fait pas ça — elle **pousse** sur ses appuis pour se lancer, se **groupe** en
+l'air pour tourner vite, **ouvre** pour aller chercher la poutre, puis
+**amortit**. Chacun de ces quatre gestes est maintenant là :
+
+| Temps | Ce que font les pattes |
+| --- | --- |
+| Élan | la patte porteuse s'allonge de **18 %** — et ce n'est pas qu'une pose : ça lève réellement la caisse plus haut, donc ça monte le vol |
+| Vol, premier tiers | groupé serré, qui accélère la rotation |
+| Vol, deux tiers restants | ouverture vers la pose tendue, jambes vers le sol avant même de le toucher |
+| Poser | repli à **78 %** puis retour à la garde : la réception est absorbée, pas encaissée |
+
+Le prix : **11,6 rad/s** au pire, à la réception — contre 2,2 quand les jambes
+ne bougeaient pas. C'est exactement ce qu'on achète, et ça reste largement dans
+l'enveloppe. Les deux moteurs donnent le même chiffre à un dixième près.
 
 Relâchée, la commande ne coupe jamais un tour en cours : elle laisse finir, puis
 repose. Côté Python, `figure("wheeltumble", hold_seconds=2.2)` compte donc des

@@ -15,6 +15,13 @@
   const K = Y.K;
   const G_ACC = 9.81;
   const WHEEL_R = 0.075;                 // rayon de roue (Go2-W : pneus 7")
+  /* Ce qu'une roue peut finir par surmonter : pas son rayon, mais ce que sa
+     patte peut la poser plus haut. Un Go2-W passe des marches bien plus
+     hautes que ses pneus parce qu'il lève la jambe. Au-delà, c'est un mur. */
+  const WHEEL_CLIMB = 0.30;
+  /* Dessous de caisse : au-delà, un relief ne heurte plus les roues mais le
+     tronc lui-même, et là il n'y a plus rien à négocier. */
+  const BODY_UNDER = 0.10;
 
   function clamp(v, a, b) { return Math.min(Math.max(v, a), b); }
   function smooth(s) { return s * s * (3 - 2 * s); }
@@ -65,7 +72,7 @@
     // Mode libre : la gravité agit le long de la pente et le sol peut se
     // dérober sous les roues. Réservé au pilotage — la session AUTO et le
     // simulateur Python doivent rester reproductibles au millimètre.
-    freeRoll: false, wheelAir: false, brake: false,
+    freeRoll: false, wheelAir: false, brake: false, prevTarget: null, ffz: 0,
     // sens de marche des roues : un 540 se reçoit en fakie, roues en arrière
     dir: 1
   };
@@ -98,6 +105,44 @@
   function supportAt(x, y, cx, cy) {
     return Y.Terrain && Y.Terrain.support
       ? Y.Terrain.support(x, y, cx, cy, WHEEL_R) : terrainAt(x, y);
+  }
+
+  /**
+   * Un mur arrête le robot.
+   *
+   * Le contact de roue fait monter les roues sur ce qu'elles peuvent
+   * franchir. Au-delà, plus rien ne s'y opposait : le robot entrait DANS
+   * l'obstacle — la paroi verticale d'un quarter pipe, le flanc d'un ledge —
+   * comme si elle n'existait pas, et on le voyait passer au travers.
+   *
+   * On teste donc l'avance AVANT de la faire. La référence est la hauteur
+   * courante de chaque roue et non celle du sol : une roue déjà soulevée par
+   * sa patte a le droit de se poser plus haut, sinon un escalier deviendrait
+   * un mur.
+   */
+  function wallBlocks(state, nx, ny, climb) {
+    const cy = Math.cos(state.yaw), sy = Math.sin(state.yaw);
+    for (let i = 0; i < Y.LEGS.length; i++) {
+      const L = Y.LEGS[i];
+      const ox = L.x, oy = L.y + L.m * K.abadPlane;
+      /* Référence : le SOL réel sous la roue, pas sa hauteur filtrée — la
+         suspension traîne, et une décision de collision prise sur un retard
+         de filtre bloquerait le robot au milieu d'une courbe lisse. Pendant
+         un franchissement, en revanche, c'est bien la roue soulevée qui
+         compte : sinon un escalier deviendrait un mur. */
+      const st0 = nat.wstep[L.id];
+      const ref = st0 ? nat.wheelZ[L.id]
+        : terrainAt(state.px + cy * ox - sy * oy, state.py + sy * ox + cy * oy);
+      const h = terrainAt(nx + cy * ox - sy * oy, ny + sy * ox + cy * oy);
+      if (h - ref <= climb) continue;              // la patte peut y poser la roue
+      // Sinon ce n'est un mur que si ça vient taper la CAISSE. Un robot qui
+      // vient de se recevoir sur ses roues avant, tronc haut, passe au-dessus
+      // du nez de la réception : sa roue arrière est en l'air, pas contre la
+      // paroi. Sans cette nuance, il se bloquait net sur le bord d'un
+      // atterrissage qu'il venait pourtant de franchir.
+      if (h > state.z - BODY_UNDER) return true;
+    }
+    return false;
   }
 
   /**
@@ -480,7 +525,10 @@
       else if ((cmdVx > 0 && nat.vx < cmdVx) || (cmdVx < 0 && nat.vx > cmdVx)) {
         nat.vx = approach(nat.vx, cmdVx, 2.4, dt);
       }
-      nat.vx = clamp(nat.vx, -Y.SPEED.wheelMax * 1.6, Y.SPEED.wheelMax * 1.6);
+      /* En roue libre, ce n'est plus le moteur qui fait la vitesse mais la
+         hauteur d'où l'on part : une descente de 2,60 m en rend 7. Le plafond
+         n'est plus là que pour empêcher un emballement numérique. */
+      nat.vx = clamp(nat.vx, -8, 8);
     } else {
       // freinage plus vif que l'accélération : les roues mordent
       const braking = Math.abs(cmdVx) < Math.abs(nat.vx) * 0.98;
@@ -494,8 +542,15 @@
     state.gait = "roues";
     state.phase = (state.phase + dt * 0.6) % 1;
     state.yaw += nat.wz * dt;
-    state.px += nat.vx * Math.cos(state.yaw) * dt;
-    state.py += nat.vx * Math.sin(state.yaw) * dt;
+    // En l'air, il n'y a pas de mur à heurter : la caisse passe au-dessus.
+    const stepX = nat.vx * Math.cos(state.yaw) * dt;
+    const stepY = nat.vx * Math.sin(state.yaw) * dt;
+    if (!nat.wheelAir && wallBlocks(state, state.px + stepX, state.py + stepY, WHEEL_CLIMB)) {
+      nat.vx = 0;                                  // on bute : l'élan se perd là
+    } else {
+      state.px += stepX;
+      state.py += stepY;
+    }
 
     const cy = Math.cos(state.yaw), sy = Math.sin(state.yaw);
     // sur relief, la caisse se redresse pour laisser du débattement
@@ -519,14 +574,21 @@
       // 130 mm, la patte la soulève par-dessus — c'est ce que fait un Go2-W
       const look = 0.22 * (nat.vx >= 0 ? 1 : -1);
       const aheadH = supportAt(wx + cy * look, wy + sy * look, cy, sy);
-      const rise = aheadH - raw;
       const partner = { lf: "rh", rh: "lf", rf: "lh", lh: "rf" }[L.id];
-      // Seuil du lever de patte : 0,9 rayon, soit 67 mm sur les 220 mm
-      // regardés devant. En dessous, la roue MONTE — c'est son métier. Le
-      // seuil précédent, 0,45 rayon, déclenchait un lever sur une pente à 9°,
-      // et la patte suivait alors une droite pendant que le sol, lui,
-      // continuait de monter : la roue s'enfonçait de 40 mm dans le bank.
-      if (!nat.wstep[L.id] && Math.abs(rise) > WHEEL_R * 0.9 &&
+      /* Une patte se lève pour une MARCHE, pas pour une pente : sur une pente
+         la roue monte toute seule. Les deux se distinguent par la répartition
+         du dénivelé — tout dans un pas pour une marche, étalé pour une pente.
+         Le critère précédent ne regardait que la hauteur : il déclenchait un
+         lever sur un bank de funbox et sur une transition, où la patte suivait
+         ensuite une droite pendant que le sol continuait de monter, et la roue
+         s'enfonçait dedans. Au-delà de ce qu'une patte peut poser la roue, ce
+         n'est plus une marche mais un mur : on ne lève pas non plus. */
+      const ja = Y.Terrain && Y.Terrain.jumpAhead
+        ? Y.Terrain.jumpAhead(wx, wy, cy * Math.sign(look), sy * Math.sign(look), Math.abs(look))
+        : [aheadH - raw, aheadH - raw];
+      const jump = Math.abs(ja[0]), spread = Math.abs(ja[1]);
+      if (!nat.wstep[L.id] && jump > WHEEL_R * 0.9 && jump < WHEEL_CLIMB &&
+          jump > 0.55 * spread &&
           stepping < 2 && !nat.wstep[partner] && speedNow < 1.5) {
         const cur = nat.wheelZ[L.id];
         nat.wstep[L.id] = { t: 0, dur: 0.34,
@@ -536,7 +598,27 @@
 
       let h, contact = true;
       const st = nat.wstep[L.id];
-      if (st) {
+      if (nat.wheelAir) {
+        /* En vol, les roues PENDENT sous la caisse : elles ne vont pas
+           chercher un sol qui peut être un mètre plus bas. Sans ça, la patte
+           partait en butée d'allonge pendant tout le saut et devait tout
+           rattraper en une image au poser — 70 rad/s sur la réception d'un
+           gap. Jamais sous le sol pour autant : c'est ce contact-là qui
+           déclenche la réception. */
+        const prevA0 = nat.wheelZ[L.id];
+        const hang = nat.zBody - (height + WHEEL_R);
+        /* 1,0 m/s de débattement : les figures s'en accordent 1,6, mais elles
+           le font jambes tendues. Ici la patte se replie, et près du repli le
+           même déplacement d'essieu coûte beaucoup plus d'angle — à 1,6 m/s,
+           quitter un tremplin coûtait 26 rad/s. */
+        const rate0 = 1.0 * dt;
+        // la patte se replie à sa vitesse, elle ne se téléporte pas : passer
+        // d'un coup de la pose de sol à la pose pendante coûtait 180 rad/s
+        h = (prevA0 === null || prevA0 === undefined) ? hang
+          : clamp(hang, prevA0 - rate0, prevA0 + rate0);
+        h = Math.max(h, raw);
+        contact = false;
+      } else if (st) {
         st.t += dt;
         const s = clamp(st.t / st.dur, 0, 1);
         const top = Math.max(st.from, st.to);
@@ -562,8 +644,14 @@
              course verticale, là où un plafond fixe à 0,55 m/s ne suivait
              pas. C'est elle qui absorbe le saut de relief d'une marche, que
              le contact de roue ignore volontairement. */
-          const target = Math.max(lerp(prevH, raw, Math.min(1, dt * 8)), raw);
-          const maxRate = (0.55 + Math.abs(nat.vx) * 1.2) * dt;
+          /* La bande passante du filtre suit l'allure, comme sa borne de
+             vitesse. À 4 m/s sur une pente à 18°, un filtre à 8 s⁻¹ retardait
+             la hauteur de roue de 16 cm en régime établi — la caisse suivait
+             ce retard et le robot se croyait en l'air pendant toute la
+             descente. */
+          const band = Math.min(1, dt * (8 + Math.abs(nat.vx) * 10));
+          const target = Math.max(lerp(prevH, raw, band), raw);
+          const maxRate = Math.min(0.55 + Math.abs(nat.vx) * 1.2, 3.0) * dt;
           h = clamp(target, prevH - maxRate, prevH + maxRate);
         }
       }
@@ -578,6 +666,12 @@
       nat.spin[L.id] = (nat.spin[L.id] + vWheel / WHEEL_R * dt) % (Math.PI * 2);
     });
 
+    /* L'assiette de la pente est calculée AVANT l'envol : c'est elle qui dit
+       avec quelle vitesse verticale on quitte une lèvre. La lire après aurait
+       donné un décollage à plat depuis un tremplin. */
+    const slopePitch = Math.atan2(rear - front, 2 * K.legX);
+    const slopeRoll = Math.atan2(left - right, 2 * K.legY);
+
     // suspension : la caisse suit le sol filtré des roues au contact
     groundZ = grounded ? groundZ / grounded : nat.zBody - height - WHEEL_R;
     nat.zTarget = groundZ + height + WHEEL_R;
@@ -591,33 +685,75 @@
       nat.vz -= G_ACC * dt;
       nat.zBody += nat.vz * dt;
       if (nat.zBody <= restZ) {
-        // Réception : on rend la main au ressort SANS annuler la vitesse de
-        // chute. C'est lui qui l'absorbe, et la caisse s'écrase de quelques
-        // centimètres avant de remonter — une réception franche se voit.
-        // Le plafond garde l'écrasement dans le débattement des pattes.
+        /* Réception. Une transition ne reçoit pas une chute, elle la
+           REDIRIGE : la composante de la vitesse le long de la surface est
+           conservée, et c'est pour ça qu'un drop-in de 2,60 m rend de la
+           vitesse au lieu de la dissiper. Sans ce report, le robot tombait du
+           coping et arrivait en bas à l'arrêt — toute la hauteur perdue.
+
+           Le reste part dans le ressort, qui écrase la caisse de quelques
+           centimètres avant de la rendre : une réception franche se voit. */
         nat.wheelAir = false;
-        nat.vz = Math.max(nat.vz, -2.5);
+        /* La pente de réception se lit sur le SOL, pas sur les hauteurs de
+           roue. Au moment de toucher, une roue arrière peut encore survoler
+           le gap : sa hauteur filtrée vaut zéro, et l'assiette calculée sur
+           les roues donnait 46° de nez en l'air là où la pente réelle en fait
+           7. La réception mangeait alors toute la vitesse du saut. */
+        const dS = K.legX;
+        const land = clamp(Math.atan2(
+          terrainAt(state.px - cy * dS, state.py - sy * dS) -
+          terrainAt(state.px + cy * dS, state.py + sy * dS), 2 * dS), -0.7, 0.7);
+        const along = nat.vx * Math.cos(land) - nat.vz * Math.sin(land);
+        // jamais plus que ce que la vitesse d'arrivée contenait
+        const budget = Math.hypot(nat.vx, nat.vz);
+        nat.vx = clamp(clamp(along, -budget, budget) * 0.92, -8, 8);
+        nat.vz = Math.max(nat.vz * 0.25, -2.5);
       }
     } else {
+      /* Suspension. L'amortisseur travaille sur la vitesse RELATIVE entre la
+         roue et la caisse, pas sur la vitesse absolue de celle-ci : c'est ce
+         qu'il fait dans la réalité, et c'est ce qui lui permet de suivre une
+         pente sans erreur permanente. Avec un amortissement absolu, descendre
+         une rampe à 18° laissait la caisse une trentaine de centimètres
+         au-dessus de sa garde en régime établi — assez pour que le robot se
+         croie en l'air pendant toute la descente, et donc pour qu'il n'y
+         gagne aucune vitesse. */
       const k = 60, c = 2 * Math.sqrt(k) * 0.9;
-      nat.vz += (k * (nat.zTarget - nat.zBody) - c * nat.vz) * dt;
+      /* L'anticipation est FILTRÉE : une pente descendue longtemps finit par
+         être compensée entièrement, mais un saut de consigne — une tranche de
+         quarter pipe, la sortie d'une figure — ne devient pas une impulsion.
+         Sans ce filtre, la reprise après une figure coûtait 30 rad/s. */
+      const rawV = nat.prevTarget === null ? 0
+        : clamp((nat.zTarget - nat.prevTarget) / dt, -4, 4);
+      nat.ffz += (rawV - nat.ffz) * Math.min(1, dt * 6);
+      const vTarget = nat.ffz;
+      nat.vz += (k * (nat.zTarget - nat.zBody) - c * (nat.vz - vTarget)) * dt;
       nat.zBody += nat.vz * dt;
-      if (nat.freeRoll && nat.zBody - restZ > 0.035) {
+      /* Envol : la caisse est plus haute que ce que les pattes peuvent
+         rattraper. 100 mm au-dessus de la garde, c'est la moitié du
+         débattement restant — en dessous, la suspension travaille encore et
+         les roues touchent toujours. Un seuil serré faisait clignoter l'état
+         à chaque bosse, et chaque fausse réception rendait de la vitesse. */
+      if (nat.freeRoll && nat.zBody - restZ > 0.10) {
+        /* Décollage. La vitesse verticale n'est pas nulle : elle vaut celle
+           que la pente donnait à la caisse juste avant la lèvre, v·tan(pente).
+           Sans ce terme, un tremplin ne lançait rien — le robot quittait le
+           tremplin à plat et tombait. C'est lui qui fait qu'on saute un gap. */
         nat.wheelAir = true;
-        nat.vz = Math.max(nat.vz, 0);
+        const ramp = clamp(-slopePitch, 0, 1.15);
+        nat.vz = Math.max(nat.vz, Math.abs(nat.vx) * Math.tan(ramp));
       }
     }
+    nat.prevTarget = nat.zTarget;
     state.z = nat.zBody;
 
-    const slopePitch = Math.atan2(rear - front, 2 * K.legX);
-    const slopeRoll = Math.atan2(left - right, 2 * K.legY);
     /* Gravité le long de la pente : à la montée elle reprend l'élan, à la
        descente elle le rend. C'est tout le principe d'un run de skate — une
        mini-ramp ne se franchit pas, elle se pompe. Le second terme est le
        frottement de roulement, sans lequel le va-et-vient serait perpétuel. */
     if (nat.freeRoll && !nat.wheelAir) {
       nat.vx += G_ACC * Math.sin(slopePitch) * 0.85 * dt;
-      nat.vx -= nat.vx * 0.22 * dt;
+      nat.vx -= nat.vx * 0.12 * dt;
     }
     const bankIdeal = Math.atan2(nat.vx * nat.wz, G_ACC);
     // plongée au freinage, cabrage à l'accélération : c'est ce qui donne le poids
@@ -744,7 +880,8 @@
        figure du salto roues, où tout le tour se fait pendant le vol. */
     wheeltumble: {
       label: "Salto arrière enchaîné", mode: "roues", kind: "tumble", sustain: true,
-      rear: 0.30, over: 0.42, plant: 0.30, recover: 0.40, lift: 1.30, turns: 1
+      rear: 0.30, over: 0.42, plant: 0.30, recover: 0.40, lift: 1.30, turns: 1,
+      press: 1.18, absorb: 0.78
     },
     wheeljump: {
       label: "Saut", mode: "roues", kind: "jump",
@@ -1350,9 +1487,24 @@
 
          À aucun moment les quatre roues ne sont en l'air plus de 0,42 s, et
          le diagramme d'appui montre bien deux roues à la fois.
+
+         LES PATTES ACCOMPAGNENT. La première version gardait les quatre
+         jambes figées dans le repère de la caisse : le tour se lisait comme
+         un bloc qui bascule, pas comme un corps qui se retourne. Une
+         gymnaste sur une poutre ne fait pas ça — elle POUSSE sur ses appuis
+         pour se lancer, se GROUPE en l'air pour tourner vite, OUVRE pour
+         aller chercher la poutre du regard et de la main, puis AMORTIT.
+         Chacun de ces quatre gestes est ici :
+
+           · la patte porteuse s'allonge de 18 % pendant l'élan — c'est la
+             poussée, et elle lève réellement la caisse plus haut ;
+           · le groupé serré au premier tiers du vol ;
+           · l'ouverture vers `reach` sur les deux tiers suivants, qui tend
+             les jambes vers le sol avant même de le toucher ;
+           · le repli à 78 % au poser, puis le retour à la garde : la
+             réception est absorbée, pas encaissée.
          ================================================================= */
       const th1 = f.lift, cyc = f.cycle;
-      const hR = ride + WHEEL_R;                    // caisse au-dessus du contact
       run.tumbleT += dt;
       // le sol suit le relief sous le robot, filtré comme ailleurs
       const here = terrainAt(state.px, state.py);
@@ -1360,47 +1512,78 @@
       run.groundRef = lerp(run.groundRef, here, Math.min(1, dt * 8));
       base = run.groundRef;
 
-      /** Hauteur de caisse d'une bascule rigide sur l'essieu `a` (repère caisse). */
-      const pivotZ = function (theta, a) {
-        return Math.sin(theta) * a + Math.cos(theta) * hR;
+      /**
+       * Hauteur de caisse d'une bascule rigide sur l'essieu `a`, pour une
+       * patte porteuse de longueur `ell`. C'est par `ell` que la poussée et
+       * l'amorti entrent dans la trajectoire : allonger la patte pendant
+       * l'élan ne fait pas que changer la pose, ça lève la caisse.
+       */
+      const pivotZ = function (theta, a, ell) {
+        return Math.sin(theta) * a + Math.cos(theta) * (ell + WHEEL_R);
       };
-      const zEdge = pivotZ(-th1, -K.legX);          // hauteur au décollage
+      const ellPush = ride * f.press;               // patte tendue : la poussée
+      const zEdge = pivotZ(-th1, -K.legX, ellPush); // hauteur au décollage
       const vz0 = G_ACC * f.over / 2;               // vol symétrique
 
-      /** Pose les quatre roues d'une caisse en rotation rigide. */
-      const tumbleLegs = function (theta, contactOn) {
+      /** Angles d'appui d'une patte de longueur `ell`. */
+      const standQ = function (L, ell) {
+        const t2 = constrain(L, [L.x, L.y + L.m * K.abadPlane, -ell]);
+        return Y.Motion.ik(L, t2[0], t2[1], t2[2]);
+      };
+
+      /**
+       * Pose les quatre pattes. `ell` mène la porteuse ; `airQ(L)` donne les
+       * angles des autres, qui sont en l'air et suivent une pose de vol.
+       */
+      const tumbleLegs = function (theta, ell, contactOn, airQ) {
         const cp = Math.cos(theta), sp = Math.sin(theta);
         const e = smooth(clamp(run.tumbleT / 0.20, 0, 1));
         Y.LEGS.forEach(function (L, li) {
           const n = Y.Robot.legs[L.id];
           const ny = L.y + L.m * K.abadPlane;
-          // les pattes restent à leur pose d'appui : la figure est une
-          // rotation de la CAISSE, pas un mouvement de jambes
-          const target = constrain(L, [L.x, ny, -ride]);
-          const q = Y.Motion.ik(L, target[0], target[1], target[2]);
+          const on = contactOn(L);
+          const q = on ? standQ(L, ell) : airQ(L);
           assign(n, [0, 1, 2].map(function (i) {
             return lerp(run.entryQ[li * 3 + i], q[i], e);
           }));
-          const ox = cp * target[0] + sp * target[2];
-          const oz = -sp * target[0] + cp * target[2];
-          const on = contactOn(L);
           n.contact = on;
-          n.footWorld = [state.px + cy * ox - sy * ny,
-                         state.py + sy * ox + cy * ny,
-                         state.z + oz - WHEEL_R];
-          // la roue porteuse roule sous la caisse : on lit sa rotation sur le
-          // déplacement réel de son point de contact
-          const prev = run.prevA[L.id];
-          if (on && prev !== undefined) nat.spin[L.id] += (ox - prev) / WHEEL_R;
-          run.prevA[L.id] = ox;
+          if (on) {
+            const target = constrain(L, [L.x, ny, -ell]);
+            const ox = cp * target[0] + sp * target[2];
+            const oz = -sp * target[0] + cp * target[2];
+            n.footWorld = [state.px + cy * ox - sy * ny,
+                           state.py + sy * ox + cy * ny,
+                           state.z + oz - WHEEL_R];
+            // la roue porteuse roule sous la caisse : on lit sa rotation sur
+            // le déplacement réel de son point de contact
+            const prev = run.prevA[L.id];
+            if (prev !== undefined) nat.spin[L.id] += (ox - prev) / WHEEL_R;
+            run.prevA[L.id] = ox;
+          }
           if (n.wheel) n.wheel.rotation.y = nat.spin[L.id];
           nat.figAxle[L.id] = null;
         });
       };
 
+      /** Pose de vol : on part des angles d'appui et on va vers `pose`. */
+      const towards = function (pose, k, ell) {
+        return function (L) {
+          const a = standQ(L, ell === undefined ? ride : ell);
+          const b = poseFor(L, pose);
+          return [0, 1, 2].map(function (i) { return lerp(a[i], b[i], k); });
+        };
+      };
+      /** Pose de vol : de `pose` vers les angles d'appui. */
+      const backFrom = function (pose, k, ell) {
+        return function (L) {
+          const a = poseFor(L, pose);
+          const b = standQ(L, ell === undefined ? ride : ell);
+          return [0, 1, 2].map(function (i) { return lerp(a[i], b[i], k); });
+        };
+      };
+
       const rearOn = function (L) { return L.f < 0; };
       const frontOn = function (L) { return L.f > 0; };
-      const noneOn = function () { return false; };
 
       if (run.wantRelease) { run.wantRelease = false; run.release = true; }
       // Tour bouclé : on repart pour un autre tant que la commande tient. Le
@@ -1409,6 +1592,7 @@
       if (run.t >= cyc && f.sustain && run.hold && !run.release) {
         run.t -= cyc;
         run.prevA = {};
+        run.takeoffQ = null;                        // la pose de vol se recapture
       }
       const tu = run.t;
 
@@ -1420,23 +1604,61 @@
           // exactement celle du vol, sans cassure d'une image à l'autre
           const s = tu / f.rear;
           const th = -th1 * s * s;
+          const ell = lerp(ride, ellPush, smooth(s));      // la poussée
           state.pitch = th;
-          state.z = base + pivotZ(th, -K.legX);
-          tumbleLegs(th, rearOn);
+          state.z = base + pivotZ(th, -K.legX, ell);
+          // les pattes libres se replient à mi-groupé, prêtes à serrer
+          tumbleLegs(th, ell, rearOn, towards(POSE.tuck, smooth(s) * 0.55));
         } else if (tu < f.rear + f.over) {
           phase = "vol";
           const tf = tu - f.rear;
-          const th = -th1 - (2 * Math.PI - 2 * th1) * (tf / f.over);
+          const s = tf / f.over;
+          const th = -th1 - (2 * Math.PI - 2 * th1) * s;
           state.pitch = th;
           state.z = base + zEdge + vz0 * tf - 0.5 * G_ACC * tf * tf;
-          tumbleLegs(th, noneOn);
+          // Groupé puis ouverture. On repart de la pose RÉELLE du décollage,
+          // sinon la première image de vol saute — les pattes porteuses
+          // sortaient d'une position tendue, pas de la garde.
+          if (!run.takeoffQ) run.takeoffQ = captureQ();
+          if (s < 0.42) poseFromQ(run.takeoffQ, POSE.tuck, smooth(s / 0.42));
+          else poseMixQ(POSE.tuck, POSE.reach, smooth((s - 0.42) / 0.58));
+          Y.LEGS.forEach(function (L) {
+            const n = Y.Robot.legs[L.id];
+            if (n.wheel) n.wheel.rotation.y = nat.spin[L.id];
+            nat.figAxle[L.id] = null;
+          });
         } else {
           phase = "poser";
           const s = (tu - f.rear - f.over) / f.plant;
           const th = -2 * Math.PI + th1 * (1 - s) * (1 - s);
+          /* Amorti : la patte qui reçoit se replie à `absorb`, puis rend la
+             garde. Sans ce creux, la réception se lisait comme un poser de
+             pièce mécanique — le poids ne se voyait nulle part. */
+          const ell = ride * (s < 0.45
+            ? lerp(f.press, f.absorb, smooth(s / 0.45))
+            : lerp(f.absorb, 1, smooth((s - 0.45) / 0.55)));
           state.pitch = th;
-          state.z = base + pivotZ(th, K.legX);
-          tumbleLegs(th, s > 0.97 ? function () { return true; } : frontOn);
+          state.z = base + pivotZ(th, K.legX, ell);
+          // les pattes de réception viennent de la pose ouverte : on les
+          // fond vers l'appui, sinon le passage vol -> sol saute de 0,25 rad
+          const catchK = smooth(Math.min(1, s / 0.22));
+          const grab = function (L) {
+            const a = poseFor(L, POSE.reach);
+            const b = standQ(L, ell);
+            return [0, 1, 2].map(function (i) { return lerp(a[i], b[i], catchK); });
+          };
+          const onNow = s > 0.97 ? function () { return true; } : frontOn;
+          tumbleLegs(th, ell, onNow, backFrom(POSE.reach, smooth(s)));
+          // la patte porteuse rejoint son appui depuis l'ouverture
+          Y.LEGS.forEach(function (L, li) {
+            if (!onNow(L)) return;
+            const n = Y.Robot.legs[L.id];
+            const e = smooth(clamp(run.tumbleT / 0.20, 0, 1));
+            const q = grab(L);
+            assign(n, [0, 1, 2].map(function (i) {
+              return lerp(run.entryQ[li * 3 + i], q[i], e);
+            }));
+          });
         }
       } else {
         phase = "stabilisation";
@@ -1663,7 +1885,7 @@
       if (f.kind === "slide") { state.yaw = run.yaw0 + f.yawSweep * (f.side || 1); nat.vx = 0; }
       if (f.twist) state.yaw = run.yaw0 + 2 * Math.PI * f.twist;
       state.z = terrainAt(state.px, state.py) + ride + WHEEL_R;
-      nat.zBody = state.z; nat.vz = 0;
+      nat.zBody = state.z; nat.vz = 0; nat.prevTarget = null; nat.ffz = 0;
       run.carry = null;
       Y.LEGS.forEach(function (L) { nat.wheelZ[L.id] = null; nat.wstep[L.id] = null; });
       Y.Stunt.stop(true);
@@ -1775,7 +1997,7 @@
         st.roll = 0; st.pitch = 0;
         st.z = terrainAt(st.px, st.py) + (st.mode === "roues"
           ? st.height * 0.92 + WHEEL_R : st.height);
-        nat.zBody = st.z; nat.vz = 0;
+        nat.zBody = st.z; nat.vz = 0; nat.prevTarget = null; nat.ffz = 0;
         Y.LEGS.forEach(function (L) {
           nat.plant[L.id] = null; nat.lift[L.id] = null; nat.land[L.id] = null;
           nat.prevFoot[L.id] = null; nat.clear[L.id] = 0;
@@ -1861,7 +2083,7 @@
       const g = Y.GAITS[Y.Motion.state.gait] || Y.GAITS.trot;
       nat.duty = g.duty; nat.stance = g.stance;
       nat.trotMix = g.name === "walk" ? 0 : 1;
-      nat.air = false; nat.vz = 0;
+      nat.air = false; nat.vz = 0; nat.wheelAir = false; nat.prevTarget = null; nat.ffz = 0;
       nat.zBody = Y.Motion.state.z || 0.25; nat.zTarget = nat.zBody;
       nat.track = nat.profile.track; nat.heightBias = nat.profile.heightBias;
       nat.hindReach = nat.profile.hindReach; nat.swingScale = nat.profile.swingScale;

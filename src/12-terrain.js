@@ -85,9 +85,12 @@
   }
 
   /** Plan incliné en tranches : un bank, ou le flanc d'un funbox. */
-  function bank(x0, x1, y0, y1, h0, h1) {
+  function bank(x0, x1, y0, y1, h0, h1, slices) {
     const out = [];
-    const n = 14;
+    // Sur un grand tremplin, 14 tranches feraient des marches de 68 mm — à la
+    // limite de ce qu'une roue de 75 mm franchit. On en met assez pour que la
+    // pente reste une pente.
+    const n = slices || 14;
     for (let i = 0; i < n; i++) {
       const a = x0 + (x1 - x0) * i / n, b = x0 + (x1 - x0) * (i + 1) / n;
       out.push(box(a, b + 0.001, y0, y1, h0 + (h1 - h0) * (i + 1) / n));
@@ -175,6 +178,45 @@
         return out;
       })() },
 
+    /* Mega ramp, dans l'esprit des grandes rampes de skate : on part de haut,
+       on convertit la hauteur en vitesse, on saute un gap, on se reçoit sur
+       une pente qui rend la chute supportable, et on finit dans une grande
+       transition. Rien ici ne se « franchit » — tout se roule, et c'est la
+       gravité qui fournit le travail.
+
+       Les cotes sont à l'échelle du robot mais volontairement grandes : 2,60 m
+       de roll-in pour un robot de 0,44 m de patte, c'est six fois sa jambe.
+       La descente rend environ 6,6 m/s en bas. */
+    { id: "megaramp", name: "Mega ramp", maxStep: 0.40,
+      start: [-16.0, 0, 0],
+      desc: "Roll-in droit de 2,60 m, tremplin de 700 mm, gap de 1,00 m, pente de réception, " +
+            "puis une transition de 2,60 m. Le robot démarre sur la plateforme de départ.",
+      boxes: (function () {
+        const out = [];
+        const W = 3.00;
+        /* Le roll-in est une pente DROITE de 18°, pas un quarter pipe. C'est
+           la forme des vraies grandes rampes, et ce n'est pas un détail : sur
+           une transition, le haut est vertical, le robot quitte le coping en
+           chute libre et perd dans l'impact la moitié de la hauteur gagnée.
+           Sur une pente droite, les roues ne quittent jamais le sol et les
+           2,60 m se convertissent presque entièrement en vitesse — 6,6 m/s
+           en bas. */
+        out.push(box(-17.00, -15.00, -W, W, 2.60));              // plateforme
+        bank(-15.00, -7.00, -W, W, 2.60, 0, 80).forEach(function (b) { out.push(b); });
+        // tremplin : 700 mm sur 2,20 m, soit 18°
+        bank(0.00, 2.20, -1.30, 1.30, 0, 0.70, 40).forEach(function (b) { out.push(b); });
+        /* Le gap : 1,00 m de vide, de la lèvre au haut de la réception. Puis
+           une pente descendante, qui absorbe la chute au lieu de la prendre à
+           plat — c'est ce qui fait la différence, sur une grande rampe, entre
+           se recevoir et s'écraser. Elle est longue et douce à dessein : on
+           s'y reçoit du saut le plus court comme du plus long. Sa face, elle,
+           fait 400 mm : rater le gap, ça reste rater le gap. */
+        bank(3.20, 6.60, -1.70, 1.70, 0.40, 0, 40).forEach(function (b) { out.push(b); });
+        // et pour finir, une grande transition, qu'on remonte de ce qu'on a
+        quarterPipe(13.00, 2.60, W, +1, 2.20, 72).forEach(function (b) { out.push(b); });
+        return out;
+      })() },
+
     { id: "poutres", name: "Poutres", maxStep: 0.14,
       desc: "Traverses de 140 mm espacées de 700 mm, à enjamber.",
       boxes: (function () {
@@ -244,6 +286,28 @@
     return best;
   }
 
+  /**
+   * Le plus gros SAUT local du relief devant, et le dénivelé total.
+   *
+   * Une roue ne se fait pas porter par sa patte pour monter une PENTE — elle
+   * y roule, c'est son métier. Elle en a besoin pour une MARCHE. Les deux se
+   * distinguent non pas par leur hauteur mais par la façon dont elle est
+   * répartie : sur une marche, tout le dénivelé tient dans un pas ; sur une
+   * pente, il est étalé. On rend les deux, et l'appelant compare.
+   */
+  function jumpAhead(x, y, cx, cy, dist) {
+    const here = heightAt(x, y);
+    let prev = here, jump = 0;
+    const n = Math.max(2, Math.round(dist / 0.05));
+    for (let i = 1; i <= n; i++) {
+      const d = dist * i / n;
+      const h = heightAt(x + cx * d, y + cy * d);
+      if (Math.abs(h - prev) > Math.abs(jump)) jump = h - prev;
+      prev = h;
+    }
+    return [jump, prev - here];
+  }
+
   /** Marche la plus haute devant le robot, pour prévenir en mode roues. */
   function stepAhead(x, y, yaw, distance) {
     const here = heightAt(x, y);
@@ -295,9 +359,16 @@
     build: build,
     heightAt: heightAt,
     support: support,
+    jumpAhead: jumpAhead,
     maxHeightAlong: maxHeightAlong,
     stepAhead: stepAhead,
     get current() { return current; },
+    /**
+     * Où poser le robot sur ce terrain. Sur la plupart, l'origine convient.
+     * Sur la mega ramp, non : le départ est en haut du roll-in, et une
+     * transition de 2,60 m ne se remonte pas.
+     */
+    start: function () { return current.start || [0, 0, 0]; },
     set: function (id) {
       const found = PRESETS.find(function (p) { return p.id === id; });
       if (!found) return false;
