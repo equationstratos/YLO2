@@ -466,6 +466,83 @@ class TestWheels(unittest.TestCase):
         self.assertGreater(robot.base[0], 2.5)         # mais il a bien roulé jusque-là
         self.assertLess(robot.report()["peak_joint_velocity_rad_s"], DEFAULT.velocity_max)
 
+    def test_a_lintel_is_not_ground(self):
+        """Un linteau est plein en haut et vide en dessous.
+
+        Tout le reste du terrain est un champ de hauteurs — une colonne pleine
+        depuis le sol —, et un champ de hauteurs ne sait pas décrire une
+        fenêtre. Le linteau ne compte donc pas dans `height_at` : il n'y a
+        rien à poser une roue dessous.
+        """
+        scene = terrain.get("megascene")
+        # sous la fenêtre : l'appui de 180 mm, et un plafond à 600 mm
+        self.assertAlmostEqual(scene.height_at(6.60, 0.0), 0.24, places=2)
+        self.assertAlmostEqual(scene.ceiling_at(6.60, 0.0, 0.30), 0.62, places=2)
+        # à côté de l'ouverture, c'est un jambage plein : pas de plafond, un mur
+        self.assertAlmostEqual(scene.height_at(6.60, 1.0), 2.00, places=2)
+        self.assertEqual(scene.ceiling_at(6.60, 1.0, 0.30), float("inf"))
+        # et loin de la fenêtre, le ciel est libre
+        self.assertEqual(scene.ceiling_at(5.00, 0.0, 0.30), float("inf"))
+
+    def test_the_window_needs_a_low_chassis(self):
+        """La fenêtre ne se franchit pas en levant la patte mais en baissant
+        le tronc. C'est un passage de mode ROUES.
+
+        Sur pattes, enjamber un appui de 240 mm fait monter la caisse bien
+        au-dessus de sa consigne — le générateur d'allure lève le tronc avec
+        les pieds — et le linteau est alors trop bas quelle que soit la garde
+        demandée. C'est vrai plutôt que contourné : un robot qui marche
+        par-dessus un seuil se redresse, et il faudrait qu'il s'accroupisse
+        PENDANT l'enjambée pour passer.
+        """
+        def run(height, mode):
+            robot = Robot(rate=200, mode=mode, terrain="megascene")
+            robot.height = height
+            nat = robot.natural
+            robot.base[0] = 5.60
+            robot.base[2] = (height * 0.92 + gait.WHEEL_RADIUS
+                             if mode == "roues" else height)
+            # Déplacer la caisse ne déplace pas les appuis : sans ce nettoyage,
+            # les pieds restent plantés là où on était et les pattes tirent la
+            # caisse en l'air. C'est un piège de banc d'essai, pas du modèle.
+            for leg in robot.model.legs:
+                for table in (nat.plant, nat.lift, nat.land, nat.prev_foot,
+                              nat.wheel_z, nat.wstep):
+                    table[leg.name] = None
+            nat.z_body, nat.vz, nat.prev_target, nat.ff_z = robot.base[2], 0.0, None, 0.0
+            for _ in range(int(6 * 200)):
+                robot.command(0.8)
+                robot.step()
+            return robot
+
+        blocked, passes = run(0.25, "roues"), run(0.20, "roues")
+        self.assertLess(blocked.base[0], 6.80, "à 250 mm, le tronc touche")
+        self.assertGreater(passes.base[0], 7.00, "à 200 mm, ça passe")
+        self.assertLess(passes.report()["peak_joint_velocity_rad_s"], DEFAULT.velocity_max)
+        # sur pattes, enjamber le seuil relève la caisse : à 300 mm elle bute
+        self.assertLess(run(0.30, "pattes").base[0], 6.80)
+
+    def test_the_mega_scene_chains_the_whole_catalogue(self):
+        """Tout y est, et dans l'ordre."""
+        scene = terrain.get("megascene")
+        self.assertEqual(scene.start, (-16.0, 0.0, 0.0))
+        for x, h, what in [(-16.0, 2.60, "plateforme de départ"),
+                           (-11.0, 1.30, "roll-in"),
+                           (-2.70, 0.14, "poutre"),
+                           (2.50, 0.65, "palier d'escalier"),
+                           (6.60, 0.24, "appui de fenêtre"),
+                           (8.00, 0.24, "plateforme"),
+                           (11.80, 0.18, "plateau de funbox"),
+                           (15.50, 0.36, "marches hautes"),
+                           (20.50, 0.37, "tremplin"),
+                           (23.00, 0.35, "réception"),
+                           (28.50, 1.20, "deck du quarter pipe")]:
+            self.assertAlmostEqual(scene.height_at(x, 0.0), h, delta=0.02, msg=what)
+        self.assertAlmostEqual(scene.height_at(11.90, 1.90), 0.20, places=2)  # le ledge
+        # les gravats sont tirés d'une suite déterministe : les deux moteurs
+        # doivent en poser exactement le même nombre
+        self.assertEqual(len(terrain.get("gravats").boxes), 98)
+
     def test_the_mega_ramp_is_a_run_from_top_to_bottom(self):
         """Roll-in, tremplin, gap, réception, transition — dans cet ordre."""
         ramp = terrain.get("megaramp")

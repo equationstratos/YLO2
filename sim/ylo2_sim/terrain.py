@@ -16,11 +16,22 @@ from typing import Dict, List, Optional, Tuple
 
 @dataclass(frozen=True)
 class Box:
+    """Un volume du terrain.
+
+    `z0` vaut zéro pour une colonne posée au sol — le cas de tout le
+    catalogue. Au-dessus de zéro, c'est un LINTEAU : plein en haut, vide en
+    dessous, comme le dessus d'une fenêtre. Un champ de hauteurs ne sait pas
+    dire ça, et une fenêtre a besoin exactement de ça. Ces volumes ne comptent
+    donc pas dans `height_at` — il n'y a rien à poser une roue dessous. Ils
+    n'existent que pour ce qu'ils empêchent : passer.
+    """
+
     x0: float
     x1: float
     y0: float
     y1: float
     h: float
+    z0: float = 0.0
 
 
 def _stairs(start_x, steps, rise, run, half_width, down=True) -> List[Box]:
@@ -142,6 +153,51 @@ def _big_ramp() -> List[Box]:
     return out
 
 
+def _mega_scene() -> List[Box]:
+    """Tout le catalogue mis bout à bout, dans l'ordre où on l'enchaînerait.
+
+    On part de haut, on prend de la vitesse, on traverse du terrain cassé, on
+    grimpe, on PASSE PAR UNE FENÊTRE, on franchit, on saute, et on finit dans
+    une transition.
+
+    La fenêtre est le seul obstacle qui ne soit pas un champ de hauteurs :
+    plein en haut, vide au milieu, un appui de 240 mm en bas. Il faut donc à
+    la fois lever la patte pour passer l'appui et BAISSER LA CAISSE pour
+    passer sous le linteau. Sur roues, l'essieu porte la caisse un rayon plus
+    haut : il faut y descendre à 200 mm là où 250 suffisent sur pattes.
+    """
+    out: List[Box] = []
+    # 1. départ en hauteur et sa pente : de quoi lancer tout le reste
+    out.append(Box(-17.00, -15.00, -3.0, 3.0, 2.60))
+    out += _bank(-15.00, -7.00, -3.0, 3.0, 2.60, 0.0, slices=60)
+    # 2. terrain cassé, puis des traverses à enjamber
+    out += _rubble(-5.60, -3.60, 1.0, 0.28, 0.09)
+    out += [Box(-2.80 + i * 0.70, -2.80 + i * 0.70 + 0.25, -1.2, 1.2, 0.14)
+            for i in range(4)]
+    # 3. escalier : cinq marches, palier, redescente
+    out += _stairs(0.60, 5, 0.13, 0.30, 1.2)
+    # 4. la fenêtre : deux jambages, un appui, un linteau
+    out.append(Box(6.40, 6.80, -3.5, -0.45, 2.00))
+    out.append(Box(6.40, 6.80, 0.45, 3.5, 2.00))
+    out.append(Box(6.40, 6.80, -0.45, 0.45, 0.24))                 # l'appui
+    out.append(Box(6.40, 6.80, -0.45, 0.45, 2.00, z0=0.62))        # le linteau
+    # 5. marche unique franche
+    out.append(Box(7.40, 9.40, -1.2, 1.2, 0.24))
+    # 6. funbox et son ledge de grind
+    out += _bank(10.60, 11.30, -0.95, 0.95, 0.0, 0.18)
+    out.append(Box(11.30, 12.30, -0.95, 0.95, 0.18))
+    out += _bank(12.30, 13.00, -0.95, 0.95, 0.18, 0.0)
+    out.append(Box(10.40, 13.20, 1.70, 2.10, 0.20))
+    # 7. marches hautes : la limite du gabarit
+    out += _stairs(14.80, 3, 0.18, 0.36, 1.0)
+    # 8. tremplin, gap, réception
+    out += _bank(19.40, 21.60, -1.30, 1.30, 0.0, 0.70, slices=30)
+    out += _bank(22.60, 26.00, -1.70, 1.70, 0.40, 0.0, slices=30)
+    # 9. et pour finir, une transition
+    out += _quarter_pipe(27.20, 1.20, 2.00, +1, 1.20, slices=48)
+    return out
+
+
 def _mega_ramp() -> List[Box]:
     """Grande rampe de skate : roll-in, tremplin, gap, réception, transition.
 
@@ -188,9 +244,25 @@ class Terrain:
     def height_at(self, x: float, y: float) -> float:
         h = 0.0
         for b in self.boxes:
+            # un linteau n'est pas un sol : on ne pose rien dessous
+            if b.z0:
+                continue
             if b.x0 <= x < b.x1 and b.y0 <= y < b.y1 and b.h > h:
                 h = b.h
         return h
+
+    def ceiling_at(self, x: float, y: float, z: float) -> float:
+        """Dessous du linteau le plus bas qui surplombe encore `z`.
+
+        `inf` quand le ciel est libre.
+        """
+        lo = float("inf")
+        for b in self.boxes:
+            if not b.z0 or b.z0 < z:
+                continue
+            if b.x0 <= x < b.x1 and b.y0 <= y < b.y1 and b.z0 < lo:
+                lo = b.z0
+        return lo
 
     def support(self, x: float, y: float, cx: float, cy: float,
                 radius: float = 0.075, samples: int = 4) -> float:
@@ -270,6 +342,8 @@ PRESETS: Dict[str, Terrain] = {
     "bigramp": Terrain("Big ramp", "bigramp", 0.30, _big_ramp()),
     "megaramp": Terrain("Mega ramp", "megaramp", 0.40, _mega_ramp(),
                         start=(-16.0, 0.0, 0.0)),
+    "megascene": Terrain("Méga-parcours", "megascene", 0.24, _mega_scene(),
+                         start=(-16.0, 0.0, 0.0)),
     "poutres": Terrain("Poutres", "poutres", 0.14,
                        [Box(1.4 + i * 0.7, 1.4 + i * 0.7 + 0.25, -1.2, 1.2, 0.14) for i in range(5)]),
 }

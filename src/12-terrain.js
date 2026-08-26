@@ -17,7 +17,21 @@
 
   /* --- primitives : chaque terrain est une liste de boîtes posées au sol --- */
   function box(x0, x1, y0, y1, h) {
-    return { x0: x0, x1: x1, y0: y0, y1: y1, h: h };
+    return { x0: x0, x1: x1, y0: y0, y1: y1, h: h, z0: 0 };
+  }
+
+  /**
+   * Volume EN L'AIR : un linteau, le dessus d'une fenêtre, une poutre à
+   * enjamber par-dessous.
+   *
+   * Tout le reste du terrain est un champ de hauteurs — une colonne pleine
+   * depuis le sol —, et un champ de hauteurs ne sait pas dire « plein en
+   * haut, vide en bas ». Une fenêtre a besoin exactement de ça. Ces boîtes-là
+   * ne comptent donc pas dans `heightAt` : il n'y a rien à poser une roue
+   * dessous. Elles n'existent que pour ce qu'elles empêchent — passer.
+   */
+  function lintel(x0, x1, y0, y1, z0, h) {
+    return { x0: x0, x1: x1, y0: y0, y1: y1, h: h, z0: z0 };
   }
 
   function stairs(startX, steps, rise, run, halfWidth, down) {
@@ -41,7 +55,11 @@
     const out = [];
     let seed = 7;
     const rnd = function () {                       // suite déterministe
-      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      /* `Math.imul` et non `*` : le produit dépasse 2^53 et un nombre
+         JavaScript y perd des bits. La suite divergeait donc de celle du
+         simulateur, qui calcule en entiers exacts — 103 blocs ici, 98 là,
+         pour la même description de terrain. */
+      seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff;
       return seed / 0x7fffffff;
     };
     for (let x = x0; x < x1; x += cell) {
@@ -217,6 +235,66 @@
         return out;
       })() },
 
+    /* Méga-parcours : tout le catalogue mis bout à bout, dans l'ordre où on
+       aurait envie de l'enchaîner. On part de haut, on prend de la vitesse, on
+       traverse du terrain cassé, on grimpe, on PASSE PAR UNE FENÊTRE, on
+       franchit, on saute, et on finit dans une transition.
+
+       La fenêtre est le seul obstacle du jeu qui ne soit pas un champ de
+       hauteurs : plein en haut, vide au milieu, un appui de 240 mm en bas. Il
+       faut donc à la fois lever la patte pour passer l'appui et BAISSER LA
+       CAISSE pour passer sous le linteau. Sur roues, l'essieu porte la caisse
+       un rayon plus haut : il faut y descendre à 200 mm là où 250 suffisent
+       sur pattes. */
+    { id: "megascene", name: "Méga-parcours", maxStep: 0.24,
+      start: [-16.0, 0, 0],
+      desc: "Tout le catalogue à la suite : roll-in de 2,60 m, gravats, poutres, escalier, " +
+            "fenêtre à traverser, plateforme, funbox et ledge, marches hautes, tremplin et gap, " +
+            "quarter pipe. La fenêtre demande de baisser la caisse : 200 mm sur roues, 250 sur pattes.",
+      boxes: (function () {
+        const out = [];
+        const add = function (list) { list.forEach(function (b) { out.push(b); }); };
+
+        // 1. départ en hauteur et sa pente : de quoi lancer tout le reste
+        out.push(box(-17.00, -15.00, -3.0, 3.0, 2.60));
+        add(bank(-15.00, -7.00, -3.0, 3.0, 2.60, 0, 60));
+
+        // 2. terrain cassé, puis des traverses à enjamber
+        add(rubble(-5.60, -3.60, 1.0, 0.28, 0.09));
+        for (let i = 0; i < 4; i++) {
+          out.push(box(-2.80 + i * 0.70, -2.80 + i * 0.70 + 0.25, -1.2, 1.2, 0.14));
+        }
+
+        // 3. escalier : cinq marches, palier, redescente
+        add(stairs(0.60, 5, 0.13, 0.30, 1.2, true));
+
+        // 4. la fenêtre : deux jambages, un appui, un linteau
+        out.push(box(6.40, 6.80, -3.5, -0.45, 2.00));
+        out.push(box(6.40, 6.80, 0.45, 3.5, 2.00));
+        out.push(box(6.40, 6.80, -0.45, 0.45, 0.24));          // l'appui
+        out.push(lintel(6.40, 6.80, -0.45, 0.45, 0.62, 2.00)); // le linteau
+
+        // 5. marche unique franche
+        out.push(box(7.40, 9.40, -1.2, 1.2, 0.24));
+
+        // 6. funbox et son ledge de grind
+        add(bank(10.60, 11.30, -0.95, 0.95, 0, 0.18));
+        out.push(box(11.30, 12.30, -0.95, 0.95, 0.18));
+        add(bank(12.30, 13.00, -0.95, 0.95, 0.18, 0));
+        out.push(box(10.40, 13.20, 1.70, 2.10, 0.20));
+
+        // 7. marches hautes : la limite du gabarit
+        add(stairs(14.80, 3, 0.18, 0.36, 1.0, true));
+
+        // 8. tremplin, gap, réception
+        add(bank(19.40, 21.60, -1.30, 1.30, 0, 0.70, 30));
+        add(bank(22.60, 26.00, -1.70, 1.70, 0.40, 0, 30));
+
+        // 9. et pour finir, une transition
+        add(quarterPipe(27.20, 1.20, 2.00, +1, 1.20, 48));
+        return out;
+      })() },
+
     { id: "poutres", name: "Poutres", maxStep: 0.14,
       desc: "Traverses de 140 mm espacées de 700 mm, à enjamber.",
       boxes: (function () {
@@ -235,9 +313,25 @@
     const boxes = current.boxes;
     for (let i = 0; i < boxes.length; i++) {
       const b = boxes[i];
-      if (x >= b.x0 && x < b.x1 && y >= b.y0 && y < b.y1 && b.h > h) h = b.h;
+      // un linteau n'est pas un sol : on ne pose rien dessous
+      if (!b.z0 && x >= b.x0 && x < b.x1 && y >= b.y0 && y < b.y1 && b.h > h) h = b.h;
     }
     return h;
+  }
+
+  /**
+   * Plafond au-dessus d'un point : le dessous du linteau le plus bas qui
+   * surplombe encore `z`. `Infinity` quand le ciel est libre.
+   */
+  function ceilingAt(x, y, z) {
+    let lo = Infinity;
+    const boxes = current.boxes;
+    for (let i = 0; i < boxes.length; i++) {
+      const b = boxes[i];
+      if (!b.z0 || b.z0 < z) continue;
+      if (x >= b.x0 && x < b.x1 && y >= b.y0 && y < b.y1 && b.z0 < lo) lo = b.z0;
+    }
+    return lo;
   }
 
   /** Hauteur maximale rencontrée le long d'un segment (dégagement du vol). */
@@ -336,10 +430,13 @@
     const edge = Y.Mat.get("obstacleEdge");
     current.boxes.forEach(function (b) {
       const w = b.x1 - b.x0, d = b.y1 - b.y0;
-      const mesh = new T.Mesh(new T.BoxGeometry(w, d, b.h), mat);
-      mesh.position.set((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, b.h / 2);
+      const z0 = b.z0 || 0, th = b.h - z0;
+      if (th <= 0) return;
+      const mesh = new T.Mesh(new T.BoxGeometry(w, d, th), mat);
+      mesh.position.set((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, z0 + th / 2);
       mesh.castShadow = true; mesh.receiveShadow = true;
       group.add(mesh);
+      if (z0) return;                       // un linteau n'a pas de nez de marche
       // Nez de marche : une arête claire, comme la bande antidérapante d'un
       // escalier. Seulement sur une vraie marche — les rampes et les
       // transitions sont découpées en tranches fines, et les strier toutes
@@ -358,6 +455,7 @@
     group: group,
     build: build,
     heightAt: heightAt,
+    ceilingAt: ceilingAt,
     support: support,
     jumpAhead: jumpAhead,
     maxHeightAlong: maxHeightAlong,

@@ -113,6 +113,9 @@ WHEEL_CLIMB = 0.30
 # Dessous de caisse : au-delà, un relief ne heurte plus les roues mais le tronc
 # lui-même, et là il n'y a plus rien à négocier.
 BODY_UNDER = 0.10
+# Dessus de caisse : ce qui vient taper un linteau de fenêtre. Le tronc
+# d'YLO-2 fait environ 180 mm de haut, à peu près centré sur l'origine.
+BODY_TOP = 0.09
 # Vitesse à laquelle l'anticipation de suspension suit la consigne.
 FF_RATE = 6.0
 
@@ -339,9 +342,17 @@ class Natural:
         if moving:
             robot.phase = (robot.phase + dt / cycle) % 1.0
             yaw = robot.base[5] + self.wz * dt
-            robot.base[0] += (self.vx * math.cos(yaw) - self.vy * math.sin(yaw)) * dt
-            robot.base[1] += (self.vx * math.sin(yaw) + self.vy * math.cos(yaw)) * dt
             robot.base[5] = yaw
+            # Sur pattes aussi, un mur arrête et un linteau plafonne. Le pied
+            # franchit bien plus qu'une roue — 260 mm, la marche haute du
+            # catalogue — mais un jambage de fenêtre reste un jambage.
+            sx = (self.vx * math.cos(yaw) - self.vy * math.sin(yaw)) * dt
+            sy_ = (self.vx * math.sin(yaw) + self.vy * math.cos(yaw)) * dt
+            if self._wall_blocks(robot, robot.base[0] + sx, robot.base[1] + sy_, 0.26):
+                self.vx = self.vy = 0.0
+            else:
+                robot.base[0] += sx
+                robot.base[1] += sy_
 
         fast = min(max(speed / 1.2, 0.0), 1.0)
         sway_phase = ((robot.phase + p.sway_lead) * math.tau
@@ -530,6 +541,18 @@ class Natural:
             # pas contre la paroi. Sans cette nuance, il se bloquait net sur le
             # bord d'un atterrissage qu'il venait pourtant de franchir.
             if h > robot.base[2] - BODY_UNDER:
+                return True
+        # Et le plafond. Un linteau — le haut d'une fenêtre — ne se heurte pas
+        # avec les roues mais avec le DESSUS de la caisse : c'est le seul
+        # obstacle qui ne soit pas un champ de hauteurs, et le seul qu'on ne
+        # franchit pas en levant la patte mais en baissant le tronc.
+        lo, hi = robot.base[2] - BODY_TOP, robot.base[2] + BODY_TOP
+        if robot.terrain.ceiling_at(nx, ny, lo) < hi:
+            return True
+        for leg in robot.model.legs:
+            hx = nx + cy * leg.x - sy * leg.y
+            hy = ny + sy * leg.x + cy * leg.y
+            if robot.terrain.ceiling_at(hx, hy, lo) < hi:
                 return True
         return False
 

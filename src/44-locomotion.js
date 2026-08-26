@@ -22,6 +22,9 @@
   /* Dessous de caisse : au-delà, un relief ne heurte plus les roues mais le
      tronc lui-même, et là il n'y a plus rien à négocier. */
   const BODY_UNDER = 0.10;
+  /* Dessus de caisse : ce qui vient taper un linteau de fenêtre. Le tronc
+     d'YLO-2 fait environ 180 mm de haut, à peu près centré sur l'origine. */
+  const BODY_TOP = 0.09;
 
   function clamp(v, a, b) { return Math.min(Math.max(v, a), b); }
   function smooth(s) { return s * s * (3 - 2 * s); }
@@ -141,6 +144,19 @@
       // paroi. Sans cette nuance, il se bloquait net sur le bord d'un
       // atterrissage qu'il venait pourtant de franchir.
       if (h > state.z - BODY_UNDER) return true;
+    }
+    /* Et le plafond. Un linteau — le haut d'une fenêtre — ne se heurte pas
+       avec les roues mais avec le DESSUS de la caisse : c'est le seul obstacle
+       du jeu qui ne soit pas un champ de hauteurs, et le seul qu'on ne franchit
+       pas en levant la patte mais en baissant le tronc. */
+    if (Y.Terrain && Y.Terrain.ceilingAt) {
+      const lo = state.z - BODY_TOP, hi = state.z + BODY_TOP;
+      if (Y.Terrain.ceilingAt(nx, ny, lo) < hi) return true;
+      for (let i = 0; i < Y.LEGS.length; i++) {
+        const L = Y.LEGS[i];
+        const hx = nx + cy * L.x - sy * L.y, hy = ny + sy * L.x + cy * L.y;
+        if (Y.Terrain.ceilingAt(hx, hy, lo) < hi) return true;
+      }
     }
     return false;
   }
@@ -317,8 +333,17 @@
     if (moving) {
       state.phase = (state.phase + dt / cycle) % 1;
       state.yaw += nat.wz * dt;
-      state.px += (nat.vx * Math.cos(state.yaw) - nat.vy * Math.sin(state.yaw)) * dt;
-      state.py += (nat.vx * Math.sin(state.yaw) + nat.vy * Math.cos(state.yaw)) * dt;
+      /* Sur pattes aussi, un mur arrête et un linteau plafonne. Le pied
+         franchit bien plus qu'une roue — 260 mm, la marche haute du
+         catalogue — mais un jambage de fenêtre reste un jambage. */
+      const sx = (nat.vx * Math.cos(state.yaw) - nat.vy * Math.sin(state.yaw)) * dt;
+      const sy0 = (nat.vx * Math.sin(state.yaw) + nat.vy * Math.cos(state.yaw)) * dt;
+      if (wallBlocks(state, state.px + sx, state.py + sy0, 0.26)) {
+        nat.vx = 0; nat.vy = 0;
+      } else {
+        state.px += sx;
+        state.py += sy0;
+      }
     }
 
     // report de masse et balancement, atténués quand ça va vite

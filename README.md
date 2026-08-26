@@ -139,6 +139,7 @@ géométrie sont la même chose, il n'y a pas de collision approchée.
 | **Skatepark** | mini-plaza : kicker, funbox, ledge, deux quarter pipes | reliefs enchaînés, en pattes comme en roues |
 | **Big ramp** | mini-ramp : deux transitions de 1,20 m face à face | un objet qu'on **roule** au lieu de le franchir |
 | **Mega ramp** | roll-in de 2,60 m, tremplin, gap, réception, transition de 2,60 m | un run complet, de la vitesse jusqu'au saut |
+| **Méga-parcours** | tout le catalogue à la suite, **fenêtre comprise** | 46 m d'obstacles enchaînés |
 | Poutres | traverses de 140 mm | enjambement |
 
 ### Le skatepark
@@ -289,6 +290,47 @@ au-dessus des 20 rad/s de l'URDF, et la page le dit : à plus de 3 m/s en roue
 libre, le bandeau d'avertissement signale que le mouvement est montré et non
 certifié. Une grande rampe rend bien plus de vitesse que les moteurs n'en
 donnent — c'est tout l'intérêt, et c'est aussi la limite.
+
+### Le méga-parcours, et la fenêtre
+
+Tout le catalogue mis bout à bout, dans l'ordre où on aurait envie de
+l'enchaîner : on part de 2,60 m, on prend de la vitesse sur le roll-in, on
+traverse des gravats et des poutres, on monte un escalier, on **passe par une
+fenêtre**, on franchit une marche de 240 mm, un funbox, des marches hautes, on
+saute un gap, et on finit dans une transition. 46 m, 279 volumes, et le robot
+démarre en haut.
+
+**La fenêtre est le seul obstacle qui ne soit pas un champ de hauteurs.** Tout
+le reste du terrain est une colonne pleine depuis le sol — c'est ce qui rend le
+contact exact et bon marché — et une colonne ne sait pas dire « plein en haut,
+vide au milieu ». Il a donc fallu un second type de volume : le **linteau**,
+qui a un dessous. Il ne compte pas dans `heightAt` : il n'y a rien à poser une
+roue dessous. Il n'existe que pour ce qu'il empêche.
+
+| | |
+| --- | --- |
+| Jambages | pleins, 2,00 m, de part et d'autre d'une ouverture de 900 mm |
+| Appui | 240 mm : il se franchit en levant la patte |
+| Linteau | dessous à 620 mm : il se franchit en **baissant la caisse** |
+
+C'est le seul obstacle du jeu qui demande de descendre le tronc plutôt que de
+lever la jambe. Sur roues, il faut passer la garde à **200 mm** : à 250, mesuré,
+le robot s'arrête net devant le montant, parce que l'essieu porte la caisse un
+rayon plus haut que sur pattes.
+
+Sur pattes, c'est plus subtil et il vaut mieux le dire : enjamber un seuil de
+240 mm **relève la caisse** — le générateur d'allure lève le tronc avec les
+pieds — et la marge sous le linteau se joue alors à quelques millimètres. À
+300 mm de garde le robot bute franchement ; en dessous il passe, mais de peu.
+Pour le faire proprement il faudrait qu'il s'accroupisse *pendant* l'enjambée,
+ce que la couche d'allure ne sait pas faire aujourd'hui.
+
+Un défaut de parité a été trouvé en chemin, sans rapport avec la fenêtre : le
+générateur pseudo-aléatoire des gravats multipliait deux entiers dont le
+produit dépasse 2^53, et un nombre JavaScript y perd des bits. Les deux moteurs
+posaient donc des blocs différents pour la même description — 103 d'un côté,
+98 de l'autre. `Math.imul` rend le produit exact ; ils en posent maintenant 98
+tous les deux, et un test l'épingle.
 
 ### Une roue n'est pas un point
 

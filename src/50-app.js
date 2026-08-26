@@ -164,8 +164,11 @@
       pinch0 = d; return;
     }
     if (!dragging) return;
+    // L'axe vertical est INVERSÉ : tirer vers le haut monte le point de vue,
+    // tirer vers le bas descend dessous le robot. C'est le sens qu'attend la
+    // main quand on cherche à voir sous la caisse ou à travers une ouverture.
     orbit.az -= (e.clientX - lastX) * 0.006;
-    orbit.el = clamp(orbit.el + (e.clientY - lastY) * 0.005, -0.35, 1.45);
+    orbit.el = clamp(orbit.el - (e.clientY - lastY) * 0.005, -0.35, 1.45);
     lastX = e.clientX; lastY = e.clientY;
   });
   function endPointer(e) {
@@ -1083,6 +1086,9 @@
     if (padLook && (padLook[0] || padLook[1])) {
       camTween = null;                       // la main reprend sur le cadrage
       orbit.az -= padLook[0] * dt;
+      // Le stick était déjà dans ce sens-là : poussé vers le haut, il monte le
+      // point de vue. C'est la souris qui faisait l'inverse ; les deux
+      // s'accordent maintenant.
       orbit.el = clamp(orbit.el - padLook[1] * dt, -0.35, 1.45);
     }
     if (camTween) {
