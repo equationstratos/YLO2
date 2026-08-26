@@ -17,8 +17,13 @@
   const WHEEL_R = 0.075;                 // rayon de roue (Go2-W : pneus 7")
   /* Ce qu'une roue peut finir par surmonter : pas son rayon, mais ce que sa
      patte peut la poser plus haut. Un Go2-W passe des marches bien plus
-     hautes que ses pneus parce qu'il lève la jambe. Au-delà, c'est un mur. */
-  const WHEEL_CLIMB = 0.30;
+     hautes que ses pneus parce qu'il lève la jambe. Au-delà, c'est un mur.
+     450 mm, c'est la hauteur d'un quarter pipe du skatepark : le robot doit
+     pouvoir l'ENJAMBER, quitte à le faire lentement, comme il le faisait
+     avant qu'on lui apprenne à buter. Un jambage de fenêtre, à 2 m, reste
+     hors de portée — et c'est là toute la différence entre un obstacle et
+     un mur. */
+  const WHEEL_CLIMB = 0.45;
   /* Durée du fondu qui ramène les jambes de la pose de vol à l'appui. */
   const TRICK_FADE = 0.28;
   /* Dessous de caisse : au-delà, un relief ne heurte plus les roues mais le
@@ -341,7 +346,8 @@
          catalogue — mais un jambage de fenêtre reste un jambage. */
       const sx = (nat.vx * Math.cos(state.yaw) - nat.vy * Math.sin(state.yaw)) * dt;
       const sy0 = (nat.vx * Math.sin(state.yaw) + nat.vy * Math.cos(state.yaw)) * dt;
-      if (wallBlocks(state, state.px + sx, state.py + sy0, 0.26)) {
+      // le pied franchit au moins ce que la patte peut poser la roue
+      if (wallBlocks(state, state.px + sx, state.py + sy0, WHEEL_CLIMB)) {
         nat.vx = 0; nat.vy = 0;
       } else {
         state.px += sx;
@@ -617,7 +623,7 @@
         ? Y.Terrain.jumpAhead(wx, wy, cy * Math.sign(look), sy * Math.sign(look), Math.abs(look))
         : [aheadH - raw, aheadH - raw];
       const jump = Math.abs(ja[0]), spread = Math.abs(ja[1]);
-      if (!nat.wstep[L.id] && jump > WHEEL_R * 0.9 && jump < WHEEL_CLIMB &&
+      if (!nat.wstep[L.id] && jump > WHEEL_R * 0.9 && jump <= WHEEL_CLIMB &&
           jump > 0.55 * spread &&
           stepping < 2 && !nat.wstep[partner] && speedNow < 1.5) {
         const cur = nat.wheelZ[L.id];
@@ -782,7 +788,17 @@
        descente elle le rend. C'est tout le principe d'un run de skate — une
        mini-ramp ne se franchit pas, elle se pompe. Le second terme est le
        frottement de roulement, sans lequel le va-et-vient serait perpétuel. */
-    if (nat.freeRoll && !nat.wheelAir) {
+    /* Une patte en train de placer sa roue n'est pas une roue qui grimpe une
+       pente : pendant un franchissement, la gravité le long du relief est
+       suspendue. Sans ça, aborder la face d'un deck de quarter pipe — 450 mm
+       presque à la verticale — renvoyait le robot en arrière à 2 m/s alors
+       même que ses pattes étaient en train de l'enjamber. Il le franchissait
+       avant, il doit le franchir encore.
+
+       Frein tenu : la gravité ne s'applique pas non plus. C'est un frein. */
+    let lifting = 0;
+    Y.LEGS.forEach(function (L) { if (nat.wstep[L.id]) lifting++; });
+    if (nat.freeRoll && !nat.wheelAir && !nat.brake && !lifting) {
       nat.vx += G_ACC * Math.sin(slopePitch) * 0.85 * dt;
       nat.vx -= nat.vx * 0.08 * dt;
       /* POMPAGE. Dans une transition, un skateur ne subit pas la courbe : il
@@ -803,8 +819,9 @@
       } else {
         nat.pump = lerp(nat.pump, 0, Math.min(1, dt * 4));
       }
-    } else if (!nat.freeRoll) {
-      nat.pump = 0;
+    } else {
+      // ni en roue libre, ni en l'air, ni frein tenu : rien à pomper
+      nat.pump = nat.freeRoll ? lerp(nat.pump, 0, Math.min(1, dt * 6)) : 0;
     }
     const bankIdeal = Math.atan2(nat.vx * nat.wz, G_ACC);
     // plongée au freinage, cabrage à l'accélération : c'est ce qui donne le poids

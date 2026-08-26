@@ -386,18 +386,12 @@ Le groupé et l'ouverture ont leur propre durée, indépendante de la vitesse de
 rotation : une jambe ne se replie pas deux fois plus vite parce qu'on tourne
 deux fois plus vite.
 
-### Vue de suivi, départ et arrivée
+### Départ et arrivée
 
-Sur les trois terrains qui sont des **parcours** — big ramp, mega ramp,
-méga-parcours — la caméra se tient derrière le robot : c'est la seule vue
-depuis laquelle on lit ce qui arrive. Elle vise l'arrière du **sens de
-marche** et non l'arrière du robot : après un 540 il roule en fakie, et la
-caméra doit rester devant ce qui vient, pas derrière ce qu'il regarde.
-
-La main reprend la caméra quand elle veut — et la vue y **revient toute
-seule** : 1,5 s après un coup de souris ou de stick, 6 s après un cadrage
-demandé explicitement par un bouton de vue. Au démarrage, personne n'ayant
-rien demandé, la page ne retient pas la caméra du tout.
+La caméra est la **même partout** : celle du skatepark, libre, qui ne suit
+personne. Une vue de suivi avait été écrite pour les parcours, elle a été
+retirée — sur ces terrains-là on veut regarder où l'on veut, et une caméra qui
+se replace toute seule reprend la main juste au moment où on la lui prend.
 
 Le méga-parcours a une zone de **départ** (verte, en haut du roll-in) et une
 zone d'**arrivée** (orange, avant la transition finale). Ce sont des décors :
@@ -435,8 +429,18 @@ une pente — sur une pente la roue monte toute seule, c'est son métier. Les de
 se distinguent non par leur hauteur mais par la **répartition** du dénivelé :
 sur une marche tout tient dans un pas, sur une pente c'est étalé. On mesure
 maintenant le plus gros saut local devant, et on ne lève que s'il fait plus de
-la moitié du dénivelé total. Au-delà de ce qu'une patte peut poser la roue
-(300 mm), ce n'est plus une marche mais un mur : on ne lève pas non plus.
+la moitié du dénivelé total. Au-delà de ce qu'une patte peut poser la roue,
+ce n'est plus une marche mais un mur : on ne lève pas non plus.
+
+Cette limite — `WHEEL_CLIMB` — vaut **450 mm**, et non 300 comme au premier
+jet. Ce n'est pas un chiffre de gabarit, c'est un choix de jeu : un quarter
+pipe de skatepark fait 450 mm, et pris par son coin le plus haut le robot
+l'**enjambait**. Le durcissement des collisions le lui avait retiré ; il est
+rendu. Un mur reste un mur — le jambage de la fenêtre du méga-parcours fait
+deux mètres, et c'est sur lui que le test le vérifie plutôt que sur une
+réception de 400 mm devenue franchissable exprès. Tant qu'une patte est
+levée, la gravité de roue libre et le pompage sont suspendus : on ne pousse
+pas un robot qui est en train d'enjamber.
 
 **Et rien n'arrêtait le robot devant un mur.** Le contact de roue le faisait
 monter sur ce qu'il pouvait franchir ; au-delà, plus rien ne s'opposait à ce
@@ -809,6 +813,15 @@ catalogue de figures. Le sens réel se lit sur la vitesse du robot et non sur la
 consigne : après un 540 il roule en fakie, sa marche avant est inversée, et
 c'est cette marche avant-là que le frein doit retenir. La marche arrière est
 plafonnée à 1,4 m/s — on ne recule pas aussi vite qu'on avance.
+
+**Lâcher les deux gâchettes arrête le robot.** Un skateur roule sur son erre,
+mais un robot qu'on pilote doit s'immobiliser quand on lâche tout : sans ça la
+moindre pente l'emmène et on passe son temps à le rattraper. Relâcher R2 ou L2
+arme donc le frein, exactement celui du bouton **Statique** — il coupe aussi la
+gravité de roue libre et le pompage, puisque c'est un frein et qu'un frein
+tient. Mesuré à la manette factice : 2,13 m/s à l'accélération, 0,00 une
+seconde et demie après le relâchement ; −2,24 m/s en marche arrière, 0,00 de
+même.
 
 La manette passe par l'**API Gamepad** du navigateur, la même sur Ubuntu et sur
 Windows. **DualShock 4 (PS4) et DualSense (PS5) marchent l'une comme l'autre**,

@@ -411,7 +411,12 @@
   function drive(gas, brk) {
     const rolling = Y.Natural.state.vx * (Y.Natural.state.dir || 1) > 0.05;
     const braking = brk > TRIG && rolling;
-    if (hooks.setBrake) hooks.setBrake(braking);
+    /* Relâcher les DEUX gâchettes freine. Un skateur roule sur son erre, mais
+       un robot qu'on pilote doit s'arrêter quand on lâche tout : sans ça, la
+       moindre pente l'emmène et on passe son temps à le rattraper. Le frein
+       tenu coupe aussi la gravité et le pompage — c'est un frein, il tient. */
+    const idle = gas <= TRIG && brk <= TRIG;
+    if (hooks.setBrake) hooks.setBrake(braking || idle);
     let v = gas > TRIG ? gas * VX_MAX : 0;
     if (brk > TRIG && !rolling) v -= brk * REV_MAX;
     if (hooks.setVx) hooks.setVx(v);

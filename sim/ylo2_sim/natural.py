@@ -108,8 +108,12 @@ def level_to_body(v: Tuple[float, float, float], roll: float, pitch: float,
 
 # Ce qu'une roue peut finir par surmonter : pas son rayon, mais ce que sa
 # patte peut la poser plus haut. Un Go2-W passe des marches bien plus hautes
-# que ses pneus parce qu'il lève la jambe. Au-delà, c'est un mur.
-WHEEL_CLIMB = 0.30
+# que ses pneus parce qu'il lève la jambe. Au-delà, c'est un mur. 450 mm,
+# c'est la hauteur d'un quarter pipe du skatepark : le robot doit pouvoir
+# l'ENJAMBER, quitte à le faire lentement. Un jambage de fenêtre, à 2 m,
+# reste hors de portée — et c'est là toute la différence entre un obstacle
+# et un mur.
+WHEEL_CLIMB = 0.45
 # Dessous de caisse : au-delà, un relief ne heurte plus les roues mais le tronc
 # lui-même, et là il n'y a plus rien à négocier.
 BODY_UNDER = 0.10
@@ -348,7 +352,9 @@ class Natural:
             # catalogue — mais un jambage de fenêtre reste un jambage.
             sx = (self.vx * math.cos(yaw) - self.vy * math.sin(yaw)) * dt
             sy_ = (self.vx * math.sin(yaw) + self.vy * math.cos(yaw)) * dt
-            if self._wall_blocks(robot, robot.base[0] + sx, robot.base[1] + sy_, 0.26):
+            # le pied franchit au moins ce que la patte peut poser la roue
+            if self._wall_blocks(robot, robot.base[0] + sx, robot.base[1] + sy_,
+                                 WHEEL_CLIMB):
                 self.vx = self.vy = 0.0
             else:
                 robot.base[0] += sx
@@ -623,7 +629,7 @@ class Natural:
             jump, spread = terrain.jump_ahead(wx, wy, cy * sgn, sy * sgn, abs(look))
             jump, spread = abs(jump), abs(spread)
             if (not self.wstep.get(leg.name)
-                    and gaitmod.WHEEL_RADIUS * 0.9 < jump < WHEEL_CLIMB
+                    and gaitmod.WHEEL_RADIUS * 0.9 < jump <= WHEEL_CLIMB
                     and jump > 0.55 * spread
                     and stepping < 2 and not self.wstep.get(partner[leg.name])
                     and abs(self.vx) < 1.5):

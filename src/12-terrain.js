@@ -185,7 +185,7 @@
     // et c'est la gravité qui fait le va-et-vient. Une transition de 1,20 m
     // ne se « passe » pas comme les rampes des autres terrains : elle se
     // remonte tant qu'on a de la vitesse, et on redescend en marche arrière.
-    { id: "bigramp", name: "Big ramp", maxStep: 0.30, chase: true,
+    { id: "bigramp", name: "Big ramp", maxStep: 0.30,
       desc: "Mini-ramp de 1,20 m de transition, flat de 6,4 m entre les deux courbes. " +
             "À rouler comme du skate : élan, pompe, retour par gravité, saut à la lèvre.",
       boxes: (function () {
@@ -206,7 +206,7 @@
        de roll-in pour un robot de 0,44 m de patte, c'est six fois sa jambe.
        La descente rend environ 6,6 m/s en bas. */
     { id: "megaramp", name: "Mega ramp", maxStep: 0.40,
-      start: [-16.0, 0, 0], chase: true,
+      start: [-16.0, 0, 0],
       desc: "Roll-in droit de 2,60 m, tremplin de 700 mm, gap de 1,00 m, pente de réception, " +
             "puis une transition de 2,60 m. Le robot démarre sur la plateforme de départ.",
       boxes: (function () {
@@ -247,7 +247,7 @@
        un rayon plus haut : il faut y descendre à 200 mm là où 250 suffisent
        sur pattes. */
     { id: "megascene", name: "Méga-parcours", maxStep: 0.24,
-      start: [-16.0, 0, 0], chase: true,
+      start: [-16.0, 0, 0],
       zones: [
         { x0: -17.0, x1: -15.0, y0: -1.4, y1: 1.4, z: 2.60, kind: "start" },
         { x0: 27.2 - 1.5, x1: 27.2, y0: -1.8, y1: 1.8, z: 0, kind: "finish" }

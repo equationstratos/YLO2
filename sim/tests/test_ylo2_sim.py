@@ -453,17 +453,20 @@ class TestWheels(unittest.TestCase):
 
         Le contact de roue fait monter les roues sur ce qu'elles peuvent
         franchir ; au-delà, rien ne s'opposait à ce que le robot entre DANS
-        l'obstacle. Le bord de la réception d'une mega ramp fait 900 mm de
-        haut : c'est un mur, pas une rampe.
+        l'obstacle. La limite est haute exprès — un quarter pipe de skatepark
+        fait 450 mm et doit s'enjamber —, donc on la vérifie sur ce qui ne
+        peut être qu'un mur : le jambage de la fenêtre de la mega scène, deux
+        mètres de plein.
         """
-        robot = Robot(rate=200, mode="roues", terrain="megaramp")
-        robot.base[0] = 2.5                            # dans le gap, face au mur
+        robot = Robot(rate=200, mode="roues", terrain="megascene")
+        robot.base[0] = 5.4                            # face au jambage
+        robot.base[1] = -1.5                           # à côté de l'ouverture
         robot.base[2] = robot.height * 0.92 + gait.WHEEL_RADIUS
         for _ in range(int(4 * 200)):
             robot.command(2.0)
             robot.step()
-        self.assertLess(robot.base[0], 3.20)           # il n'est pas entré dedans
-        self.assertGreater(robot.base[0], 2.5)         # mais il a bien roulé jusque-là
+        self.assertLess(robot.base[0], 6.40)           # il n'est pas entré dedans
+        self.assertGreater(robot.base[0], 5.4)         # mais il a bien roulé jusque-là
         self.assertLess(robot.report()["peak_joint_velocity_rad_s"], DEFAULT.velocity_max)
 
     def test_a_lintel_is_not_ground(self):

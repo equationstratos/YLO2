@@ -105,13 +105,6 @@
   let dragging = false, lastX = 0, lastY = 0, pinch0 = 0, downAt = null, camTween = null;
   // vitesse de balayage demandée par le stick droit de la manette, en rad/s
   let padLook = null;
-  /* Vue de suivi. Sur les terrains qui sont des PARCOURS, la caméra se tient
-     derrière le robot : c'est la seule vue depuis laquelle on peut lire ce qui
-     arrive. Quand la main s'en mêle, elle rend la main — et elle y revient
-     toute seule, après une seconde et demie sans rien toucher. */
-  const CHASE = { el: 0.16, dist: 3.0, hold: 1.5, back: 6.0 };
-  let manualCam = 0;
-  function grabCam(long) { manualCam = long ? CHASE.back : CHASE.hold; }
   /** Chronomètre du parcours : de la sortie du départ à l'entrée dans l'arrivée. */
   const course = { t: 0, armed: false, running: false, best: 0, done: 0 };
   const pointers = new Map();
@@ -176,7 +169,6 @@
     // L'axe vertical est INVERSÉ : tirer vers le haut monte le point de vue,
     // tirer vers le bas descend dessous le robot. C'est le sens qu'attend la
     // main quand on cherche à voir sous la caisse ou à travers une ouverture.
-    grabCam(false);
     orbit.az -= (e.clientX - lastX) * 0.006;
     orbit.el = clamp(orbit.el - (e.clientY - lastY) * 0.005, -0.35, 1.45);
     lastX = e.clientX; lastY = e.clientY;
@@ -189,7 +181,6 @@
   canvas.addEventListener("pointercancel", endPointer);
   canvas.addEventListener("wheel", function (e) {
     e.preventDefault();
-    grabCam(false);
     orbit.dist = clamp(orbit.dist * (1 + Math.sign(e.deltaY) * 0.09), 0.45, 6);
   }, { passive: false });
 
@@ -199,11 +190,7 @@
     front: { az: 0, el: 0.08, dist: 1.85 },
     top: { az: -Math.PI / 2, el: 1.40, dist: 2.45 }
   };
-  function setView(name, silent) {
-    // Un cadrage demandé explicitement tient plus longtemps qu'un coup de
-    // souris. Au démarrage, en revanche, personne n'a rien demandé : la page
-    // ne doit pas retenir la caméra six secondes avant de suivre le robot.
-    if (!silent) grabCam(true);
+  function setView(name) {
     view.name = name;
     camTween = Object.assign({}, VIEWS[name]);
     document.querySelectorAll("#views button").forEach(function (b) {
@@ -1163,30 +1150,11 @@
     orbit.target.lerp(camTarget, Math.min(1, dt * chase));
     if (padLook && (padLook[0] || padLook[1])) {
       camTween = null;                       // la main reprend sur le cadrage
-      grabCam(false);
       orbit.az -= padLook[0] * dt;
       // Le stick était déjà dans ce sens-là : poussé vers le haut, il monte le
       // point de vue. C'est la souris qui faisait l'inverse ; les deux
       // s'accordent maintenant.
       orbit.el = clamp(orbit.el - padLook[1] * dt, -0.35, 1.45);
-    }
-    /* Retour en vue de suivi. L'azimut vise l'arrière du SENS DE MARCHE et
-       non l'arrière du robot : après un 540 il roule en fakie, et la caméra
-       doit rester devant ce qui arrive, pas derrière ce qu'il regarde. */
-    manualCam = Math.max(0, manualCam - dt);
-    if (Y.Terrain.current.chase && !Y.Session.state.running && manualCam <= 0) {
-      camTween = null;                       // la vue de suivi reprend la main
-      {
-        const fakie = (Y.Natural.state.dir || 1) < 0;
-        const back = M.state.yaw + (fakie ? 0 : Math.PI);
-        let da = (back - orbit.az) % (Math.PI * 2);
-        if (da > Math.PI) da -= Math.PI * 2;
-        if (da < -Math.PI) da += Math.PI * 2;
-        const k = Math.min(1, dt * 1.6);
-        orbit.az += da * k;
-        orbit.el += (CHASE.el - orbit.el) * k;
-        orbit.dist += (CHASE.dist - orbit.dist) * k;
-      }
     }
     if (camTween) {
       const e = 1 - Math.exp(-dt * 6);
@@ -1445,7 +1413,7 @@
     window.__ylo = { Y: Y, scene: scene, camera: camera, orbit: orbit, view: view };
 
     Y.Terrain.set("plat");
-    resize(); setView("iso", true); placeCamera(); select(null);
+    resize(); setView("iso"); placeCamera(); select(null);
     boot.hidden = true;
     if (!Y.Geo.ready) flash("Maillages indisponibles : " + Y.Geo.error);
     requestAnimationFrame(tick);

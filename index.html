@@ -970,7 +970,7 @@ window.YLO = window.YLO || {};
     // et c'est la gravité qui fait le va-et-vient. Une transition de 1,20 m
     // ne se « passe » pas comme les rampes des autres terrains : elle se
     // remonte tant qu'on a de la vitesse, et on redescend en marche arrière.
-    { id: "bigramp", name: "Big ramp", maxStep: 0.30, chase: true,
+    { id: "bigramp", name: "Big ramp", maxStep: 0.30,
       desc: "Mini-ramp de 1,20 m de transition, flat de 6,4 m entre les deux courbes. " +
             "À rouler comme du skate : élan, pompe, retour par gravité, saut à la lèvre.",
       boxes: (function () {
@@ -991,7 +991,7 @@ window.YLO = window.YLO || {};
        de roll-in pour un robot de 0,44 m de patte, c'est six fois sa jambe.
        La descente rend environ 6,6 m/s en bas. */
     { id: "megaramp", name: "Mega ramp", maxStep: 0.40,
-      start: [-16.0, 0, 0], chase: true,
+      start: [-16.0, 0, 0],
       desc: "Roll-in droit de 2,60 m, tremplin de 700 mm, gap de 1,00 m, pente de réception, " +
             "puis une transition de 2,60 m. Le robot démarre sur la plateforme de départ.",
       boxes: (function () {
@@ -1032,7 +1032,7 @@ window.YLO = window.YLO || {};
        un rayon plus haut : il faut y descendre à 200 mm là où 250 suffisent
        sur pattes. */
     { id: "megascene", name: "Méga-parcours", maxStep: 0.24,
-      start: [-16.0, 0, 0], chase: true,
+      start: [-16.0, 0, 0],
       zones: [
         { x0: -17.0, x1: -15.0, y0: -1.4, y1: 1.4, z: 2.60, kind: "start" },
         { x0: 27.2 - 1.5, x1: 27.2, y0: -1.8, y1: 1.8, z: 0, kind: "finish" }
@@ -2196,8 +2196,13 @@ window.YLO = window.YLO || {};
   const WHEEL_R = 0.075;                 // rayon de roue (Go2-W : pneus 7")
   /* Ce qu'une roue peut finir par surmonter : pas son rayon, mais ce que sa
      patte peut la poser plus haut. Un Go2-W passe des marches bien plus
-     hautes que ses pneus parce qu'il lève la jambe. Au-delà, c'est un mur. */
-  const WHEEL_CLIMB = 0.30;
+     hautes que ses pneus parce qu'il lève la jambe. Au-delà, c'est un mur.
+     450 mm, c'est la hauteur d'un quarter pipe du skatepark : le robot doit
+     pouvoir l'ENJAMBER, quitte à le faire lentement, comme il le faisait
+     avant qu'on lui apprenne à buter. Un jambage de fenêtre, à 2 m, reste
+     hors de portée — et c'est là toute la différence entre un obstacle et
+     un mur. */
+  const WHEEL_CLIMB = 0.45;
   /* Durée du fondu qui ramène les jambes de la pose de vol à l'appui. */
   const TRICK_FADE = 0.28;
   /* Dessous de caisse : au-delà, un relief ne heurte plus les roues mais le
@@ -2520,7 +2525,8 @@ window.YLO = window.YLO || {};
          catalogue — mais un jambage de fenêtre reste un jambage. */
       const sx = (nat.vx * Math.cos(state.yaw) - nat.vy * Math.sin(state.yaw)) * dt;
       const sy0 = (nat.vx * Math.sin(state.yaw) + nat.vy * Math.cos(state.yaw)) * dt;
-      if (wallBlocks(state, state.px + sx, state.py + sy0, 0.26)) {
+      // le pied franchit au moins ce que la patte peut poser la roue
+      if (wallBlocks(state, state.px + sx, state.py + sy0, WHEEL_CLIMB)) {
         nat.vx = 0; nat.vy = 0;
       } else {
         state.px += sx;
@@ -2796,7 +2802,7 @@ window.YLO = window.YLO || {};
         ? Y.Terrain.jumpAhead(wx, wy, cy * Math.sign(look), sy * Math.sign(look), Math.abs(look))
         : [aheadH - raw, aheadH - raw];
       const jump = Math.abs(ja[0]), spread = Math.abs(ja[1]);
-      if (!nat.wstep[L.id] && jump > WHEEL_R * 0.9 && jump < WHEEL_CLIMB &&
+      if (!nat.wstep[L.id] && jump > WHEEL_R * 0.9 && jump <= WHEEL_CLIMB &&
           jump > 0.55 * spread &&
           stepping < 2 && !nat.wstep[partner] && speedNow < 1.5) {
         const cur = nat.wheelZ[L.id];
@@ -2961,7 +2967,17 @@ window.YLO = window.YLO || {};
        descente elle le rend. C'est tout le principe d'un run de skate — une
        mini-ramp ne se franchit pas, elle se pompe. Le second terme est le
        frottement de roulement, sans lequel le va-et-vient serait perpétuel. */
-    if (nat.freeRoll && !nat.wheelAir) {
+    /* Une patte en train de placer sa roue n'est pas une roue qui grimpe une
+       pente : pendant un franchissement, la gravité le long du relief est
+       suspendue. Sans ça, aborder la face d'un deck de quarter pipe — 450 mm
+       presque à la verticale — renvoyait le robot en arrière à 2 m/s alors
+       même que ses pattes étaient en train de l'enjamber. Il le franchissait
+       avant, il doit le franchir encore.
+
+       Frein tenu : la gravité ne s'applique pas non plus. C'est un frein. */
+    let lifting = 0;
+    Y.LEGS.forEach(function (L) { if (nat.wstep[L.id]) lifting++; });
+    if (nat.freeRoll && !nat.wheelAir && !nat.brake && !lifting) {
       nat.vx += G_ACC * Math.sin(slopePitch) * 0.85 * dt;
       nat.vx -= nat.vx * 0.08 * dt;
       /* POMPAGE. Dans une transition, un skateur ne subit pas la courbe : il
@@ -2982,8 +2998,9 @@ window.YLO = window.YLO || {};
       } else {
         nat.pump = lerp(nat.pump, 0, Math.min(1, dt * 4));
       }
-    } else if (!nat.freeRoll) {
-      nat.pump = 0;
+    } else {
+      // ni en roue libre, ni en l'air, ni frein tenu : rien à pomper
+      nat.pump = nat.freeRoll ? lerp(nat.pump, 0, Math.min(1, dt * 6)) : 0;
     }
     const bankIdeal = Math.atan2(nat.vx * nat.wz, G_ACC);
     // plongée au freinage, cabrage à l'accélération : c'est ce qui donne le poids
@@ -5154,7 +5171,12 @@ window.YLO = window.YLO || {};
   function drive(gas, brk) {
     const rolling = Y.Natural.state.vx * (Y.Natural.state.dir || 1) > 0.05;
     const braking = brk > TRIG && rolling;
-    if (hooks.setBrake) hooks.setBrake(braking);
+    /* Relâcher les DEUX gâchettes freine. Un skateur roule sur son erre, mais
+       un robot qu'on pilote doit s'arrêter quand on lâche tout : sans ça, la
+       moindre pente l'emmène et on passe son temps à le rattraper. Le frein
+       tenu coupe aussi la gravité et le pompage — c'est un frein, il tient. */
+    const idle = gas <= TRIG && brk <= TRIG;
+    if (hooks.setBrake) hooks.setBrake(braking || idle);
     let v = gas > TRIG ? gas * VX_MAX : 0;
     if (brk > TRIG && !rolling) v -= brk * REV_MAX;
     if (hooks.setVx) hooks.setVx(v);
@@ -5385,13 +5407,6 @@ window.YLO = window.YLO || {};
   let dragging = false, lastX = 0, lastY = 0, pinch0 = 0, downAt = null, camTween = null;
   // vitesse de balayage demandée par le stick droit de la manette, en rad/s
   let padLook = null;
-  /* Vue de suivi. Sur les terrains qui sont des PARCOURS, la caméra se tient
-     derrière le robot : c'est la seule vue depuis laquelle on peut lire ce qui
-     arrive. Quand la main s'en mêle, elle rend la main — et elle y revient
-     toute seule, après une seconde et demie sans rien toucher. */
-  const CHASE = { el: 0.16, dist: 3.0, hold: 1.5, back: 6.0 };
-  let manualCam = 0;
-  function grabCam(long) { manualCam = long ? CHASE.back : CHASE.hold; }
   /** Chronomètre du parcours : de la sortie du départ à l'entrée dans l'arrivée. */
   const course = { t: 0, armed: false, running: false, best: 0, done: 0 };
   const pointers = new Map();
@@ -5456,7 +5471,6 @@ window.YLO = window.YLO || {};
     // L'axe vertical est INVERSÉ : tirer vers le haut monte le point de vue,
     // tirer vers le bas descend dessous le robot. C'est le sens qu'attend la
     // main quand on cherche à voir sous la caisse ou à travers une ouverture.
-    grabCam(false);
     orbit.az -= (e.clientX - lastX) * 0.006;
     orbit.el = clamp(orbit.el - (e.clientY - lastY) * 0.005, -0.35, 1.45);
     lastX = e.clientX; lastY = e.clientY;
@@ -5469,7 +5483,6 @@ window.YLO = window.YLO || {};
   canvas.addEventListener("pointercancel", endPointer);
   canvas.addEventListener("wheel", function (e) {
     e.preventDefault();
-    grabCam(false);
     orbit.dist = clamp(orbit.dist * (1 + Math.sign(e.deltaY) * 0.09), 0.45, 6);
   }, { passive: false });
 
@@ -5479,11 +5492,7 @@ window.YLO = window.YLO || {};
     front: { az: 0, el: 0.08, dist: 1.85 },
     top: { az: -Math.PI / 2, el: 1.40, dist: 2.45 }
   };
-  function setView(name, silent) {
-    // Un cadrage demandé explicitement tient plus longtemps qu'un coup de
-    // souris. Au démarrage, en revanche, personne n'a rien demandé : la page
-    // ne doit pas retenir la caméra six secondes avant de suivre le robot.
-    if (!silent) grabCam(true);
+  function setView(name) {
     view.name = name;
     camTween = Object.assign({}, VIEWS[name]);
     document.querySelectorAll("#views button").forEach(function (b) {
@@ -6443,30 +6452,11 @@ window.YLO = window.YLO || {};
     orbit.target.lerp(camTarget, Math.min(1, dt * chase));
     if (padLook && (padLook[0] || padLook[1])) {
       camTween = null;                       // la main reprend sur le cadrage
-      grabCam(false);
       orbit.az -= padLook[0] * dt;
       // Le stick était déjà dans ce sens-là : poussé vers le haut, il monte le
       // point de vue. C'est la souris qui faisait l'inverse ; les deux
       // s'accordent maintenant.
       orbit.el = clamp(orbit.el - padLook[1] * dt, -0.35, 1.45);
-    }
-    /* Retour en vue de suivi. L'azimut vise l'arrière du SENS DE MARCHE et
-       non l'arrière du robot : après un 540 il roule en fakie, et la caméra
-       doit rester devant ce qui arrive, pas derrière ce qu'il regarde. */
-    manualCam = Math.max(0, manualCam - dt);
-    if (Y.Terrain.current.chase && !Y.Session.state.running && manualCam <= 0) {
-      camTween = null;                       // la vue de suivi reprend la main
-      {
-        const fakie = (Y.Natural.state.dir || 1) < 0;
-        const back = M.state.yaw + (fakie ? 0 : Math.PI);
-        let da = (back - orbit.az) % (Math.PI * 2);
-        if (da > Math.PI) da -= Math.PI * 2;
-        if (da < -Math.PI) da += Math.PI * 2;
-        const k = Math.min(1, dt * 1.6);
-        orbit.az += da * k;
-        orbit.el += (CHASE.el - orbit.el) * k;
-        orbit.dist += (CHASE.dist - orbit.dist) * k;
-      }
     }
     if (camTween) {
       const e = 1 - Math.exp(-dt * 6);
@@ -6725,7 +6715,7 @@ window.YLO = window.YLO || {};
     window.__ylo = { Y: Y, scene: scene, camera: camera, orbit: orbit, view: view };
 
     Y.Terrain.set("plat");
-    resize(); setView("iso", true); placeCamera(); select(null);
+    resize(); setView("iso"); placeCamera(); select(null);
     boot.hidden = true;
     if (!Y.Geo.ready) flash("Maillages indisponibles : " + Y.Geo.error);
     requestAnimationFrame(tick);
