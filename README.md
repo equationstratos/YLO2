@@ -583,21 +583,24 @@ mentir sur ce que fait la manette.
 | △ | `H` | Hauteur de caisse : 200, 250, 300 mm |
 | □ | `C` | Cabrage — on roule, on tourne, on change de hauteur pendant la tenue |
 | ○ | `V` | Sur deux roues — idem |
-| Stick gauche ↑ | `↑` | Accélérer (analogique, 0 à 2,2 m/s) |
-| R2 | `↓` | **Marche arrière** (analogique) |
-| L2 | `F` | Freiner |
+| R2 | `↑` | Accélérer (analogique, 0 à 2,2 m/s) |
+| L2 | `↓` | Freiner, **puis marche arrière** une fois arrêté (jusqu'à 1,4 m/s) |
 | L1 | `A` | Double salto arrière |
 | R1 | `E` | 540 McTwist |
 | L1 + R1 **tenus** | `A` + `E` | Pirouette, tant que les deux restent enfoncés |
 | Clic stick gauche | `T` | **Salto arrière enchaîné**, tant qu'on tient |
 | ↑ ↓ ← → | `Z` `S` `Q` `D` | Salto dans la direction de la flèche |
 | flèche ×2 | touche ×2 | **Salto double** dans cette direction |
-| Stick gauche ← → | `← →` | Tourner |
+| Stick gauche | `← →` | Tourner |
 | **Stick droit** | souris | Caméra : azimut et hauteur de prise de vue |
 
-R2 est la marche arrière et non l'accélération : c'est ce qui a été demandé, et
-la poussée en avant est passée sur le stick gauche, qui reste analogique. Les
-deux se dosent, et se contredisent proprement — pousser des deux annule.
+**L2 fait le frein et la marche arrière**, comme la pédale gauche d'un jeu de
+course : tant que le robot avance elle retient, une fois arrêté elle recule.
+Une seule gâchette suffit donc pour les deux sans en voler une autre au
+catalogue de figures. Le sens réel se lit sur la vitesse du robot et non sur la
+consigne : après un 540 il roule en fakie, sa marche avant est inversée, et
+c'est cette marche avant-là que le frein doit retenir. La marche arrière est
+plafonnée à 1,4 m/s — on ne recule pas aussi vite qu'on avance.
 
 La manette passe par l'**API Gamepad** du navigateur, la même sur Ubuntu et sur
 Windows : le système présente la DualShock 4 sous la disposition « standard »,

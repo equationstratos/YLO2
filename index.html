@@ -4143,6 +4143,7 @@ window.YLO = window.YLO || {};
   const DEAD = 0.15;                // zone morte des sticks
   const TRIG = 0.12;                // seuil des gâchettes analogiques
   const VX_MAX = 2.2;               // m/s à fond de R2
+  const REV_MAX = 1.4;              // m/s à fond de L2 : une marche arrière est lente
   const WZ_MAX = 1.4;               // rad/s à fond de stick
   const HEIGHTS = [0.20, 0.25, 0.30];
   const CAM_AZ = 2.2;               // rad/s de balayage à fond de stick droit
@@ -4177,16 +4178,15 @@ window.YLO = window.YLO || {};
     { pad: "△", key: "H", act: "Hauteur de caisse" },
     { pad: "□", key: "C", act: "Cabrage (tenu, on roule)" },
     { pad: "○", key: "V", act: "Deux roues (tenu, on roule)" },
-    { pad: "Stick G ↑", key: "↑", act: "Accélérer" },
-    { pad: "R2", key: "↓", act: "Marche arrière" },
-    { pad: "L2", key: "F", act: "Freiner" },
+    { pad: "R2", key: "↑", act: "Accélérer" },
+    { pad: "L2", key: "↓", act: "Freiner, puis marche arrière" },
     { pad: "L1", key: "A", act: "Double salto arrière" },
     { pad: "R1", key: "E", act: "540 McTwist" },
     { pad: "L1 + R1", key: "A + E", act: "Pirouette (tenue)" },
     { pad: "Clic stick G", key: "T", act: "Salto arrière enchaîné (tenu)" },
     { pad: "↑ ↓ ← →", key: "Z S Q D", act: "Salto dans cette direction" },
     { pad: "flèche ×2", key: "touche ×2", act: "Salto double" },
-    { pad: "Stick G ← →", key: "← →", act: "Tourner" },
+    { pad: "Stick gauche", key: "← →", act: "Tourner" },
     { pad: "Stick D", key: "souris", act: "Caméra" }
   ];
 
@@ -4293,11 +4293,6 @@ window.YLO = window.YLO || {};
   }
 
   function actOn(name, down) {
-    if (name === "l2") {                            // frein : une tenue, pas un appui
-      prev.l2 = down;
-      if (hooks.setBrake) hooks.setBrake(down);
-      return;
-    }
     if (name === "l1" || name === "r1") {
       const was = !!prev[name];
       prev[name] = down;
@@ -4363,17 +4358,12 @@ window.YLO = window.YLO || {};
     const on = function (i) { const x = b[i]; return !!(x && x.pressed); };
 
     Object.keys(PAD).forEach(function (name) {
-      if (name === "r2" || name === "r3") return;
-      actOn(name, name === "l2" ? val(PAD.l2) > TRIG : on(PAD[name]));
+      if (name === "l2" || name === "r2" || name === "r3") return;
+      actOn(name, on(PAD[name]));
     });
 
-    /* Marche : le stick gauche pousse en avant, R2 fait la marche arrière.
-       Les deux sont analogiques — un dosage, pas un tout ou rien. Le frein
-       est passé plus haut, comme une tenue. */
-    const fwd = -(ax[1] || 0);
-    const gas = Math.abs(fwd) > DEAD ? Math.max(0, fwd) : 0;
-    const rev = val(PAD.r2);
-    if (hooks.setVx) hooks.setVx((gas - (rev > TRIG ? rev : 0)) * VX_MAX);
+    // les gâchettes sont analogiques : un dosage, pas un tout ou rien
+    drive(val(PAD.r2), val(PAD.l2));
     const stick = Math.abs(ax[0] || 0) > DEAD ? ax[0] : 0;
     if (hooks.setWz) hooks.setWz(-stick * WZ_MAX);
 
@@ -4386,16 +4376,36 @@ window.YLO = window.YLO || {};
     if (hooks.look) hooks.look(rx * CAM_AZ, ry * CAM_EL);
   }
 
+  /**
+   * Les deux gâchettes : R2 pousse, L2 retient PUIS recule.
+   *
+   * L2 fait les deux parce que c'est la pédale gauche d'un jeu de course :
+   * tant que le robot avance elle freine, et une fois arrêté elle passe la
+   * marche arrière. Une seule gâchette suffit donc pour les deux, sans en
+   * voler une autre au catalogue de figures.
+   *
+   * Le sens réel se lit sur la vitesse du robot, pas sur la consigne : après
+   * un 540 il roule en fakie, sa marche avant est inversée, et c'est cette
+   * marche avant-là que le frein doit retenir.
+   */
+  function drive(gas, brk) {
+    const rolling = Y.Natural.state.vx * (Y.Natural.state.dir || 1) > 0.05;
+    const braking = brk > TRIG && rolling;
+    if (hooks.setBrake) hooks.setBrake(braking);
+    let v = gas > TRIG ? gas * VX_MAX : 0;
+    if (brk > TRIG && !rolling) v -= brk * REV_MAX;
+    if (hooks.setVx) hooks.setVx(v);
+  }
+
   function stepKeys() {
-    const fwd = keys.ArrowUp ? 1 : 0, back = keys.ArrowDown ? 1 : 0;
-    if (hooks.setVx) hooks.setVx((fwd - back) * VX_MAX);
+    drive(keys.ArrowUp ? 1 : 0, keys.ArrowDown ? 1 : 0);
     const turn = (keys.ArrowLeft ? 1 : 0) - (keys.ArrowRight ? 1 : 0);
     if (hooks.setWz) hooks.setWz(turn * WZ_MAX);
   }
 
   const KEYMAP = {
     " ": "cross", h: "triangle", c: "square", v: "circle",
-    a: "l1", e: "r1", f: "l2", t: "l3",
+    a: "l1", e: "r1", t: "l3",
     z: "up", s: "down", q: "left", d: "right"
   };
 
