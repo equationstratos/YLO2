@@ -561,7 +561,9 @@ class TestWheelFigures(unittest.TestCase):
         self.assertIn("backflip", legs.figures())
         wheels = Robot(rate=50, mode="roues")
         self.assertEqual(wheels.figures(),
-                         ["pirouette", "powerslide", "sidestand", "wheeldoubleflip",
+                         ["pirouette", "powerslide", "sidestand",
+                          "wheeldoubleflip", "wheeldoublefrontflip",
+                          "wheeldoublesideflipL", "wheeldoublesideflipR",
                           "wheelflip", "wheelfrontflip", "wheelie", "wheeljump",
                           "wheelsideflipL", "wheelsideflipR", "wheeltwist540"])
         with self.assertRaises(KeyError):

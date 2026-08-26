@@ -70,7 +70,16 @@ select,input[type=text]{font:inherit;color:var(--ink);background:var(--panel-2);
 }
 .rail,.detail{background:var(--panel);overflow:auto;min-height:0}
 .rail{border-right:1px solid var(--line);display:flex;flex-direction:column}
-.detail{border-left:1px solid var(--line)}
+.detail{border-left:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden}
+.detail > #detail{flex:1 1 auto;overflow:auto;min-height:0}
+.phasedock{
+  flex:0 0 auto;border-top:1px solid var(--line);background:var(--panel);
+  padding:12px 16px 14px;
+}
+.phasedock h4{
+  margin:0 0 10px;font-family:var(--mono);font-size:10px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--faint);font-weight:500;
+}
 .stage{position:relative;min-width:0;min-height:0;overflow:hidden;container-type:inline-size;background:
   radial-gradient(120% 90% at 50% 8%, #191E1A 0%, var(--ground) 62%)}
 canvas{position:absolute;inset:0;display:block;width:100%;height:100%;touch-action:none}
@@ -249,6 +258,33 @@ canvas{position:absolute;inset:0;display:block;width:100%;height:100%;touch-acti
 .session:hover{background:#251409}
 .session[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#140B06;font-weight:600}
 .sessionsay{font-family:var(--mono);font-size:10px;letter-spacing:.05em;color:var(--warn)}
+.play{
+  padding:6px 14px;border:1px solid var(--data);border-radius:2px;color:var(--data);
+  font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;
+}
+.play:hover{background:#12211A}
+.play[aria-pressed="true"]{background:var(--data);border-color:var(--data);color:#0A1A15}
+.playsay{font-family:var(--mono);font-size:10px;letter-spacing:.05em;color:var(--data)}
+/* Correspondance des commandes : posée dans la scène, à gauche, pour qu'on
+   l'ait sous les yeux sans quitter le robot du regard. */
+.padmap{
+  /* Sous la ligne d'aide, et volontairement étroit : c'est un aide-mémoire
+     posé au bord de la scène, pas un panneau qui la mange. */
+  position:absolute;left:16px;top:104px;z-index:5;width:246px;
+  background:#121613e0;backdrop-filter:blur(9px);border:1px solid var(--line);
+  border-radius:3px;padding:10px 12px;pointer-events:none;
+}
+.padmap h4{
+  margin:0 0 8px;font-family:var(--mono);font-size:10px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--faint);font-weight:500;
+}
+.padmap table{border-collapse:collapse;width:100%;font-size:10.5px}
+.padmap td{padding:1px 0;vertical-align:top;line-height:1.35}
+.padmap td:first-child{
+  font-family:var(--mono);color:var(--data);white-space:nowrap;padding-right:10px;
+}
+.padmap td:last-child{color:var(--dim)}
+.padnote{margin:8px 0 0;font-size:10px;color:var(--faint);line-height:1.4}
 .stunt[aria-pressed="true"]{background:var(--warn);color:#171203;font-weight:600}
 .flipbar{position:relative;height:3px;background:var(--line);margin-top:8px;border-radius:2px;overflow:hidden;display:none}
 .flipbar.on{display:block}
@@ -319,11 +355,6 @@ input[type=range]::-moz-range-thumb{
   .hud{flex-wrap:nowrap;align-items:flex-end}
   .hud > .card:first-child{flex:1 1 300px;min-width:0}
 }
-@container (max-width:880px){
-  /* Scène étroite : le diagramme d'appui rend ses 180 px aux commandes, qui
-     n'ont alors plus besoin de défiler pour se montrer. */
-  .card-phase{display:none}
-}
 /* Un pourcentage de hauteur ne résout pas contre un parent en hauteur
    automatique : la carte débordait alors par le haut du bandeau. */
 .hud > .card{max-height:min(32vh,256px);overflow-y:auto}
@@ -353,7 +384,6 @@ input[type=range]::-moz-range-thumb{
   .seg button,.tgl button{padding:5px 8px;font-size:10px}
   .hint{display:none}
   .hud{flex-direction:column;flex-wrap:nowrap;align-items:stretch;max-height:42%;overflow-y:auto}
-  .card-phase{display:none}
   .card{padding:9px 11px}
   .sliders,.phase{min-width:0}
   .sl{grid-template-columns:56px 1fr 54px}
@@ -406,6 +436,11 @@ input[type=range]::-moz-range-thumb{
       <div class="readout" id="readout"></div>
       <div class="boot" id="boot">Décodage des maillages<span class="bar2"><i></i></span></div>
 
+      <div class="padmap" id="padmap" hidden>
+        <h4><span id="padmaptitle">Manette</span></h4>
+        <table id="padmaptable"></table>
+        <p class="padnote" id="padnote"></p>
+      </div>
       <div class="hud">
         <div class="card">
           <h4>Allure</h4>
@@ -418,6 +453,14 @@ input[type=range]::-moz-range-thumb{
             </div>
           </div>
           <div class="stylerow scroller" id="stunts"></div>
+          <div class="stylerow" id="playrow">
+            <button class="play" id="play" title="Prendre les commandes : au clavier ou à la manette de PS4">PLAY</button>
+            <div class="seg small" id="playsrc" role="group" aria-label="Source de pilotage">
+              <button data-src="clavier" aria-pressed="true">Clavier</button>
+              <button data-src="manette" aria-pressed="false">Manette</button>
+            </div>
+            <span class="playsay" id="playsay"></span>
+          </div>
           <div class="stylerow" id="sessionrow" hidden>
             <button class="session" id="session" title="Un run complet dans le skatepark : le robot enchaîne les figures là où le relief les appelle, et finit en slide">Session AUTO</button>
             <span class="sessionsay" id="sessionsay"></span>
@@ -442,18 +485,22 @@ input[type=range]::-moz-range-thumb{
             <button class="reset" id="recenter" title="Replace le robot au centre du terrain, à plat">Réinitialiser</button>
           </div>
         </div>
-        <div class="card card-phase">
-          <h4>Diagramme d'appui</h4>
-          <div class="phase" id="phase"></div>
-          <div class="legend">
-            <span><i style="background:var(--stance)"></i>Appui</span>
-            <span><i style="background:var(--swing)"></i>Vol</span>
-          </div>
-        </div>
       </div>
     </div>
 
-    <aside class="detail" id="detail" aria-live="polite"></aside>
+    <aside class="detail">
+      <div id="detail" aria-live="polite"></div>
+      <!-- Le diagramme d'appui vit au bas de la colonne, où il y a de la
+           place : dans le bandeau il prenait 240 px de large à la scène. -->
+      <section class="phasedock">
+        <h4>Diagramme d'appui</h4>
+        <div class="phase" id="phase"></div>
+        <div class="legend">
+          <span><i style="background:var(--stance)"></i>Appui</span>
+          <span><i style="background:var(--swing)"></i>Vol</span>
+        </div>
+      </section>
+    </aside>
   </div>
 </div>
 <input type="file" id="trajFile" accept=".json,application/json" hidden>

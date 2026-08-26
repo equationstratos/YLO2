@@ -497,6 +497,68 @@ qui coûtent des rad/s, pas la translation. Pour le salto, les jambes sont
 figées dans le repère du tronc pendant la rotation, puis ouvertes vers l'appui
 par un fondu — sans quoi le passage vol → sol coûtait 190 rad/s en une image.
 
+## Mode PLAY : clavier ou manette de PS4
+
+Le reste du visualiseur se pilote à la souris, un réglage à la fois. **PLAY**,
+c'est l'inverse : les deux mains sur les commandes, les figures au bout des
+doigts. Bouton **PLAY** dans le bandeau, avec le choix de la source —
+`Clavier` ou `Manette`. La correspondance s'affiche dans la scène pendant tout
+le mode, et elle est **lue depuis le module** : le panneau ne peut donc pas
+mentir sur ce que fait la manette.
+
+| Manette | Clavier | Action |
+| --- | --- | --- |
+| ✕ | `Espace` | Saut — **maintenir arme, lâcher détend** |
+| △ | `H` | Hauteur de caisse : 200, 250, 300 mm |
+| □ | `C` | Cabrage (tenu jusqu'au prochain appui) |
+| ○ | `V` | Sur deux roues (tenu jusqu'au prochain appui) |
+| R2 | `↑` | Accélérer (gâchette analogique : 0 à 2,2 m/s) |
+| L2 | `↓` | Freiner |
+| L1 | `A` | Double salto arrière |
+| R1 | `E` | 540 McTwist |
+| L1 + R1 | `A` + `E` | Pirouette |
+| ↑ ↓ ← → | `Z` `S` `Q` `D` | Salto dans la direction de la flèche |
+| flèche ×2 | touche ×2 | **Salto double** dans cette direction |
+| Stick gauche | `← →` | Tourner |
+
+La manette passe par l'**API Gamepad** du navigateur, la même sur Ubuntu et sur
+Windows : le système présente la DualShock 4 sous la disposition « standard »,
+et c'est cette disposition qu'on lit — croix 0, rond 1, carré 2, triangle 3,
+L1 4, R1 5, L2 6, R2 7, croix directionnelle 12 à 15. Rien à installer, rien de
+spécifique à un système, USB ou Bluetooth indifféremment. Un navigateur ne
+déclare une manette qu'au **premier appui** sur un de ses boutons : tant que
+rien n'a été pressé, `navigator.getGamepads()` la cache. Le panneau le dit
+plutôt que de laisser croire à une panne.
+
+Trois choses ont demandé un peu de soin :
+
+- **deux gestes à deux temps.** Une flèche appuyée deux fois demande le salto
+  double ; on ne peut donc pas lancer le simple au premier appui, il faut
+  laisser sa chance au second. Le simple part **300 ms** plus tard. Même chose
+  pour L1 + R1, à 130 ms. C'est le prix d'un geste à deux temps : sans cette
+  attente, un double salto commencerait toujours par un simple ;
+- **ces deux attentes se comptent à l'horloge**, pas au pas de rendu. Un doigt
+  ne ralentit pas quand la carte graphique peine : sur une machine tombée à
+  huit images par seconde, un pas de rendu plafonné à 50 ms étirait la fenêtre
+  du double appui à plus d'une demi-seconde réelle, et le geste ne répondait
+  plus pareil selon la scène affichée ;
+- **le repos d'une tenue peut être demandé pendant la montée.** Carré et rond
+  sont des interrupteurs : on rappuie pour reposer. Rappuyer trop vite ne
+  faisait rien — la figure n'était pas encore « en tenue » — et le robot
+  restait dressé. Le repos est maintenant mis en attente et part à l'instant
+  précis où la tenue commence. Couper une bascule en cours ferait tomber la
+  caisse : c'est pour ça qu'on attend plutôt que d'interrompre.
+
+Quatre saltos doubles complètent le catalogue pour les doubles flèches —
+avant, arrière, latéral gauche, latéral droit. Tous les quatre prennent la
+même impulsion que le double salto arrière, 4,20 m/s : un tour de plus dans le
+même temps de vol serait invivable pour les genoux. Relevé : vol 0,86 s, apex
+0,90 m, **7,4 à 7,6 rad/s**, aucune butée, réception à plat.
+
+PLAY n'a pas de jumeau Python : la manette est une affaire de navigateur, et
+le simulateur n'a pas de manette. Les quatre figures doubles, elles, sont dans
+les deux moteurs et couvertes par les tests.
+
 ## Simulation Python
 
 Le paquet `sim/` rejoue la chaîne embarquée hors ROS :
@@ -534,12 +596,17 @@ reçoit les consignes. Détails, API et scripts : [`sim/README.md`](sim/README.m
 | `S` | Arrêt (frein en roues) |
 | `F` | Quatrième figure du mode courant |
 | `C` | Replie le bandeau de commandes : scène entièrement dégagée |
+| Bouton **PLAY** | Prendre les commandes au clavier ou à la manette de PS4 |
 | `Échap` | Désélectionner |
 
 Bandeau : vue éclatée (fige la machine et étiquette les sous-ensembles), axes
 articulaires, trajectoires de pieds, polygone de sustentation.
 
 ### La scène d'abord
+
+Le **diagramme d'appui** a quitté le bandeau pour le bas de la colonne de
+droite, où il y avait la place : il prenait 240 px de large à la scène pour
+afficher quatre barres.
 
 Sur un portable, les commandes couvraient la moitié basse de la scène : les
 trois cartes s'empilaient faute de largeur, et le robot passait derrière — 446

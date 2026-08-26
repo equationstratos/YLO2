@@ -675,6 +675,25 @@
       crouch: 0.34, push: 0.20, land: 0.28, recover: 0.44,
       vz: 3.05, crouchZ: 0.70, rollTurns: -1, tuck: 0.18
     },
+    // Les versions doubles : deux tours dans le même envol. Il faut la même
+    // impulsion que le double salto arrière (4,2 m/s) — un tour de plus dans
+    // le même temps de vol serait invivable pour les genoux — donc le même
+    // accroupissement franc, le même groupé serré et la même reprise longue.
+    wheeldoublefrontflip: {
+      label: "Double salto avant", mode: "roues", kind: "flip",
+      crouch: 0.40, push: 0.22, land: 0.28, recover: 0.50,
+      vz: 4.20, crouchZ: 0.66, turns: 2, sense: -1, tuck: 0.16
+    },
+    wheeldoublesideflipL: {
+      label: "Double salto latéral gauche", mode: "roues", kind: "flip",
+      crouch: 0.40, push: 0.22, land: 0.28, recover: 0.50,
+      vz: 4.20, crouchZ: 0.66, rollTurns: 2, tuck: 0.16
+    },
+    wheeldoublesideflipR: {
+      label: "Double salto latéral droit", mode: "roues", kind: "flip",
+      crouch: 0.40, push: 0.22, land: 0.28, recover: 0.50,
+      vz: 4.20, crouchZ: 0.66, rollTurns: -2, tuck: 0.16
+    },
     // Powerslide : la caisse pivote en travers pendant que la quantité de
     // mouvement continue tout droit. Les pneus chassent, le robot s'incline
     // dans le dérapage et s'arrête net — la figure qui clôt une session.
@@ -727,7 +746,8 @@
                 holdQ: null, holdZ: 0, shiftX: 0, shiftY: 0,
                 carry: null, fakie: false, holdT: 0, release: false, prevA: {},
                 entryQ: null, landZ0: null, takeoffZ: null,
-                groundRef: null, entryZ: null, charging: false, chargeT: 0 };
+                groundRef: null, entryZ: null, charging: false, chargeT: 0,
+                wantRelease: false };
 
 
   /**
@@ -1066,6 +1086,14 @@
           run.holdT += dt;
           // tenue maintenue : tant qu'on n'a pas redemandé, le chrono de la
           // figure ne s'écoule pas — le robot reste dressé indéfiniment
+          if (run.wantRelease) {
+            // Repos demandé pendant la MONTÉE : on ne pouvait pas l'honorer
+            // là — couper une bascule en cours ferait tomber la caisse — donc
+            // on l'applique à l'instant précis où la tenue commence.
+            run.wantRelease = false;
+            run.release = true;
+            run.t = f.arm + f.rise + f.hold;
+          }
           if (f.sustain && !run.release) run.t = t2;
           tilt(1, f.angle + Math.sin(run.holdT * 11) * f.wobble);
         } else {
@@ -1390,6 +1418,7 @@
       run.fakie = false; run.holdT = 0; run.release = false; run.landZ0 = null; run.takeoffZ = null;
       run.groundRef = null; run.entryZ = Y.Motion.state.z;
       run.charging = !!charge && f.flight > 0; run.chargeT = 0;
+      run.wantRelease = false;
       // on amorce le limiteur de débattement sur la position réelle des pieds :
       // sinon la première image saute d'un rayon de roue et coûte 57 rad/s
       Y.LEGS.forEach(function (L) {
@@ -1445,7 +1474,7 @@
         });
         Y.Motion.blendFrom(0.3);
       }
-      run.fig = null; run.charging = false; run.chargeT = 0;
+      run.fig = null; run.charging = false; run.chargeT = 0; run.wantRelease = false;
       this.active = null; this.phase = ""; this.progress = 0;
       this.emit();
     },
@@ -1469,9 +1498,16 @@
       return !!(run.fig && run.fig.sustain && !run.release && this.phase === "tenue");
     },
 
-    /** Relâche la tenue : le robot repose ses roues et se stabilise. */
+    /**
+     * Relâche la tenue : le robot repose ses roues et se stabilise.
+     *
+     * Demandé pendant la montée — un second appui rapide sur le bouton — le
+     * repos est mis en attente et part dès que la tenue commence. Sans ça,
+     * rappuyer trop vite ne faisait rien et le robot restait dressé.
+     */
     release: function () {
-      if (!run.fig || !run.fig.sustain || run.release) return false;
+      if (!run.fig || !run.fig.sustain || run.release || run.wantRelease) return false;
+      if (this.phase !== "tenue") { run.wantRelease = true; return true; }
       run.release = true;
       run.t = run.fig.arm + run.fig.rise + run.fig.hold;   // on enchaîne la reprise
       return true;

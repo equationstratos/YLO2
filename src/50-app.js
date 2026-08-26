@@ -793,6 +793,14 @@
     if (M.live.status === "connecté") M.live.send({ gait: k });
   }
 
+  /** Écrit une consigne EN PASSANT PAR LE CURSEUR, pour que l'écran suive. */
+  function setSlider(id, v) {
+    const el = document.getElementById(id);
+    if (!el || Math.abs(parseFloat(el.value) - v) < 1e-4) return;
+    el.value = v;
+    el.dispatchEvent(new Event("input"));
+  }
+
   /** Arrêt franc : remet la consigne à zéro, curseurs compris. */
   function brake() {
     ["sVx", "sWz"].forEach(function (id) {
@@ -872,6 +880,31 @@
     btn.setAttribute("aria-pressed", String(on));
   }
   function closeRail() { openPanel("rail", false); }
+
+  /** Affiche la correspondance des commandes, et l'état de la manette. */
+  function renderPadmap() {
+    const P = Y.Play.state;
+    const box = document.getElementById("padmap");
+    const src = document.querySelector("#playsrc button[aria-pressed=true]");
+    const wanted = P.on ? P.source : (src ? src.dataset.src : "clavier");
+    box.hidden = !P.on;
+    document.getElementById("play").setAttribute("aria-pressed", String(P.on));
+    document.getElementById("playsay").textContent = P.on ? (P.say || "à vous") : "";
+    document.getElementById("padmaptitle").textContent =
+      wanted === "manette" ? "Manette" : "Clavier";
+    document.querySelectorAll("#padmaptable tr").forEach(function (tr, i) {
+      tr.cells[0].textContent = wanted === "manette" ? Y.Play.map[i].pad : Y.Play.map[i].key;
+    });
+    const note = document.getElementById("padnote");
+    if (wanted !== "manette") {
+      note.textContent = "Les raccourcis habituels sont suspendus tant que PLAY tient les commandes.";
+    } else if (P.padName) {
+      note.textContent = "Manette : " + P.padName;
+    } else {
+      note.textContent = "Aucune manette détectée. Branchez-la ou appairez-la, " +
+        "puis appuyez sur un bouton : le navigateur ne la déclare qu'au premier appui.";
+    }
+  }
 
   /** Replie le bandeau de commandes : la scène est alors entièrement dégagée. */
   function toggleHud(force) {
@@ -998,6 +1031,7 @@
 
     M.state.frozen = view.explodeOn;
     if (Y.Session.state.running) Y.Session.step(dt);
+    Y.Play.step(dt);
     M.step(dt);
     if (Y.Session.state.running) followSession(dt);
 
@@ -1203,8 +1237,40 @@
     document.getElementById("btnDetail").addEventListener("click", function () { openPanel("detail"); });
     document.getElementById("btnHud").addEventListener("click", function () { toggleHud(); });
 
+    /* --- mode PLAY : clavier ou manette --- */
+    Y.Play.bind({
+      setVx: function (v) { setSlider("sVx", v.toFixed(2)); },
+      setWz: function (v) { setSlider("sWz", v.toFixed(2)); },
+      setHeight: function (v) { setSlider("sH", v.toFixed(3)); },
+      flash: flash,
+      mode: function (m) { if (M.state.mode !== m) setMode(m); }
+    });
+    // La correspondance vient du module : le panneau ne peut donc pas mentir
+    // sur ce que fait la manette.
+    document.getElementById("padmaptable").innerHTML = Y.Play.map.map(function (r) {
+      return "<tr><td>" + r.pad + "</td><td>" + r.act + "</td></tr>";
+    }).join("");
+    document.getElementById("playsrc").addEventListener("click", function (e) {
+      const b = e.target.closest("button[data-src]"); if (!b) return;
+      document.querySelectorAll("#playsrc button").forEach(function (x) {
+        x.setAttribute("aria-pressed", String(x === b));
+      });
+      if (Y.Play.state.on) Y.Play.start(b.dataset.src);
+      else renderPadmap();
+    });
+    document.getElementById("play").addEventListener("click", function () {
+      if (Y.Play.state.on) { Y.Play.stop(); return; }
+      const src = document.querySelector("#playsrc button[aria-pressed=true]").dataset.src;
+      Y.Play.start(src);
+    });
+    Y.Play.onChange(renderPadmap);
+    renderPadmap();
+
     addEventListener("keydown", function (e) {
-      if (e.target.matches("input, select, textarea")) return;
+      if (e.target && e.target.matches && e.target.matches("input, select, textarea")) return;
+      // PLAY passe en premier : sinon `C` replierait le bandeau au lieu de
+      // cabrer le robot, et les flèches ne piloteraient rien.
+      if (Y.Play.key(e.key, true)) { e.preventDefault(); return; }
       const map = { "1": "iso", "2": "side", "3": "front", "4": "top" };
       if (map[e.key]) setView(map[e.key]);
       if (e.key === "Escape") select(null);
@@ -1226,7 +1292,8 @@
     });
 
     addEventListener("keyup", function (e) {
-      if (e.target.matches("input, select, textarea")) return;
+      if (e.target && e.target.matches && e.target.matches("input, select, textarea")) return;
+      if (Y.Play.key(e.key, false)) { e.preventDefault(); return; }
       if ("bdtfgh".indexOf(e.key.toLowerCase()) >= 0) Y.Stunt.fire();
     });
 

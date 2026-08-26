@@ -117,6 +117,22 @@ WHEEL_FIGURES: Dict[str, WheelFigure] = {
     "wheelsideflipR": WheelFigure("wheelsideflipR", "Salto latéral droit", "flip",
                                   crouch=0.34, push=0.20, land=0.28, recover=0.44,
                                   vz=3.05, crouch_z=0.70, roll_turns=-1.0, tuck=0.18),
+    # Les versions doubles : deux tours dans le même envol. Même impulsion que
+    # le double salto arrière (4,2 m/s) — un tour de plus dans le même temps de
+    # vol serait invivable pour les genoux — donc même accroupissement franc,
+    # même groupé serré, même reprise longue.
+    "wheeldoublefrontflip": WheelFigure("wheeldoublefrontflip", "Double salto avant",
+                                        "flip", crouch=0.40, push=0.22, land=0.28,
+                                        recover=0.50, vz=4.20, crouch_z=0.66,
+                                        turns=2.0, sense=-1, tuck=0.16),
+    "wheeldoublesideflipL": WheelFigure("wheeldoublesideflipL", "Double salto latéral gauche",
+                                        "flip", crouch=0.40, push=0.22, land=0.28,
+                                        recover=0.50, vz=4.20, crouch_z=0.66,
+                                        roll_turns=2.0, tuck=0.16),
+    "wheeldoublesideflipR": WheelFigure("wheeldoublesideflipR", "Double salto latéral droit",
+                                        "flip", crouch=0.40, push=0.22, land=0.28,
+                                        recover=0.50, vz=4.20, crouch_z=0.66,
+                                        roll_turns=-2.0, tuck=0.16),
     # Powerslide : la caisse pivote en travers, la quantité de mouvement
     # continue tout droit, les pneus chassent et le robot s'arrête.
     "powerslide": WheelFigure("powerslide", "Slide", "slide",
