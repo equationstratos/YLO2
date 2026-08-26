@@ -217,8 +217,31 @@ def level_under_wheels(robot) -> float:
     return max(heights) - min(heights)
 
 
-def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
-    """Figure sur roues : hauteur d'axe imposée à chaque roue, caisse pilotée."""
+def _timeline(duration: float, crouch: float, charge: float,
+              dt: float) -> List[float]:
+    """Instants de figure, armement tenu compris.
+
+    Un saut chargé garde l'armement : le chronomètre de la FIGURE s'arrête au
+    bout de l'accroupissement et ne repart qu'au relâchement. Le pas
+    d'intégration, lui, continue de défiler — le robot reste ramassé et
+    continue de rouler, ce qui est tout l'intérêt : on charge en roulant, et
+    on détend où l'on veut.
+    """
+    steps = max(1, round(duration / dt))
+    times = [n * dt for n in range(steps + 1)]
+    if charge <= 0:
+        return times
+    held = max(1, round(charge / dt))
+    cut = next((i for i, t in enumerate(times) if t > crouch), len(times))
+    return times[:cut] + [crouch - 1e-4] * held + times[cut:]
+
+
+def perform_wheels(robot, fig: WheelFigure,
+                   charge_seconds: float = 0.0) -> Dict[str, float]:
+    """Figure sur roues : hauteur d'axe imposée à chaque roue, caisse pilotée.
+
+    `charge_seconds` garde l'armement sous tension avant de détendre.
+    """
     from . import gait as gaitmod
 
     if fig.kind == "tilt":
@@ -358,10 +381,7 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
             robot.contacts[i] = False
 
     robot.pose_mode = "joint"
-    steps = max(1, round(fig.duration / dt))
-
-    for n in range(steps + 1):
-        t = n * dt
+    for t in _timeline(fig.duration, fig.crouch, charge_seconds, dt):
         cy, sy = math.cos(robot.base[5]), math.sin(robot.base[5])
         if carry:
             robot.base[0] += carry[0] * dt
@@ -692,7 +712,7 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
 
     return {
         "figure": fig.label,
-        "duration_s": round(fig.duration, 3),
+        "duration_s": round(fig.duration + charge_seconds, 3),
         "flight_s": round(fig.flight, 3),
         "apex_m": round(fig.apex, 3),
         "takeoff_vz_ms": fig.vz,
@@ -703,15 +723,17 @@ def perform_wheels(robot, fig: WheelFigure) -> Dict[str, float]:
     }
 
 
-def perform(robot, flip: Figure = DEFAULT_FLIP) -> Dict[str, float]:
-    """Exécute la figure sur un robot, en enregistrant chaque pas."""
+def perform(robot, flip: Figure = DEFAULT_FLIP,
+            charge_seconds: float = 0.0) -> Dict[str, float]:
+    """Exécute la figure sur un robot, en enregistrant chaque pas.
+
+    `charge_seconds` garde l'armement sous tension avant de détendre.
+    """
     model = robot.model
     dt = robot.dt
     # +1 salto arrière, -1 salto avant : retourne bascule, poussée et rotation
     sense = flip.sense
     t0 = robot.t
-    steps = max(1, round(flip.duration / dt))
-
     t_crouch = flip.crouch
     t_load = t_crouch + flip.load
     t_push = t_load + flip.push
@@ -766,10 +788,10 @@ def perform(robot, flip: Figure = DEFAULT_FLIP) -> Dict[str, float]:
     takeoff_q: List[float] = []                # pose au décollage, départ du groupé
     yaw0 = robot.base[5]
 
-    for n in range(steps + 1):
-        t = n * dt
+    for t in _timeline(flip.duration, flip.crouch, charge_seconds, dt):
         if t < t_crouch:
-            phases.append("armement")
+            phases.append("chargement" if charge_seconds and t > t_crouch - dt
+                          else "armement")
             s = _smooth(t / t_crouch)
             robot.base[2] = robot.height + (flip.crouch_z - robot.height) * s
             robot.base[4] = 0.06 * sense * s
@@ -844,7 +866,7 @@ def perform(robot, flip: Figure = DEFAULT_FLIP) -> Dict[str, float]:
 
     return {
         "figure": flip.label,
-        "duration_s": round(flip.duration, 3),
+        "duration_s": round(flip.duration + charge_seconds, 3),
         "flight_s": round(flip.flight, 3),
         "apex_m": round(flip.apex, 3),
         "takeoff_vz_ms": flip.vz,

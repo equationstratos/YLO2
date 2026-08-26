@@ -727,11 +727,31 @@
                 holdQ: null, holdZ: 0, shiftX: 0, shiftY: 0,
                 carry: null, fakie: false, holdT: 0, release: false, prevA: {},
                 entryQ: null, landZ0: null, takeoffZ: null,
-                groundRef: null, entryZ: null };
+                groundRef: null, entryZ: null, charging: false, chargeT: 0 };
+
+
+  /**
+   * Respiration de l'armement tenu : 6 mm à 9 rad/s.
+   *
+   * Sans elle, un armement gardé sous tension ne se lit pas comme une
+   * attente mais comme une image bloquée. Elle est prise SUR la consigne de
+   * hauteur, avant la pose : la caisse et les appuis bougent ensemble.
+   */
+  function breathe() {
+    return run.charging ? Math.sin(run.chargeT * 9) * 0.006 : 0;
+  }
 
   function stepFigure(dt, state) {
     const f = run.fig;
     run.t += dt;
+    // Saut chargé : tant que le bouton reste enfoncé, le chronomètre de
+    // figure ne s'écoule plus au bout de l'armement. Le robot reste ramassé,
+    // prêt à détendre — et il continue de rouler ou de marcher, puisque
+    // l'avance ne dépend pas de lui. Le relâchement rend la main au chrono.
+    if (run.charging) {
+      run.chargeT += dt;
+      if (run.t > f.crouch) run.t = f.crouch - 1e-4;
+    }
     const t = run.t;
     const base = run.ground;
 
@@ -787,7 +807,7 @@
     if (t < tCrouch) {
       phase = "armement";
       const s = smooth(t / tCrouch);
-      state.z = lerp(state.height + base, f.crouchZ + base, s);
+      state.z = lerp(state.height + base, f.crouchZ + base, s) + breathe();
       state.pitch = lerp(0, 0.06 * sense, s);
       groundPose(state.z, lerp(0, 0.02 * sense, s));
     } else if (t < tLoad) {
@@ -839,6 +859,7 @@
       groundPose(state.z, lerp(0.015, 0, s));
     }
 
+    if (run.charging) phase = "chargement";
     Y.Stunt.phase = phase;
     Y.Stunt.progress = clamp(t / f.duration, 0, 1);
 
@@ -875,6 +896,13 @@
   function stepWheelFigure(dt, state) {
     const f = run.fig;
     run.t += dt;
+    // Même gel que sur pattes. L'avance libre juste en dessous continue de
+    // faire rouler le robot : c'est ce qui permet de préparer son saut EN
+    // ROULANT, et de ne détendre qu'au moment voulu — sur la lèvre.
+    if (run.charging) {
+      run.chargeT += dt;
+      if (run.t > f.crouch) run.t = f.crouch - 1e-4;
+    }
     const t = run.t;
     const base = run.ground;
     const cy = Math.cos(state.yaw), sy = Math.sin(state.yaw);
@@ -1186,7 +1214,7 @@
       if (t < t1) {
         phase = "armement";
         const s = smooth(t / t1);
-        state.z = bodyZ(lerp(1, f.crouchZ, s));
+        state.z = bodyZ(lerp(1, f.crouchZ, s)) + breathe();
         state.pitch = lerp(0, armPitch, s);
         state.roll = lerp(0, -0.10 * (f.rollTurns || 0), s);
         place(function (L, h) { return h + WHEEL_R; });
@@ -1297,6 +1325,7 @@
       }
     }
 
+    if (run.charging) phase = "chargement";
     Y.Stunt.phase = phase;
     Y.Stunt.progress = clamp(t / f.duration, 0, 1);
 
@@ -1346,7 +1375,12 @@
       return hi - lo;
     },
 
-    start: function (name) {
+    /**
+     * Déclenche une figure. `charge` tient l'armement : la figure se prépare
+     * puis attend `fire()`. Réservé aux figures qui décollent — une tenue ou
+     * une pirouette n'a pas d'armement à garder sous tension.
+     */
+    start: function (name, charge) {
       const f = FIGURES[name];
       if (!f) return false;
       if ((f.mode || "pattes") !== Y.Motion.state.mode) return false;
@@ -1355,6 +1389,7 @@
       run.holdQ = null; run.shiftX = 0; run.shiftY = 0;
       run.fakie = false; run.holdT = 0; run.release = false; run.landZ0 = null; run.takeoffZ = null;
       run.groundRef = null; run.entryZ = Y.Motion.state.z;
+      run.charging = !!charge && f.flight > 0; run.chargeT = 0;
       // on amorce le limiteur de débattement sur la position réelle des pieds :
       // sinon la première image saute d'un rayon de roue et coûte 57 rad/s
       Y.LEGS.forEach(function (L) {
@@ -1410,8 +1445,23 @@
         });
         Y.Motion.blendFrom(0.3);
       }
-      run.fig = null; this.active = null; this.phase = ""; this.progress = 0;
+      run.fig = null; run.charging = false; run.chargeT = 0;
+      this.active = null; this.phase = ""; this.progress = 0;
       this.emit();
+    },
+
+    /** Une figure est-elle armée, en attente qu'on la détende ? */
+    charging: function () { return !!(run.fig && run.charging); },
+
+    /** Temps passé sous tension, en secondes. */
+    chargeTime: function () { return run.fig && run.charging ? run.chargeT : 0; },
+
+    /** Détend l'armement : la poussée part, puis le vol. */
+    fire: function () {
+      if (!run.fig || !run.charging) return false;
+      run.charging = false;
+      this.emit();
+      return true;
     },
 
     /** Une tenue est-elle en cours, en attente qu'on la relâche ? */

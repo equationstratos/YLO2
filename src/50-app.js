@@ -698,7 +698,11 @@
     });
   }
 
-  function launchStunt(name) {
+  /**
+   * Déclenche une figure. `charge` garde l'armement sous tension : le robot
+   * se prépare — et continue de rouler — jusqu'à ce qu'on relâche le bouton.
+   */
+  function launchStunt(name, charge) {
     if (M.state.source !== "internal") {
       flash("Les figures viennent du générateur interne : repassez sur cette source");
       return;
@@ -710,7 +714,7 @@
       Y.Stunt.stop();
       if (same) return;
     }
-    const ok = Y.Stunt.start(name);
+    const ok = Y.Stunt.start(name, charge);
     if (ok === "pente") {
       flash("Tenue impossible ici : les quatre roues ne sont pas de niveau");
       return;
@@ -751,9 +755,21 @@
         : (f.turns ? f.turns + " tour" + (f.turns > 1 ? "s" : "") : "sans rotation") +
           (f.twist ? " + " + (f.twist * 360) + "° de vrille" : "")) +
         (f.sustain ? " · tenue jusqu'au prochain appui sur le bouton"
-         : f.flight ? " · vol " + f.flight.toFixed(2) + " s · apex +" + f.apex.toFixed(2) + " m"
+         : f.flight ? " · vol " + f.flight.toFixed(2) + " s · apex +" + f.apex.toFixed(2) +
+                      " m · appui maintenu : le robot arme son saut en roulant, "
+                      + "et détend au relâchement"
                     : " · " + f.duration.toFixed(1) + " s au sol");
-      b.addEventListener("click", function () { launchStunt(id); });
+      // On garde l'armement tant que le bouton reste enfoncé, puis on
+      // détend au relâchement. Un simple clic reste un simple clic : appui
+      // et relâchement s'enchaînent, la figure part comme avant.
+      b.addEventListener("pointerdown", function (e) {
+        e.preventDefault();
+        b.setPointerCapture && b.setPointerCapture(e.pointerId);
+        launchStunt(id, true);
+      });
+      ["pointerup", "pointercancel"].forEach(function (ev) {
+        b.addEventListener(ev, function () { Y.Stunt.fire(); });
+      });
       row.appendChild(b);
     });
   }
@@ -1128,7 +1144,9 @@
         const on = st.active === b.dataset.stunt;
         b.setAttribute("aria-pressed", String(on));
         const f = Y.Stunt.figures[b.dataset.stunt];
-        b.textContent = on ? (f.sustain ? "Reposer" : "Annuler") : f.label;
+        b.textContent = !on ? f.label
+          : Y.Stunt.charging() ? "Lâchez pour sauter"
+          : f.sustain ? "Reposer" : "Annuler";
       });
       document.getElementById("flipbar").classList.toggle("on", !!st.active);
     });
@@ -1172,16 +1190,23 @@
       if (e.key === "Escape") select(null);
       if (e.key === " ") { e.preventDefault(); setGait(M.state.gait === "stand" ? "trot" : "stand"); }
       if (e.key === "w" || e.key === "W") setMode(M.state.mode === "roues" ? "pattes" : "roues");
+      // Au clavier aussi l'armement se garde : `e.repeat` écarte la
+      // répétition automatique, qui sinon relançait la figure dix fois par
+      // seconde, et le relâchement de la touche détend.
       const figs = Y.Stunt.forMode(M.state.mode);
-      if (e.key === "b" || e.key === "B") launchStunt(figs[0]);
-      if (e.key === "d" || e.key === "D") launchStunt(figs[1]);
-      if (e.key === "t" || e.key === "T") launchStunt(figs[2]);
-      if (e.key === "f" || e.key === "F") launchStunt(figs[3] || figs[0]);
-      if (e.key === "g" || e.key === "G") launchStunt(figs[4]);
-      if (e.key === "h" || e.key === "H") launchStunt(figs[5]);
+      const KEYS = { b: 0, d: 1, t: 2, f: 3, g: 4, h: 5 };
+      const slot = KEYS[e.key.toLowerCase()];
+      if (slot !== undefined && !e.repeat) {
+        launchStunt(slot === 3 ? (figs[3] || figs[0]) : figs[slot], true);
+      }
       if (e.key === "s" || e.key === "S") brake();
       if (e.key === "r" || e.key === "R") recenter();
       if (e.key === "a" || e.key === "A") document.getElementById("session").click();
+    });
+
+    addEventListener("keyup", function (e) {
+      if (e.target.matches("input, select, textarea")) return;
+      if ("bdtfgh".indexOf(e.key.toLowerCase()) >= 0) Y.Stunt.fire();
     });
 
     // changer de source téléporte le robot : on repart d'une trace vierge

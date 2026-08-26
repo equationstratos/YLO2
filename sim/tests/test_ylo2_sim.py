@@ -520,6 +520,42 @@ class TestWheelFigures(unittest.TestCase):
         robot.hold(1.2)                     # le temps que l'assiette se stabilise
         return robot, info
 
+    def test_a_charged_jump_prepares_while_rolling_then_fires(self):
+        """Appui maintenu : le robot s'arme, continue de rouler, puis détend.
+
+        C'est le geste du skate — on charge en roulant et on détend où l'on
+        veut. Le vol doit donc partir plus loin, sans rien coûter aux moteurs.
+        """
+        charged = Robot(rate=200, mode="roues")
+        charged.walk(vx=1.4, seconds=1.5)
+        start = charged.base[0]
+        info = charged.figure("wheeljump", charge_seconds=1.2)
+        charged.hold(1.2)
+
+        plain = Robot(rate=200, mode="roues")
+        plain.walk(vx=1.4, seconds=1.5)
+        plain.figure("wheeljump")
+        plain.hold(1.2)
+
+        # 1,2 s de charge à 1,4 m/s : le robot a parcouru 1,7 m de plus
+        gained = (charged.base[0] - start) - (plain.base[0] - start)
+        self.assertAlmostEqual(gained, 1.4 * 1.2, delta=0.15)
+        self.assertAlmostEqual(info["duration_s"],
+                               stunts.WHEEL_FIGURES["wheeljump"].duration + 1.2,
+                               places=2)
+        report = charged.report()
+        self.assertEqual(report["limit_violations"], {})
+        self.assertLess(report["peak_joint_velocity_rad_s"], DEFAULT.velocity_max)
+        self.assertLess(abs(charged.base[4]), 0.05)            # repose à plat
+
+    def test_only_a_figure_that_leaves_the_ground_can_be_charged(self):
+        """Une tenue ou une pirouette n'a pas d'armement à garder sous tension."""
+        robot = Robot(rate=100, mode="roues")
+        with self.assertRaises(ValueError):
+            robot.figure("wheelie", charge_seconds=0.5)
+        with self.assertRaises(ValueError):
+            robot.figure("pirouette", charge_seconds=0.5)
+
     def test_catalogue_depends_on_the_mode(self):
         legs = Robot(rate=50)
         self.assertIn("backflip", legs.figures())

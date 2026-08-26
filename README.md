@@ -255,6 +255,31 @@ par interpolation à vitesse bornée : c'est ce qui garde les figures dans les
 capacités déclarées des qdd100 (20 rad/s, genou au-dessus de −159°). La caméra
 recule et suit la caisse pendant la figure.
 
+#### Saut chargé : on arme en roulant, on détend quand on veut
+
+**Appui maintenu sur le bouton d'une figure qui décolle** — au doigt, à la
+souris ou à la touche : le robot s'accroupit et **reste ramassé tant que le
+bouton est enfoncé**. Il continue de rouler pendant ce temps ; on relâche, la
+poussée part et le vol s'enchaîne. C'est le geste du skate : on charge dans
+l'élan et on détend sur la lèvre, pas trois mètres avant.
+
+Ce qui est gelé, c'est le **chronomètre de la figure**, pas celui du monde. Au
+bout de l'armement il s'arrête et ne repart qu'au relâchement ; l'avance, elle,
+continue de défiler, puisqu'elle ne dépend pas de lui. Sur roues c'est
+exactement ce qu'il faut — la caisse reste ramassée et le robot roule dessous.
+Une respiration de 6 mm est prise sur la consigne de hauteur, *avant* la pose,
+pour que la caisse et les appuis bougent ensemble : sans elle l'attente ne se
+lit pas comme une attente mais comme une image bloquée.
+
+Un simple clic reste un simple clic : l'appui et le relâchement s'enchaînent,
+la figure part comme avant. Et charger ne coûte rien — salto arrière sans
+charge, chargé 1,0 s, chargé 2,5 s : **18,6 rad/s dans les trois cas**, aucune
+butée. En script : `robot.figure("wheeljump", charge_seconds=1.2)`. À 1,4 m/s
+d'élan, 1,2 s de charge décalent le décollage de 1,68 m.
+
+Réservé aux figures qui décollent : une tenue ou une pirouette n'a pas
+d'armement à garder sous tension, et `charge_seconds` y est refusé.
+
 ## Roues motrices
 
 Bouton **Roues** du bandeau ou touche `W`. La variante s'inspire des
@@ -504,6 +529,7 @@ reçoit les consignes. Détails, API et scripts : [`sim/README.md`](sim/README.m
 | `1` `2` `3` `4` | Iso · profil · face · dessus |
 | `Espace` | Bascule trot / statique |
 | `B` · `D` · `T` | Salto arrière · double salto · 540 McTwist |
+| Touche ou bouton **maintenu** | Le robot arme son saut, en roulant, et détend au relâchement |
 | `W` | Bascule pattes / roues |
 | `S` | Arrêt (frein en roues) |
 | `F` | Quatrième figure du mode courant |

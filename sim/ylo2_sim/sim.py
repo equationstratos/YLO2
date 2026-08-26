@@ -149,13 +149,25 @@ class Robot:
         return sorted(catalogue)
 
     def figure(self, name: str = "backflip",
-               hold_seconds: Optional[float] = None) -> Dict[str, Any]:
+               hold_seconds: Optional[float] = None,
+               charge_seconds: float = 0.0) -> Dict[str, Any]:
         """Figure du mode courant : pattes (saltos) ou roues (cabrage, saut…).
 
         `hold_seconds` allonge la tenue d'un cabrage ou d'une tenue latérale.
         Dans le visualiseur ces deux figures se maintiennent jusqu'au prochain
         appui sur le bouton ; en script, on dit combien de temps on la tient.
+
+        `charge_seconds` garde l'ARMEMENT sous tension : le robot s'accroupit,
+        reste ramassé le temps demandé — en roulant, l'avance ne s'arrête
+        pas — puis détend. Dans le visualiseur c'est l'appui maintenu sur le
+        bouton de la figure ; en script, on dit combien de temps on charge.
+        Réservé aux figures qui décollent.
         """
+        if charge_seconds and not getattr(
+                (stunts.WHEEL_FIGURES if self.mode == "roues"
+                 else stunts.FIGURES).get(name), "flight", 0.0):
+            raise ValueError("charge_seconds ne vaut que pour une figure qui "
+                             "décolle, pas pour %s" % name)
         if self.mode == "roues":
             if name not in stunts.WHEEL_FIGURES:
                 raise KeyError("figure roues inconnue : %s (parmi %s)"
@@ -166,14 +178,14 @@ class Robot:
                     raise ValueError("hold_seconds ne vaut que pour une tenue "
                                      "(cabrage, sidestand), pas pour %s" % name)
                 fig = replace(fig, hold=hold_seconds)
-            info = stunts.perform_wheels(self, fig)
+            info = stunts.perform_wheels(self, fig, charge_seconds)
             self._note("%s : %.2f s" % (info["figure"], info["duration_s"]))
             self.stunt = info
             return info
         if name not in stunts.FIGURES:
             raise KeyError("figure inconnue : %s (parmi %s)"
                            % (name, sorted(stunts.FIGURES)))
-        info = stunts.perform(self, stunts.FIGURES[name])
+        info = stunts.perform(self, stunts.FIGURES[name], charge_seconds)
         self._note("%s : vol %.2f s, apex %.2f m, %.0f° + %.0f° de vrille"
                    % (info["figure"], info["flight_s"], info["apex_m"],
                       info["rotation_deg"], info["twist_deg"]))
