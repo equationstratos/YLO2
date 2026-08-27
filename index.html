@@ -2230,6 +2230,16 @@ window.YLO = window.YLO || {};
      hors de portée — et c'est là toute la différence entre un obstacle et
      un mur. */
   const WHEEL_CLIMB = 0.45;
+  /* Ce qu'une ROUE avale sans qu'une patte s'en mêle, sur l'instant.
+     `WHEEL_CLIMB` dit jusqu'où une patte peut aller CHERCHER une prise ; il ne
+     dit rien de l'endroit où la roue se trouve maintenant. On s'en servait
+     pourtant pour autoriser l'avance, et la roue traversait alors la paroi
+     verticale d'un quarter pipe — 334 mm de pneu dans le béton, le temps que
+     la suspension rattrape les 450 mm. L'avance se juge donc sur la roue :
+     tant qu'elle n'est pas montée au niveau, la caisse ne passe pas. Le robot
+     s'arrête au pied du mur, y pose ses roues avant, et alors seulement il
+     avance — c'est ce que fait un quadrupède devant une marche haute. */
+  const WHEEL_ROLL = WHEEL_R * 0.9;
   /* Durée du fondu qui ramène les jambes de la pose de vol à l'appui. */
   const TRICK_FADE = 0.28;
   /* Dessous de caisse : au-delà, un relief ne heurte plus les roues mais le
@@ -2275,7 +2285,8 @@ window.YLO = window.YLO || {};
     profile: PROFILES.souple,
     vx: 0, vy: 0, wz: 0,
     ax: 0,
-    plant: {}, lift: {}, land: {}, clear: {}, prevFoot: {}, wheelZ: {}, wstep: {}, figAxle: {},
+    plant: {}, lift: {}, land: {}, clear: {}, prevFoot: {}, wheelZ: {}, wstep: {},
+    wfloor: {}, figAxle: {},
     spin: {},                              // angle de roue
     jit: {}, lastPh: {},
     auto: true,
@@ -2298,6 +2309,7 @@ window.YLO = window.YLO || {};
     nat.plant[L.id] = null; nat.lift[L.id] = null; nat.land[L.id] = null;
     nat.clear[L.id] = 0; nat.prevFoot[L.id] = null; nat.wheelZ[L.id] = null;
     nat.wstep[L.id] = null;
+    nat.wfloor[L.id] = null;
     nat.off[L.id] = 0; nat.jit[L.id] = 0; nat.lastPh[L.id] = 0; nat.spin[L.id] = 0;
   });
 
@@ -2785,7 +2797,7 @@ window.YLO = window.YLO || {};
     // En l'air, il n'y a pas de mur à heurter : la caisse passe au-dessus.
     const stepX = nat.vx * Math.cos(state.yaw) * dt;
     const stepY = nat.vx * Math.sin(state.yaw) * dt;
-    if (!nat.wheelAir && wallBlocks(state, state.px + stepX, state.py + stepY, WHEEL_CLIMB)) {
+    if (!nat.wheelAir && wallBlocks(state, state.px + stepX, state.py + stepY, WHEEL_ROLL)) {
       nat.vx = 0;                                  // on bute : l'élan se perd là
     } else {
       state.px += stepX;
@@ -2795,8 +2807,17 @@ window.YLO = window.YLO || {};
     const cy = Math.cos(state.yaw), sy = Math.sin(state.yaw);
     // sur relief, la caisse se redresse pour laisser du débattement ; dans une
     // transition, elle se ramasse — c'est le pompage, et ça se voit
-    const height = state.height * 0.92 * (1 + clamp(nat.rough / 0.25, 0, 1) * 0.22)
-      * (1 - 0.16 * nat.pump);
+    /* Sauf sous un linteau : là on ne se redresse pas, on baisse la tête. Le
+       redressement sur relief sert à garder du débattement ; sous une fenêtre
+       il coûte les 30 mm qui séparent passer de taper — et depuis que
+       franchir l'appui se fait vraiment en levant la patte, le sol y compte
+       comme accidenté et la caisse se redressait juste sous le linteau. */
+    let headroom = Infinity;
+    if (Y.Terrain && Y.Terrain.ceilingAt) {
+      headroom = Y.Terrain.ceilingAt(state.px, state.py, state.z - BODY_TOP) - state.z;
+    }
+    const roughRise = headroom < 0.30 ? 0 : clamp(nat.rough / 0.25, 0, 1) * 0.22;
+    const height = state.height * 0.92 * (1 + roughRise) * (1 - 0.16 * nat.pump);
     let groundZ = 0, grounded = 0, front = 0, rear = 0, left = 0, right = 0;
     let rawAvg = 0;
 
@@ -2828,13 +2849,21 @@ window.YLO = window.YLO || {};
       const ja = Y.Terrain && Y.Terrain.jumpAhead
         ? Y.Terrain.jumpAhead(wx, wy, cy * Math.sign(look), sy * Math.sign(look), Math.abs(look))
         : [aheadH - raw, aheadH - raw];
-      const jump = Math.abs(ja[0]), spread = Math.abs(ja[1]);
+      /* Signé, et non en valeur absolue : une patte se lève pour MONTER. Une
+         marche qui descend, la roue la quitte toute seule — la suspension se
+         détend, c'est son métier. En levant aussi pour descendre, les pattes
+         avant se relançaient sans fin au bord de l'appui d'une fenêtre (elles
+         voient le vide 220 mm devant), les deux places de franchissement
+         restaient prises, et les pattes arrière n'obtenaient jamais la leur :
+         le robot s'arrêtait au milieu de la fenêtre. */
+      const jump = ja[0], spread = Math.abs(ja[1]);
       if (!nat.wstep[L.id] && jump > WHEEL_R * 0.9 && jump <= WHEEL_CLIMB &&
           jump > 0.55 * spread &&
           stepping < 2 && !nat.wstep[partner] && speedNow < 1.5) {
         const cur = nat.wheelZ[L.id];
         nat.wstep[L.id] = { t: 0, dur: 0.34,
           from: (cur === null || cur === undefined) ? raw : cur, to: aheadH };
+        nat.wfloor[L.id] = (cur === null || cur === undefined) ? raw : cur;
         stepping++;
       }
 
@@ -2868,6 +2897,23 @@ window.YLO = window.YLO || {};
         // sans le sinus, tout le dénivelé s'appliquerait dès le premier pas
         const line = lerp(st.from, st.to, smooth(s));
         h = line + (0.055 + Math.max(0, top - Math.max(st.from, st.to))) * Math.sin(Math.PI * s);
+        /* Et jamais sous le sol qui est là MAINTENANT. La marche visée est à
+           220 mm devant ; quand elle est plus basse que l'endroit d'où l'on
+           part — le bord d'un deck, le haut d'une transition —, l'arc plongeait
+           droit dans le béton qu'on n'a pas encore quitté : 260 mm de roue
+           dedans. Une patte qui descend une marche reste sur l'arête tant
+           qu'elle ne l'a pas dépassée.
+           Ce plancher est borné en vitesse, et pas pris brut sur le sol : le
+           sol saute d'un coup au bord d'une marche, et un `max` avec lui
+           faisait sauter la roue avec — 135 rad/s au genou dans un escalier.
+           Une patte ne traverse pas le béton, et elle ne se téléporte pas non
+           plus : c'est la même discipline que la suspension. */
+        const fl0 = nat.wfloor[L.id];
+        const rateF = Math.min(0.55 + Math.abs(nat.vx) * 1.2, 3.0) * dt;
+        const floor = (fl0 === null || fl0 === undefined) ? raw
+          : clamp(raw, fl0 - rateF, fl0 + rateF);
+        nat.wfloor[L.id] = floor;
+        h = Math.max(h, floor);
         contact = s > 0.85;
         if (s >= 1) { nat.wheelZ[L.id] = st.to; nat.wstep[L.id] = null; }
       } else {

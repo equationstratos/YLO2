@@ -114,6 +114,13 @@ def level_to_body(v: Tuple[float, float, float], roll: float, pitch: float,
 # reste hors de portée — et c'est là toute la différence entre un obstacle
 # et un mur.
 WHEEL_CLIMB = 0.45
+# Ce qu'une ROUE avale sans qu'une patte s'en mêle, sur l'instant. WHEEL_CLIMB
+# dit jusqu'où une patte peut aller CHERCHER une prise ; il ne dit rien de
+# l'endroit où la roue se trouve maintenant. On s'en servait pourtant pour
+# autoriser l'avance, et la roue traversait la paroi verticale d'un quarter
+# pipe le temps que la suspension rattrape les 450 mm. L'avance se juge donc
+# sur la roue : tant qu'elle n'est pas montée au niveau, la caisse ne passe pas.
+WHEEL_ROLL = gaitmod.WHEEL_RADIUS * 0.9
 # Dessous de caisse : au-delà, un relief ne heurte plus les roues mais le tronc
 # lui-même, et là il n'y a plus rien à négocier.
 BODY_UNDER = 0.10
@@ -179,6 +186,7 @@ class Natural:
     prev_foot: Dict[str, Tuple[float, float, float]] = field(default_factory=dict)
     wheel_z: Dict[str, Optional[float]] = field(default_factory=dict)
     wstep: Dict[str, Optional[dict]] = field(default_factory=dict)
+    wfloor: Dict[str, Optional[float]] = field(default_factory=dict)
     fig_axle: Dict[str, Optional[float]] = field(default_factory=dict)
     spin: Dict[str, float] = field(default_factory=dict)
     sway: float = 0.0
@@ -589,14 +597,21 @@ class Natural:
         step_x = self.vx * math.cos(robot.base[5]) * dt
         step_y = self.vx * math.sin(robot.base[5]) * dt
         if self._wall_blocks(robot, robot.base[0] + step_x, robot.base[1] + step_y,
-                             WHEEL_CLIMB):
+                             WHEEL_ROLL):
             self.vx = 0.0                    # on bute : l'élan se perd là
         else:
             robot.base[0] += step_x
             robot.base[1] += step_y
 
         cy, sy = math.cos(robot.base[5]), math.sin(robot.base[5])
-        rough_k = min(max(self.rough / 0.25, 0.0), 1.0)
+        # Sauf sous un linteau : là on ne se redresse pas, on baisse la tête. Le
+        # redressement sur relief sert à garder du débattement ; sous une
+        # fenêtre il coûte les 30 mm qui séparent passer de taper — et depuis
+        # que franchir l'appui se fait vraiment en levant la patte, le sol y
+        # compte comme accidenté et la caisse se redressait sous le linteau.
+        headroom = terrain.ceiling_at(robot.base[0], robot.base[1],
+                                      robot.base[2] - BODY_TOP) - robot.base[2]
+        rough_k = 0.0 if headroom < 0.30 else min(max(self.rough / 0.25, 0.0), 1.0)
         height = robot.height * 0.92 * (1 + rough_k * 0.22)
         heights, points, grounded = [], [], []
         partner = {"lf": "rh", "rh": "lf", "rf": "lh", "lh": "rf"}
@@ -626,8 +641,13 @@ class Natural:
             # Au-delà de ce qu'une patte peut poser la roue, ce n'est plus une
             # marche mais un mur : on ne lève pas non plus.
             sgn = 1.0 if look >= 0 else -1.0
+            # Signé, et non en valeur absolue : une patte se lève pour MONTER.
+            # Une marche qui descend, la roue la quitte toute seule. En levant
+            # aussi pour descendre, les pattes avant se relançaient sans fin au
+            # bord de l'appui d'une fenêtre et les pattes arrière n'obtenaient
+            # jamais leur tour.
             jump, spread = terrain.jump_ahead(wx, wy, cy * sgn, sy * sgn, abs(look))
-            jump, spread = abs(jump), abs(spread)
+            spread = abs(spread)
             if (not self.wstep.get(leg.name)
                     and gaitmod.WHEEL_RADIUS * 0.9 < jump <= WHEEL_CLIMB
                     and jump > 0.55 * spread
@@ -636,6 +656,7 @@ class Natural:
                 cur = self.wheel_z[leg.name]
                 self.wstep[leg.name] = {"t": 0.0, "dur": 0.34,
                                         "from": raw if cur is None else cur, "to": ahead_h}
+                self.wfloor[leg.name] = raw if cur is None else cur
                 stepping += 1
 
             st = self.wstep.get(leg.name)
@@ -646,6 +667,22 @@ class Natural:
                 line = st["from"] + (st["to"] - st["from"]) * smoothstep(s_)
                 top = max(st["from"], st["to"])
                 h = line + (0.055 + max(0.0, top - max(st["from"], st["to"]))) * math.sin(math.pi * s_)
+                # Et jamais sous le sol qui est là MAINTENANT. La marche visée
+                # est à 220 mm devant ; quand elle est plus basse que l'endroit
+                # d'où l'on part — le bord d'un deck, le haut d'une transition —,
+                # l'arc plongeait droit dans le béton qu'on n'a pas encore
+                # quitté. Une patte qui descend une marche reste sur l'arête
+                # tant qu'elle ne l'a pas dépassée.
+                # Ce plancher est borné en vitesse, et pas pris brut sur le sol :
+                # le sol saute d'un coup au bord d'une marche, et un max avec lui
+                # faisait sauter la roue avec — 135 rad/s au genou dans un
+                # escalier. Une patte ne traverse pas le béton, et elle ne se
+                # téléporte pas non plus.
+                fl0 = self.wfloor.get(leg.name)
+                rate_f = min(0.55 + abs(self.vx) * 1.2, 3.0) * dt
+                floor = raw if fl0 is None else min(max(raw, fl0 - rate_f), fl0 + rate_f)
+                self.wfloor[leg.name] = floor
+                h = max(h, floor)
                 contact = s_ > 0.85
                 if s_ >= 1.0:
                     self.wheel_z[leg.name] = st["to"]

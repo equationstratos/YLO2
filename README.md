@@ -401,6 +401,52 @@ un bouton, c'est le premier mètre parcouru qui compte — et s'arrête en entra
 dans l'arrivée. Revenir se poser sur le départ remet tout à zéro : on retente
 sans rien réinitialiser, et le meilleur temps est gardé.
 
+### La roue ne traverse plus la paroi
+
+« Les roues du robot passent à travers, surtout les deux rampes du
+skatepark. » Mesuré, c'était exact : **334 mm de pneu dans le béton** sur la
+paroi verticale des deux quarter pipes, et 450 mm en passant sur le deck par
+le haut de la courbe. Trois causes.
+
+**L'avance se jugeait sur ce qu'une patte peut atteindre.** `WHEEL_CLIMB` dit
+jusqu'où une patte va CHERCHER une prise — 450 mm, la hauteur d'un quarter. Il
+ne dit rien de l'endroit où la roue se trouve *maintenant*. En s'en servant
+pour autoriser l'avance, on laissait la caisse entrer dans le mur pendant que
+la suspension mettait une demi-seconde à remonter les 450 mm. L'avance se juge
+donc sur la roue, à un rayon près (`WHEEL_ROLL`, 67 mm) : tant qu'elle n'est
+pas montée au niveau, la caisse ne passe pas. Le robot s'arrête au pied du
+mur, y pose ses roues avant, et alors seulement il avance — relevé image par
+image, la roue avant gauche monte de 0 à 450 mm en 340 ms pendant que la
+caisse n'avance que de 7 cm, puis la caisse monte à son tour.
+
+**Une patte qui descend plongeait dans le sol qu'elle n'avait pas quitté.** La
+marche visée est lue 220 mm devant ; quand elle est plus basse que l'endroit
+d'où l'on part — le bord d'un deck, le haut d'une transition —, l'arc de la
+roue traversait le béton encore sous elle. Il y a maintenant un plancher, et
+il est **borné en vitesse** plutôt que pris brut sur le sol : le sol saute
+d'un coup au bord d'une marche, et un plancher qui saute avec lui coûtait
+135 rad/s au genou dans un escalier.
+
+**Et une patte se levait aussi pour descendre.** Une roue quitte une marche
+descendante toute seule. En levant pour les deux sens, les pattes avant se
+relançaient sans fin au bord de l'appui d'une fenêtre — elles voient le vide
+220 mm devant —, les deux places de franchissement restaient prises et les
+pattes arrière n'obtenaient jamais la leur : le robot s'arrêtait au milieu de
+la fenêtre. Le critère est désormais signé.
+
+Enfoncement maximal sous les quatre roues, à 1 m/s :
+
+| Approche | avant | après |
+|---|---|---|
+| Paroi du quarter x 7,80, roues | 334 mm | **0 mm** |
+| Paroi du quarter x −2,60, roues | 334 mm | **0 mm** |
+| Deck par le haut de la courbe | 450 mm | **0 mm** |
+| Les mêmes, sur pattes | 0 mm | 0 mm |
+
+Les dix cas d'approche du park se franchissent toujours, et sous un linteau la
+caisse ne se redresse plus sur le relief : on baisse la tête, on ne se grandit
+pas.
+
 ### Des faces qui semblaient vides
 
 « J'ai encore des faces à vide. » La géométrie, elle, était pleine : un tir de
