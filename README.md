@@ -401,6 +401,40 @@ un bouton, c'est le premier mètre parcouru qui compte — et s'arrête en entra
 dans l'arrivée. Revenir se poser sur le départ remet tout à zéro : on retente
 sans rien réinitialiser, et le meilleur temps est gardé.
 
+### Des faces qui semblaient vides
+
+« J'ai encore des faces à vide. » La géométrie, elle, était pleine : un tir de
+rayons sur les six faces de chaque volume ne trouve aucun trou, et un rendu à
+plat sur fond magenta ne laisse passer aucun pixel de fond. Ce qu'on voyait
+n'était pas un trou, c'était du béton qui rendait exactement la couleur du
+ciel. Trois causes, toutes dans l'éclairage et le décor.
+
+**Le brouillard était réglé pour le robot seul.** `Fog(4.5, 14)` cadre bien un
+quadrupède de 600 mm posé sur du vide ; sur un terrain, tout ce qui est à plus
+de 14 m se fond dans le fond. La mega scène fait 46 m. La portée se calcule
+maintenant sur l'encombrement du terrain affiché — `Terrain.extent()` donne le
+rayon, et le décor se redimensionne à chaque changement de terrain :
+
+| Terrain | rayon | brouillard |
+|---|---|---|
+| Sol plat | 0,0 m | 4,5 → 14,0 m *(inchangé)* |
+| Skatepark | 9,4 m | 11,1 → 34,7 m |
+| Mega ramp | 18,1 m | 17,2 → 53,7 m |
+| Méga-parcours | 29,8 m | 25,5 → 79,6 m |
+
+**Le sol faisait 40 m.** Le méga-parcours va de −17 à +28 : au-delà de x = 20 le
+terrain flottait littéralement au-dessus de rien. Sol et quadrillage suivent
+désormais la même mesure, avec 10 m de marge autour. La maille reste à 100 et
+500 mm quelle que soit la taille — c'est une règle graduée, pas une texture.
+
+**Et l'ambiance hémisphérique était mal appelée.** `HemisphereLight(ciel, sol,
+intensité)` prend trois arguments ; il n'y en avait que deux, si bien que le
+`0.6` servait de *couleur* de sol — noir — et que l'intensité restait à 1. Une
+face verticale ne recevait donc que la moitié haute de l'ambiance, une face
+tournée vers le bas rien du tout. Le flanc d'une rampe rendait noir, c'est-à-
+dire la couleur du fond : d'où l'impression de face manquante. Le sol de
+l'hémisphère est maintenant un gris de béton réfléchi.
+
 ### Une roue n'est pas un point
 
 « Des fois ça passe à travers. » C'était exact, et il y avait trois causes

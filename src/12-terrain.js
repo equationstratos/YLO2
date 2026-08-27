@@ -451,6 +451,29 @@
     return null;
   }
 
+  /**
+   * Encombrement du terrain courant : ce qu'il faut couvrir pour qu'il n'y
+   * ait pas de vide autour. `radius` est la distance de l'origine au coin le
+   * plus lointain — c'est ce qui règle la portée du brouillard et la taille
+   * du sol.
+   */
+  function extent() {
+    const bs = current.boxes || [];
+    if (!bs.length) return { x0: 0, x1: 0, y0: 0, y1: 0, top: 0, radius: 0 };
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, top = 0;
+    bs.forEach(function (b) {
+      if (b.x0 < x0) x0 = b.x0; if (b.x1 > x1) x1 = b.x1;
+      if (b.y0 < y0) y0 = b.y0; if (b.y1 > y1) y1 = b.y1;
+      if (b.h > top) top = b.h;
+    });
+    const radius = Math.max(
+      Math.hypot(x0, y0), Math.hypot(x0, y1),
+      Math.hypot(x1, y0), Math.hypot(x1, y1));
+    return { x0: x0, x1: x1, y0: y0, y1: y1, top: top, radius: radius };
+  }
+
+  let onChange = null;
+
   function rebuild() {
     while (group.children.length) {
       const m = group.children.pop();
@@ -486,6 +509,7 @@
       plate.receiveShadow = true;
       group.add(plate);
     });
+    if (onChange) onChange(current, extent());
   }
 
   Y.Terrain = {
@@ -513,6 +537,9 @@
       rebuild();
       return true;
     },
-    refresh: rebuild
+    refresh: rebuild,
+    extent: extent,
+    /** Prévenir la scène : le décor autour doit suivre la taille du terrain. */
+    watch: function (fn) { onChange = fn; rebuild(); }
   };
 })(window.YLO);

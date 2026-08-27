@@ -52,7 +52,13 @@
   })();
 
   scene.add(new T.AmbientLight(0xb6c6c2, 0.35));
-  scene.add(new T.HemisphereLight(0x9db4b0, 0.6));
+  /* Trois arguments, pas deux : `HemisphereLight(ciel, sol, intensité)`. En
+     n'en passant que deux, le 0.6 servait de COULEUR de sol — noir — et
+     l'intensité restait à 1. Une face verticale ne recevait donc que la
+     moitié haute de la lumière d'ambiance, et une face tournée vers le bas
+     rien du tout : le flanc d'une rampe rendait noir, indistinguable du fond,
+     et l'obstacle semblait n'avoir pas de face de ce côté-là. */
+  scene.add(new T.HemisphereLight(0x9db4b0, 0x39443f, 0.85));
   const key = new T.DirectionalLight(0xfff0e2, 2.6);
   key.castShadow = true;
   key.shadow.mapSize.set(2048, 2048);
@@ -64,17 +70,51 @@
   const rim = new T.DirectionalLight(0xff8b4d, 0.55); scene.add(rim, rim.target);
   const fill = new T.DirectionalLight(0x9fd8c4, 0.5); fill.position.set(-1, 2.2, 0.6); scene.add(fill);
 
-  const ground = new T.Mesh(new T.PlaneGeometry(40, 40),
-    new T.MeshStandardMaterial({ color: 0x191d1e, roughness: 0.95, metalness: 0 }));
-  ground.receiveShadow = true; ground.position.z = -0.0005; scene.add(ground);
-  const gridFine = new T.GridHelper(40, 400, 0x1d241f, 0x1d241f);
-  const gridCoarse = new T.GridHelper(40, 80, 0x2c3a30, 0x2c3a30);
-  [gridFine, gridCoarse].forEach(function (g) {
-    g.rotation.x = Math.PI / 2; g.material.transparent = true;
-    g.material.opacity = g === gridFine ? 0.32 : 0.6; scene.add(g);
-  });
+  /* --- le décor autour : sol, quadrillage, brouillard ---
+
+     Ces trois-là étaient réglés pour le robot seul sur un sol plat : un sol
+     de 40 m et un brouillard qui ferme à 14 m. Dès qu'on pose un terrain,
+     ça se voit — la mega scène fait 46 m de long, elle débordait du sol, et
+     tout ce qui était au-delà de 14 m se fondait dans le fond. Les faces des
+     obstacles paraissaient alors VIDES : ni matière, ni trou, juste la
+     couleur du ciel à la place du béton. On dimensionne donc le décor sur le
+     terrain qu'on affiche, à chaque changement de terrain. */
+  const groundMat = new T.MeshStandardMaterial({ color: 0x212626, roughness: 0.95, metalness: 0 });
+  let ground = null, gridFine = null, gridCoarse = null, worldSize = 0;
+
+  function fitWorld(cur, ext) {
+    // De quoi couvrir le terrain en entier, avec de la marge autour, et
+    // jamais moins que les 40 m d'origine : sur sol plat rien ne change.
+    const want = Math.max(40, Math.ceil((2 * ext.radius + 10) / 4) * 4);
+    // Le brouillard ferme au-delà du terrain, pas dessus. Sur sol plat
+    // (rayon nul) on retrouve exactement l'ancien réglage, 4,5 m à 14 m :
+    // c'est l'ambiance du banc, et elle n'est pas en cause.
+    const far = Math.min(90, 2.2 * ext.radius + 14);
+    scene.fog.near = far * 0.32;
+    scene.fog.far = far;
+    camera.far = Math.max(100, far * 1.6); camera.updateProjectionMatrix();
+    if (want === worldSize) return;
+    worldSize = want;
+    [ground, gridFine, gridCoarse].forEach(function (m) {
+      if (!m) return;
+      scene.remove(m);
+      if (m.geometry) m.geometry.dispose();
+    });
+    ground = new T.Mesh(new T.PlaneGeometry(want, want), groundMat);
+    ground.receiveShadow = true; ground.position.z = -0.0005; scene.add(ground);
+    // La maille reste la même — 100 mm et 500 mm — quelle que soit la taille :
+    // c'est une règle graduée, pas une texture. On borne quand même le nombre
+    // de traits, un quadrillage fin de 90 m ne se lit plus de toute façon.
+    gridFine = new T.GridHelper(want, Math.min(900, Math.round(want / 0.1)), 0x1d241f, 0x1d241f);
+    gridCoarse = new T.GridHelper(want, Math.round(want / 0.5), 0x2c3a30, 0x2c3a30);
+    [gridFine, gridCoarse].forEach(function (g) {
+      g.rotation.x = Math.PI / 2; g.material.transparent = true;
+      g.material.opacity = g === gridFine ? 0.32 : 0.6; scene.add(g);
+    });
+  }
 
   Y.Terrain.build(scene);
+  Y.Terrain.watch(fitWorld);
 
   /* --- état d'affichage --- */
   const view = { explode: 0, explodeOn: false, axes: false, trace: true,
