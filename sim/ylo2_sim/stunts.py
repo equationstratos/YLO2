@@ -18,6 +18,14 @@ from .natural import constrain, level_to_body, unwrap
 G_ACC = 9.81
 
 # poses articulaires (haa, hfe, kfe) en radians ; haa est reflété par patte
+# Allonge maximale d'une patte, butée de genou comprise : le KFE ne va pas
+# au-delà de -37°, ce qui ferme la patte à 422 mm bien avant les 445 mm de la
+# somme des segments.
+REACH_MAX = math.sqrt(DEFAULT.l1 ** 2 + DEFAULT.l2 ** 2
+                      + 2 * DEFAULT.l1 * DEFAULT.l2 * math.cos(DEFAULT.kfe_max)) - 0.002
+# Salto enchaîné : jusqu'où la patte s'ouvre EN VOL.
+TUMBLE_OPEN = 0.80
+
 POSE: Dict[str, Dict[str, Tuple[float, float, float]]] = {
     "tuck":   {"front": (0.0, 1.55, -2.55), "hind": (0.0, 1.35, -2.60)},
     # Groupé serré, pour le salto enchaîné : le robot s'y met en boule et passe
@@ -63,13 +71,15 @@ class WheelFigure:
     twist: float = 0.0          # tours de lacet (540 McTwist : 1,5)
     cork: float = 0.0           # gîte pendant la vrille (rad)
     lean: float = 0.20
-    # Tumble : allongement de la patte qui POUSSE. 1,18 laissait la hanche
-    # arrière trop près de l'essieu à 74° de cabré, et le genou de la patte
-    # porteuse passait 98 mm sous le sol — le modèle n'a pas de genou
-    # inversé, une patte pliée ne peut que plonger. Tendue, elle reste
-    # alignée sur hanche-essieu et le genou dégage.
-    press: float = 1.85
-    absorb: float = 0.78        # tumble : repli de la patte qui reçoit
+    # Tumble : allongement de la patte qui POUSSE, en fraction de l'ALLONGE
+    # RÉELLE et non de la garde de caisse. Une patte pliée sous une hanche
+    # proche du sol ne peut que plonger — le modèle n'a pas de genou inversé —
+    # et le genou passait 98 mm sous le sol. Tendue, elle reste alignée sur
+    # hanche-essieu. Réglée sur la garde, elle dépendait d'un chiffre sans
+    # rapport : à 200 mm elle n'était plus assez tendue, à 300 mm elle
+    # demandait 510 mm d'allonge, que la butée de genou interdit.
+    press: float = 0.97
+    absorb: float = 0.72        # tumble : repli de la patte qui reçoit
     sustain: bool = False       # tenue : la figure dure tant qu'on commande
     sustain_s: float = 0.0      # spin : durée de vrille tenue en plus
     rear: float = 0.30          # tumble : montée sur l'essieu arrière
@@ -133,8 +143,8 @@ WHEEL_FIGURES: Dict[str, WheelFigure] = {
     # à 1,30 rad (74°) le robot est presque debout sur ses roues arrière, et
     # il ne reste qu'un peu plus de 3,6 rad à faire en l'air.
     "wheeltumble": WheelFigure("wheeltumble", "Salto arrière enchaîné", "tumble",
-                               rear=0.30, over=0.42, plant=0.30, recover=0.40,
-                               lift=1.30, press=1.85, absorb=0.72, sustain=True),
+                               rear=0.30, over=0.42, plant=0.40, recover=0.40,
+                               lift=1.30, press=0.97, absorb=0.72, sustain=True),
     "wheeljump": WheelFigure("wheeljump", "Saut", "jump", crouch=0.30, push=0.16,
                              land=0.26, recover=0.34, vz=2.30, crouch_z=0.80, tuck=0.15),
     # Sauts vrillés : un saut à plat pendant lequel la caisse fait un demi-tour
@@ -678,7 +688,7 @@ def perform_wheels(robot, fig: WheelFigure,
                 """
                 return math.sin(theta) * a + math.cos(theta) * (ell + radius)
 
-            ell_push = ride * fig.press
+            ell_push = REACH_MAX * fig.press
 
             def stand_q(leg, ell: float):
                 """Angles d'appui d'une patte de longueur `ell`."""
@@ -768,7 +778,12 @@ def perform_wheels(robot, fig: WheelFigure,
                     if s < 0.62:
                         pose_from(takeoff_q, "ball", _smooth(s / 0.62))
                     else:
-                        pose_mix("ball", "reach", _smooth((s - 0.62) / 0.38))
+                        # Ouverture BORNÉE : grande ouverte, la patte tendait
+                        # l'essieu 79 mm sous le sol dans la dernière image du
+                        # tour. C'est le poser qui finit de tendre, une fois le
+                        # sol vraiment dessous.
+                        pose_mix("ball", "reach",
+                                 _smooth((s - 0.62) / 0.38) * TUMBLE_OPEN)
                     for leg in model.legs:
                         nat.fig_axle[leg.name] = None
                 else:
@@ -779,7 +794,8 @@ def perform_wheels(robot, fig: WheelFigure,
                     # poser de pièce mécanique — le poids ne se voyait pas.
                     if s < 0.45:
                         k = _smooth(s / 0.45)
-                        ell = ride * (fig.press + (fig.absorb - fig.press) * k)
+                        ell_abs = ride * fig.absorb
+                        ell = ell_push + (ell_abs - ell_push) * k
                     else:
                         k = _smooth((s - 0.45) / 0.55)
                         ell = ride * (fig.absorb + (1.0 - fig.absorb) * k)
@@ -787,7 +803,18 @@ def perform_wheels(robot, fig: WheelFigure,
                     robot.base[2] = g_base + pivot_z(th, model.leg_offset_x, ell)
                     on_now = ((lambda leg: True) if s > 0.97
                               else (lambda leg: leg.front > 0))
-                    tumble_legs(th, ell, on_now, back_from("reach", _smooth(s), ride))
+                    # On repart de l'ouverture RÉELLE de fin de vol, pas de la
+                    # pose grande ouverte : sinon le poser commencerait
+                    # ailleurs que là où le vol s'est arrêté.
+                    def _mid(leg):
+                        a, b = _pose_for(leg, "ball"), _pose_for(leg, "reach")
+                        return [a[j] + (b[j] - a[j]) * TUMBLE_OPEN for j in range(3)]
+
+                    def _back_mid(leg):
+                        a, b = _mid(leg), stand_q(leg, ride)
+                        k = _smooth(s)
+                        return [a[j] + (b[j] - a[j]) * k for j in range(3)]
+                    tumble_legs(th, ell, on_now, _back_mid)
                     # la patte porteuse rejoint son appui depuis l'ouverture :
                     # sans ce fondu, le passage vol -> sol saute de 0,25 rad
                     catch = _smooth(min(1.0, s / 0.22))
@@ -795,7 +822,7 @@ def perform_wheels(robot, fig: WheelFigure,
                     for i, leg in enumerate(model.legs):
                         if not on_now(leg):
                             continue
-                        a, b = _pose_for(leg, "reach"), stand_q(leg, ell)
+                        a, b = _mid(leg), stand_q(leg, ell)
                         q = [a[j] + (b[j] - a[j]) * catch for j in range(3)]
                         unwrap(robot.q, i,
                                [entry_q[i * 3 + j] + (q[j] - entry_q[i * 3 + j]) * e

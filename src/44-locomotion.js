@@ -34,6 +34,23 @@
      s'arrête au pied du mur, y pose ses roues avant, et alors seulement il
      avance — c'est ce que fait un quadrupède devant une marche haute. */
   const WHEEL_ROLL = WHEEL_R * 0.9;
+  /* Allonge maximale d'une patte, butée de genou comprise : le KFE ne va pas
+     au-delà de −37°, ce qui ferme la patte à 422 mm bien avant les 445 mm de
+     la somme des segments. Deux millimètres de marge pour ne pas coller à la
+     butée. */
+  const REACH_MAX = Math.sqrt(K.L1 * K.L1 + K.L2 * K.L2
+    + 2 * K.L1 * K.L2 * Math.cos(K.kfeMax)) - 0.002;
+  /* Salto enchaîné : jusqu'où la patte s'ouvre EN VOL. Grande ouverte, elle
+     tendait l'essieu 79 mm sous le sol dans la dernière image du tour — la
+     patte allait chercher un sol qui était encore derrière elle. On s'arrête
+     avant, et c'est le poser qui finit de tendre, une fois le sol vraiment
+     dessous. */
+  const TUMBLE_OPEN = 0.80;
+  /** Pose intermédiaire entre deux poses du catalogue. */
+  function poseMid(L, p0, p1, k) {
+    const a = poseFor(L, p0), b = poseFor(L, p1);
+    return [0, 1, 2].map(function (i) { return a[i] + (b[i] - a[i]) * k; });
+  }
   /* Durée du fondu qui ramène les jambes de la pose de vol à l'appui. */
   const TRICK_FADE = 0.28;
   /* Dessous de caisse : au-delà, un relief ne heurte plus les roues mais le
@@ -1101,8 +1118,8 @@
        figure du salto roues, où tout le tour se fait pendant le vol. */
     wheeltumble: {
       label: "Salto arrière enchaîné", mode: "roues", kind: "tumble", sustain: true,
-      rear: 0.30, over: 0.42, plant: 0.30, recover: 0.40, lift: 1.30, turns: 1,
-      press: 1.85, absorb: 0.72
+      rear: 0.30, over: 0.42, plant: 0.40, recover: 0.40, lift: 1.30, turns: 1,
+      press: 0.97, absorb: 0.72
     },
     wheeljump: {
       label: "Saut", mode: "roues", kind: "jump",
@@ -1581,8 +1598,13 @@
         // glissement par rapport à la trajectoire « à plat » : en se dressant,
         // le robot se replace réellement au-dessus de son appui
         const sx = fx - ax, sy2 = fy - ay;
-        state.px += cy * (sx - run.shiftX) - sy * (sy2 - run.shiftY);
-        state.py += sy * (sx - run.shiftX) + cy * (sy2 - run.shiftY);
+        if (run.reseat) {
+          // image du changement d'appui : on rebase sans déplacer le robot
+          run.reseat = false;
+        } else {
+          state.px += cy * (sx - run.shiftX) - sy * (sy2 - run.shiftY);
+          state.py += sy * (sx - run.shiftX) + cy * (sy2 - run.shiftY);
+        }
         run.shiftX = sx; run.shiftY = sy2;
         Y.LEGS.forEach(function (L, li) {
           const n = Y.Robot.legs[L.id];
@@ -1634,15 +1656,28 @@
               const k = 1 - smooth(u / 0.5);
               tilt(k, angle0 * k);
             } else {
-              if (run.tiltSide === side) {           // on n'a pas encore basculé
+              /* Le changement de côté ne se fait qu'UNE fois par bascule. La
+                 garde comparait `run.tiltSide` à la copie prise en début
+                 d'image : une fois inversé, l'image suivante relisait la
+                 nouvelle valeur, retrouvait l'égalité et ré-inversait — le
+                 tangage battait d'un signe à l'autre à chaque image et la
+                 caisse descendait sous le sol. */
+              if (!run.swapDone) {
+                run.swapDone = true;
                 run.tiltSide = -side;
                 run.holdT = 0;
+                /* On rebase aussi le limiteur d'essieu et le glissement : la
+                   paire porteuse vient de changer, et l'écart d'un
+                   empattement entre l'ancienne et la nouvelle serait compté
+                   comme un déplacement du robot. */
+                run.prevA = {};
+                run.reseat = true;
               }
               phase = f.axis === "roll" ? "sur l'autre flanc" : "sur les roues avant";
               const k = smooth((u - 0.5) / 0.5);
               tilt(k, f.angle * run.tiltSide * k);
             }
-            if (u >= 1) run.swapT = null;
+            if (u >= 1) { run.swapT = null; run.swapDone = false; }
             if (f.sustain && !run.release) run.t = t2;
           } else {
           // tenue maintenue : tant qu'on n'a pas redemandé, le chrono de la
@@ -1798,7 +1833,14 @@
       const pivotZ = function (theta, a, ell) {
         return Math.sin(theta) * a + Math.cos(theta) * (ell + WHEEL_R);
       };
-      const ellPush = ride * f.press;               // patte tendue : la poussée
+      /* Patte tendue : la poussée, en fraction de l'ALLONGE RÉELLE et non de
+         la garde de caisse. Réglée sur la garde, elle dépendait d'un chiffre
+         qui n'a rien à voir : à 200 mm de garde la patte n'était plus assez
+         tendue et le genou repassait 53 mm sous le sol, à 300 mm elle
+         demandait 510 mm d'allonge — qui n'existent pas, le genou butant à
+         −37° ferme la patte à 422 mm. Se dresser sur son essieu arrière, c'est
+         tendre la patte, quelle que soit la hauteur à laquelle on roulait. */
+      const ellPush = REACH_MAX * f.press;
       const zEdge = pivotZ(-th1, -K.legX, ellPush); // hauteur au décollage
       const vz0 = G_ACC * f.over / 2;               // vol symétrique
 
@@ -1847,6 +1889,14 @@
         return function (L) {
           const a = standQ(L, ell === undefined ? ride : ell);
           const b = poseFor(L, pose);
+          return [0, 1, 2].map(function (i) { return lerp(a[i], b[i], k); });
+        };
+      };
+      /** Mélange de deux poses : la pose intermédiaire de fin de vol. */
+      const backFromMid = function (p0, p1, mix, k, ell) {
+        return function (L) {
+          const a = poseMid(L, p0, p1, mix);
+          const b = standQ(L, ell === undefined ? ride : ell);
           return [0, 1, 2].map(function (i) { return lerp(a[i], b[i], k); });
         };
       };
@@ -1906,7 +1956,7 @@
              sol au trois quarts du tour : la patte allait chercher un sol
              qui n'était pas encore sous elle. */
           if (s < 0.62) poseFromQ(run.takeoffQ, POSE.ball, smooth(s / 0.62));
-          else poseMixQ(POSE.ball, POSE.reach, smooth((s - 0.62) / 0.38));
+          else poseMixQ(POSE.ball, POSE.reach, smooth((s - 0.62) / 0.38) * TUMBLE_OPEN);
           Y.LEGS.forEach(function (L) {
             const n = Y.Robot.legs[L.id];
             if (n.wheel) n.wheel.rotation.y = nat.spin[L.id];
@@ -1919,21 +1969,28 @@
           /* Amorti : la patte qui reçoit se replie à `absorb`, puis rend la
              garde. Sans ce creux, la réception se lisait comme un poser de
              pièce mécanique — le poids ne se voyait nulle part. */
-          const ell = ride * (s < 0.45
-            ? lerp(f.press, f.absorb, smooth(s / 0.45))
-            : lerp(f.absorb, 1, smooth((s - 0.45) / 0.55)));
+          /* La poussée est une LONGUEUR de patte, l'amorti une fraction de la
+             garde : on ne peut pas les mélanger dans un même produit par
+             `ride`, sinon changer la garde de caisse déplace la réception. */
+          const ellAbs = ride * f.absorb;
+          const ell = s < 0.45
+            ? lerp(ellPush, ellAbs, smooth(s / 0.45))
+            : lerp(ellAbs, ride, smooth((s - 0.45) / 0.55));
           state.pitch = th;
           state.z = base + pivotZ(th, K.legX, ell);
           // les pattes de réception viennent de la pose ouverte : on les
           // fond vers l'appui, sinon le passage vol -> sol saute de 0,25 rad
           const catchK = smooth(Math.min(1, s / 0.22));
           const grab = function (L) {
-            const a = poseFor(L, POSE.reach);
+            // On repart de l'ouverture RÉELLE de fin de vol, pas de la pose
+            // grande ouverte : sinon le poser commencerait ailleurs que là où
+            // le vol s'est arrêté.
+            const a = poseMid(L, POSE.ball, POSE.reach, TUMBLE_OPEN);
             const b = standQ(L, ell);
             return [0, 1, 2].map(function (i) { return lerp(a[i], b[i], catchK); });
           };
           const onNow = s > 0.97 ? function () { return true; } : frontOn;
-          tumbleLegs(th, ell, onNow, backFrom(POSE.reach, smooth(s)));
+          tumbleLegs(th, ell, onNow, backFromMid(POSE.ball, POSE.reach, TUMBLE_OPEN, smooth(s)));
           // la patte porteuse rejoint son appui depuis l'ouverture
           Y.LEGS.forEach(function (L, li) {
             if (!onNow(L)) return;
@@ -2261,7 +2318,7 @@
       run.spinA = 0; run.spinW = 0; run.spinHold = false; run.spinTarget = null;
       run.hold = f.kind === "tilt" ? true : !!hold;
       run.tumbleT = 0; run.prevA = {};
-      run.tiltSide = 1; run.swapT = null;
+      run.tiltSide = 1; run.swapT = null; run.swapDone = false; run.reseat = false;
       // on amorce le limiteur de débattement sur la position réelle des pieds :
       // sinon la première image saute d'un rayon de roue et coûte 57 rad/s
       Y.LEGS.forEach(function (L) {

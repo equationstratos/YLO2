@@ -446,13 +446,33 @@ sur un cabrage fait redescendre le robot à plat puis le relève sur ses roues
 **avant** ; garder ○ sur la tenue latérale le fait passer sur l'**autre
 flanc**. Le changement se fait au passage par zéro — le seul instant où les
 quatre roues sont sous le robot, donc le seul où il ne coûte rien — et il
-recommence toutes les 1,6 s tant qu'on tient. Relevé sur cinq secondes de
-maintien :
+recommence toutes les 1,6 s tant qu'on tient.
+
+Le premier jet coinçait à la transition, puis partait en vrille. Trois causes,
+toutes dans le changement d'appui :
+
+- **Le côté se ré-inversait à chaque image.** La garde comparait le côté
+  courant à la copie prise en début d'image ; une fois inversé, l'image
+  suivante relisait la nouvelle valeur, retrouvait l'égalité et ré-inversait.
+  Le tangage battait d'un signe à l'autre — −0,1°, +2,1°, −6,2°, +11,9°,
+  −19°, +27° — et la caisse descendait jusqu'à **89 mm sous le sol**.
+- **Le glissement n'était pas rebasé.** Le déplacement du robot se mesure par
+  rapport à la paire porteuse ; en changeant de paire, l'écart d'un
+  empattement était compté comme un déplacement et le téléportait.
+- **Le limiteur d'essieu gardait la mémoire de l'ancien rôle**, et traînait
+  les pattes qui venaient de changer de camp.
+
+Après correction, relevé sur six secondes de maintien :
 
 ```
-Cabrage      0,90 s tenue à −83°  ·  2,50 s retour à plat  ·  3,20 s tenue à +83°
-Sur 2 roues  1,00 s tenue à +80°  ·  2,60 s retour à plat  ·  3,30 s tenue à −80°
+Cabrage      tenue −83°  ·  retour à plat  ·  tenue +84°  ·  retour  ·  tenue −84°
+Sur 2 roues  tenue +80°  ·  retour à plat  ·  tenue −79°  ·  retour  ·  tenue +79°
+caisse 0,277…0,415 m — jamais sous le sol · roue enfoncée 0 mm
+pic articulaire 6,5 rad/s (cabrage) et 4,1 (tenue latérale), contre 15,0 et 10,6
 ```
+
+Le simulateur Python n'a rien à porter ici : il joue des figures de durée fixe
+et n'a pas de tenue infinie, donc pas de bascule à faire.
 
 **Tourner en armant le saut fait pivoter le robot.** Un corps qui quitte le sol
 en pivotant garde son moment cinétique : le robot part avec la rotation qu'on
@@ -476,11 +496,28 @@ Les pattes libres, elles, se groupent désormais **à fond et en boule** (pose
 `ball`, genou à −155°) et n'ouvrent qu'aux deux tiers du tour au lieu de 42 % :
 ouvrir tôt envoyait l'essieu chercher un sol qui n'était pas encore sous lui.
 
+Restait le moyeu : il passait encore **79 mm sous le sol** dans la dernière
+image du tour — pas à cause de la patte pliée, mais de la patte **grande
+ouverte**, qui allait chercher un sol encore derrière elle. L'ouverture en vol
+s'arrête donc à 80 % (`TUMBLE_OPEN`), et c'est le poser qui finit de tendre,
+une fois le sol vraiment dessous.
+
+Et la poussée se mesure désormais en fraction de l'**allonge réelle** de la
+patte, pas de la garde de caisse — deux chiffres sans rapport. Réglée sur la
+garde, elle donnait un résultat différent à chaque hauteur : à 200 mm la patte
+n'était plus assez tendue et le genou repassait 53 mm sous le sol, à 300 mm
+elle demandait 510 mm d'allonge, que la butée de genou interdit (le KFE
+s'arrête à −37°, ce qui ferme la patte à 420 mm). Se dresser sur son essieu
+arrière, c'est tendre la patte — quelle que soit la hauteur à laquelle on
+roulait.
+
 | | avant | après |
 |---|---|---|
-| Genou le plus bas | −98 mm | **+27 mm** |
-| Moyeu le plus bas | −50 mm | −4 mm |
-| Pic articulaire | 17,1 rad/s | 18,7 rad/s (butée 20) |
+| Genou le plus bas | −98 mm | **+23 mm** |
+| Moyeu le plus bas | −50 mm | **+20 mm** |
+| Point métallique le plus bas | −77 mm | **+4 mm** |
+| Pic articulaire | 17,1 rad/s | 12,4 rad/s |
+| Écart entre gardes 200/250/300 mm | −53 à +26 mm | identique |
 
 L'amorti de réception a été rendu (`absorb` 0,78 → 0,72) pour que la caisse
 creuse toujours ses 22 mm sous la garde au poser : sans ça, la patte tendue

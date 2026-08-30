@@ -110,7 +110,7 @@
     { act: "roll", to: 6.30, v: 2.2, say: "on reprend de l'élan" },
     { act: "air", ids: ["sideL"], v: 1.7, say: "salto latéral gauche en l'air" },
     { act: "roll", to: 6.30, v: 2.2, say: "on reprend de l'élan" },
-    { act: "air", ids: ["sideR"], v: 1.7, say: "salto latéral droit en l'air" },
+    { act: "air", ids: ["sideR"], v: 1.5, say: "salto latéral droit en l'air" },
     { act: "roll", to: 6.30, v: 2.2, say: "on reprend de l'élan" },
     { act: "air", ids: ["spin360"], v: 2.1, say: "360 en l'air" },
     { act: "roll", to: 6.30, v: 2.2, say: "on reprend de l'élan" },
