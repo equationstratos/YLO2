@@ -435,9 +435,33 @@ chronomètre décidait à la place du pilote :
 | Appui long | flanc **gauche**, −80° | roues **avant**, +82° |
 | Appui bref en tenue | repose, quel que soit le côté levé | idem |
 
-Le geste se juge à la **durée** (0,38 s) et non au relâchement : décider à la
-levée du doigt ferait attendre le robot, alors qu'on veut le voir passer d'un
-appui à l'autre pendant qu'on appuie.
+Le geste se juge à la **durée** (0,22 s) et non au relâchement : décider à la
+levée du doigt ferait attendre le robot, alors qu'on veut le voir partir
+pendant qu'on appuie.
+
+Et un appui long va **directement** sur l'autre paire : il ne passe plus par la
+première pour basculer ensuite. Le seuil est réglé SOUS la durée d'armement de
+la bascule (0,30 s) — tant que le robot se ramasse, les quatre roues au sol, le
+côté n'est pas engagé et on peut le désigner. Relevé de l'angle toutes les
+0,15 s, appui long sur ○ :
+
+```
+0°  0°  −0°  −10°  −33°  −58°  −76°  −81°  −82°   ← il part du bon côté d'emblée
+```
+
+La bascule d'un appui à l'autre reste disponible pour un appui long qui
+arriverait après l'armement : là, le robot est déjà dressé, il redescend et
+remonte de l'autre côté.
+
+**Un saut vrillé garde sa trajectoire.** Un 180 ou un 360 pris en roulant
+partait en arc de cercle : l'avance suivait le cap, qui tournait. Un corps en
+l'air va tout droit quoi que fasse son orientation — le robot emporte donc sa
+vitesse, comme le faisait déjà le McTwist. Mesuré à 1,5 et 2,5 m/s : **0 mm**
+d'écart latéral, contre plusieurs dizaines de centimètres.
+
+**La pirouette repart dans l'autre sens à chaque fois.** Tourner toujours du
+même côté finit par dévisser le robot dans un coin du parc, et un skateur
+alterne naturellement. Quatre lancements successifs : 540°, −540°, 540°, −540°.
 
 **Le cap répond dès le contact.** Après un 180 ou un 360, la réception et la
 stabilisation gardaient le cap figé : on posait la figure, on demandait de

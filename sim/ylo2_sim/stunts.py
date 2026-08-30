@@ -351,7 +351,10 @@ def perform_wheels(robot, fig: WheelFigure,
     # Pendant une vrille, c'est la quantité de mouvement qui porte le robot en
     # ligne droite — pas son cap, qui tourne sous lui.
     carry_v = ([nat.vx * math.cos(yaw0), nat.vx * math.sin(yaw0)]
-               if (fig.twist or fig.kind == "slide") else None)
+               # Un saut vrillé emporte lui aussi sa vitesse : sans elle,
+               # l'avance suivrait le cap et un 180 pris en roulant partirait
+               # en arc de cercle. Un corps en l'air va tout droit.
+               if (fig.twist or fig.spin_turns or fig.kind == "slide") else None)
     carry = carry_v
     fakie = [False]
     land_z0 = [None]

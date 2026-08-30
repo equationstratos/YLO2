@@ -46,6 +46,8 @@
      avant, et c'est le poser qui finit de tendre, une fois le sol vraiment
      dessous. */
   const TUMBLE_OPEN = 0.80;
+  /* Sens de la prochaine pirouette : il s'inverse à chaque lancement. */
+  let spinTurn = 1;
   /** Pose intermédiaire entre deux poses du catalogue. */
   function poseMid(L, p0, p1, k) {
     const a = poseFor(L, p0), b = poseFor(L, p1);
@@ -1744,7 +1746,7 @@
         phase = "appui";
         const s = smooth(t / t1);
         state.z = base + ride * (1 - 0.10 * s) + WHEEL_R;
-        state.roll = lerp(0, f.lean * 0.4, s);
+        state.roll = lerp(0, f.lean * 0.4 * (run.spinDir || 1), s);
         run.spinA = 0; run.spinW = 0;
       } else if (t < t2) {
         phase = "vrille";
@@ -1768,18 +1770,18 @@
           if (run.spinW < 0.05 && left < 0.02) { run.spinW = 0; run.spinA = run.spinTarget; }
         }
         run.spinA += run.spinW * dt;
-        state.yaw = run.yaw0 + run.spinA;
+        state.yaw = run.yaw0 + run.spinA * (run.spinDir || 1);
         nat.wz = run.spinW;
         const s = clamp(run.spinW / wMax, 0, 1);
-        state.roll = f.lean * s;
+        state.roll = f.lean * s * (run.spinDir || 1);
         state.z = base + ride * (1 - 0.10 * s) + WHEEL_R;
         // le chrono ne franchit la fin de la vrille qu'une fois arrêté
         run.spinHold = run.spinW > 0.02 || run.spinA < 0.2;
       } else {
         phase = "stabilisation";
         const s = smooth((t - t2) / f.settle);
-        state.yaw = run.yaw0 + run.spinA;
-        state.roll = lerp(f.lean * 0.2, 0, s);
+        state.yaw = run.yaw0 + run.spinA * (run.spinDir || 1);
+        state.roll = lerp(f.lean * 0.2 * (run.spinDir || 1), 0, s);
         state.z = base + ride * (0.90 + 0.10 * s) + WHEEL_R;
         nat.wz = lerp(nat.wz, 0, Math.min(1, dt * 6));
       }
@@ -2272,7 +2274,7 @@
 
     if (run.t >= f.duration) {
       state.pitch = 0; state.roll = 0;
-      if (f.kind === "spin") { state.yaw = run.yaw0 + run.spinA; nat.wz = 0; }
+      if (f.kind === "spin") { state.yaw = run.yaw0 + run.spinA * (run.spinDir || 1); nat.wz = 0; }
       if (f.kind === "slide") { state.yaw = run.yaw0 + f.yawSweep * (f.side || 1); nat.vx = 0; }
       if (f.twist) state.yaw = run.yaw0 + 2 * Math.PI * f.twist;
       if (f.spinTurns) state.yaw = run.yaw0 + 2 * Math.PI * f.spinTurns;
@@ -2340,6 +2342,10 @@
       run.charging = !!charge && f.flight > 0 && f.kind !== "tumble"; run.chargeT = 0;
       run.wantRelease = false;
       run.spinA = 0; run.spinW = 0; run.spinHold = false; run.spinTarget = null;
+      /* Une pirouette repart dans l'AUTRE sens à chaque fois qu'on la
+         relance : tourner toujours du même côté finit par dévisser le robot
+         d'un coin du parc, et un skateur alterne naturellement. */
+      if (f.kind === "spin") { run.spinDir = spinTurn; spinTurn = -spinTurn; }
       run.hold = f.kind === "tilt" ? true : !!hold;
       run.tumbleT = 0; run.prevA = {};
       run.tiltSide = 1; run.swapT = null; run.swapDone = false; run.reseat = false;
@@ -2351,7 +2357,12 @@
         n.foot.getWorldPosition(n.world);
         nat.figAxle[L.id] = n.world.z - Y.Motion.state.z;
       });
-      run.carry = (f.twist || f.kind === "slide")
+      /* Vitesse EMPORTÉE : le robot continue dans la direction où il allait
+         pendant que sa caisse tourne. Sans elle, l'avance suivait le cap, et
+         un 180 ou un 360 pris en roulant partait en arc de cercle — le robot
+         finissait deux mètres à côté de sa ligne. Un corps en l'air va tout
+         droit, quoi que fasse son orientation. */
+      run.carry = (f.twist || f.spinTurns || f.kind === "slide")
         ? [nat.vx * Math.cos(Y.Motion.state.yaw), nat.vx * Math.sin(Y.Motion.state.yaw)]
         : null;
       run.yaw0 = Y.Motion.state.yaw;
@@ -2440,6 +2451,21 @@
      * C'est le bouton qui décide, pas un chronomètre : un appui bref pose le
      * robot d'un côté, le même bouton gardé enfoncé l'envoie de l'autre.
      */
+    /**
+     * Choisir le côté d'appui AVANT que la bascule ne commence.
+     *
+     * Tant que le robot est sur son armement — il se ramasse, les quatre roues
+     * au sol —, le côté n'est pas encore engagé : on peut le désigner sans
+     * rien casser. C'est ce qui permet à un appui long d'aller DIRECTEMENT sur
+     * l'autre paire au lieu de passer par la première puis de basculer.
+     */
+    setSide: function (side) {
+      if (!run.fig || run.fig.kind !== "tilt") return false;
+      if (run.t >= run.fig.arm) return false;             // la bascule est lancée
+      run.tiltSide = side < 0 ? -1 : 1;
+      return true;
+    },
+
     swapSide: function () {
       if (!run.fig || run.fig.kind !== "tilt" || !run.fig.swap) return false;
       if (run.release || run.swapT !== null || run.wantSwap) return false;

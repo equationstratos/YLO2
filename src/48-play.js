@@ -38,7 +38,11 @@
   "use strict";
 
   const DOUBLE_S = 0.30;            // fenêtre du double appui sur une flèche
-  const LONG_S = 0.38;              // au-delà, un appui de tenue est « long »
+  /* Au-delà, un appui de tenue est « long ». Réglé SOUS la durée d'armement
+     de la bascule (0,30 s) : tant que le robot se ramasse, les quatre roues au
+     sol, le côté n'est pas engagé et on peut le désigner directement. Un appui
+     long va donc sur l'autre paire d'emblée, sans passer par la première. */
+  const LONG_S = 0.22;
   const SOLO_S = 0.40;              // au-delà, une épaule seule tenue part quand même
   const DEAD = 0.15;                // zone morte des sticks
   const TRIG = 0.12;                // seuil des gâchettes analogiques
@@ -359,7 +363,10 @@
       if (Y.Stunt.active !== id) { held[name] = 0; return; }
       if (now() - held[name] < LONG_S) return;
       held[name] = 0;
-      if (Y.Stunt.swapSide()) {
+      /* Pendant l'armement, on DÉSIGNE le côté — le robot part directement sur
+         l'autre paire. Passé l'armement, il est déjà dressé : il ne reste que
+         la bascule, qui le fait redescendre et remonter de l'autre côté. */
+      if (Y.Stunt.setSide(-1) || Y.Stunt.swapSide()) {
         say(id === "wheelie" ? "Sur les roues avant" : "Sur l'autre flanc");
       }
     });
