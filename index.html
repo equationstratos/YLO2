@@ -2331,6 +2331,15 @@ window.YLO = window.YLO || {};
   const TUMBLE_OPEN = 0.80;
   /* Sens de la prochaine pirouette : il s'inverse à chaque lancement. */
   let spinTurn = 1;
+  /* Vrille CONSERVÉE dans une tenue : le robot passe de la pirouette au
+     cabrage ou à l'équilibre sans cesser de tourner. Plafonnée plus bas que
+     la pirouette libre — on ne tient pas dix radians par seconde en équilibre
+     sur deux roues — et freinée dès qu'on lâche. */
+  const TWIRL_MAX = 5.0;            // rad/s tenus en tenue
+  const TWIRL_RAMP = 7.0;           // rad/s² de mise en route et de freinage
+  /* Saut sur place depuis une tenue : une détente courte, verticale, qui ne
+     change ni l'assiette ni l'appui — le robot saute DANS sa position. */
+  const HOP_VZ = 1.55;
   /** Pose intermédiaire entre deux poses du catalogue. */
   function poseMid(L, p0, p1, k) {
     const a = poseFor(L, p0), b = poseFor(L, p1);
@@ -3786,6 +3795,28 @@ window.YLO = window.YLO || {};
 
     if (f.kind === "tilt") {
       const t1 = f.arm, t2 = t1 + f.rise, t3 = t2 + f.hold;
+
+      /* --- vrille conservée --- La pirouette passe le relais à la tenue : le
+         robot bascule sur deux roues et continue de tourner sur lui-même.
+         C'est une vitesse, pas un angle paramétré : elle se tient tant qu'on
+         garde les épaules, et elle se freine proprement quand on lâche. */
+      const wantW = run.twirlHold
+        ? Math.sign(run.twirlW || 1) * Math.min(Math.abs(run.twirlW) || TWIRL_MAX, TWIRL_MAX)
+        : 0;
+      run.twirlW = approach(run.twirlW, wantW, TWIRL_RAMP, dt);
+      if (Math.abs(run.twirlW) > 1e-4) state.yaw += run.twirlW * dt;
+
+      /* --- saut sur place --- Une détente verticale qui ne touche ni à
+         l'assiette ni à l'appui : le robot quitte le sol DANS sa position,
+         cabré ou sur le flanc, et y retombe. On l'ajoute au sol de référence
+         plutôt qu'à la hauteur de caisse : tout ce qui en découle — les
+         essieux, les traces d'appui — monte alors avec lui. */
+      if (run.hop) {
+        run.hop.t += dt;
+        const z = run.hop.v * run.hop.t - 0.5 * G_ACC * run.hop.t * run.hop.t;
+        if (z <= 0 && run.hop.t > 0.04) { run.hop = null; run.hopZ = 0; }
+        else run.hopZ = Math.max(0, z);
+      } else run.hopZ = 0;
       /* Essieux qui restent au sol : l'arrière pour le cabrage, le côté droit
          pour la tenue latérale — et l'AUTRE paire quand la figure a basculé.
          Tenir longtemps fait passer le robot sur ses deux autres roues : du
@@ -3813,6 +3844,7 @@ window.YLO = window.YLO || {};
         run.ground = lerp(run.ground, gh / gn, Math.min(1, dt * 6));
         base = run.ground;
       }
+      base += run.hopZ;                            // le saut soulève tout l'ensemble
       /* Hauteur de caisse pilotable en tenue : le repliement de la patte
          porteuse suit la consigne, exactement comme à plat. Les bornes
          gardent l'essieu dans l'enveloppe de la patte. */
@@ -3910,8 +3942,22 @@ window.YLO = window.YLO || {};
         phase = "charge";
         const sc = smooth(t / t1);
         state.z = base + ride * (1 - 0.12 * sc) + WHEEL_R;
-        state.pitch = 0; state.roll = 0;
+        /* Fondu d'entrée. On n'arrive pas toujours du repos : enchaîner une
+           pirouette sur une tenue, c'est passer d'une caisse gîtée et de
+           pattes en pose de vrille à un appui à plat. Sans fondu, ce passage
+           coûtait 22 rad/s en une image — la moitié de plus que la butée. */
+        const e = smooth(clamp(t / 0.18, 0, 1));
+        state.pitch = lerp(run.entryPitch, 0, e);
+        state.roll = lerp(run.entryRoll, 0, e);
         place(function (L, h) { return h + WHEEL_R; });
+        if (e < 1) {
+          Y.LEGS.forEach(function (L, li) {
+            const n = Y.Robot.legs[L.id];
+            assign(n, [0, 1, 2].map(function (i) {
+              return lerp(run.entryQ[li * 3 + i], n.q[i], e);
+            }));
+          });
+        }
       } else {
         if (!run.holdQ) {                           // on fige la pose une fois
           run.holdQ = captureQ();
@@ -4622,6 +4668,7 @@ window.YLO = window.YLO || {};
       run.holdQ = null; run.shiftX = 0; run.shiftY = 0;
       run.fakie = false; run.holdT = 0; run.release = false; run.landZ0 = null; run.takeoffZ = null;
       run.groundRef = null; run.entryZ = Y.Motion.state.z;
+      run.entryRoll = Y.Motion.state.roll; run.entryPitch = Y.Motion.state.pitch;
       run.charging = !!charge && f.flight > 0 && f.kind !== "tumble"; run.chargeT = 0;
       run.wantRelease = false;
       run.spinA = 0; run.spinW = 0; run.spinHold = false; run.spinTarget = null;
@@ -4633,6 +4680,7 @@ window.YLO = window.YLO || {};
       run.tumbleT = 0; run.prevA = {};
       run.tiltSide = 1; run.swapT = null; run.swapDone = false; run.reseat = false;
       run.wantSwap = false; run.freeYaw = 0;
+      run.twirlW = 0; run.twirlHold = false; run.hop = null; run.hopZ = 0;
       // on amorce le limiteur de débattement sur la position réelle des pieds :
       // sinon la première image saute d'un rayon de roue et coûte 57 rad/s
       Y.LEGS.forEach(function (L) {
@@ -4742,6 +4790,48 @@ window.YLO = window.YLO || {};
      * rien casser. C'est ce qui permet à un appui long d'aller DIRECTEMENT sur
      * l'autre paire au lieu de passer par la première puis de basculer.
      */
+    /**
+     * Passer d'une pirouette à une tenue SANS cesser de tourner.
+     *
+     * Les trois figures ne se disputaient qu'un seul emplacement : demander
+     * un cabrage pendant une vrille arrêtait la vrille. Elles n'agissent
+     * pourtant pas sur les mêmes choses — la vrille sur le lacet, la tenue
+     * sur l'assiette et l'appui, le saut sur la hauteur. La tenue devient
+     * donc la figure, et la vrille son modificateur : on lui passe la vitesse
+     * de rotation du moment, et elle continue.
+     */
+    chain: function (id) {
+      const f = FIGURES[id];
+      if (!f || f.kind !== "tilt") return false;
+      if (!run.fig || run.fig.kind !== "spin") return false;
+      const w = run.spinW * (run.spinDir || 1);
+      const ok = this.start(id);
+      if (!ok || ok === "pente") return ok;
+      run.twirlW = w;
+      run.twirlHold = true;
+      return ok;
+    },
+    /** Vrille conservée : en cours ? */
+    twirling: function () { return !!run.fig && run.fig.kind === "tilt" && Math.abs(run.twirlW) > 0.15; },
+    /** Lâcher la vrille conservée : elle freine et s'arrête. */
+    twirlRelease: function () { run.twirlHold = false; },
+
+    /**
+     * Sauter SUR PLACE depuis une tenue, sans quitter la position.
+     *
+     * Une détente verticale courte : le robot part cabré ou sur le flanc, et
+     * y retombe. C'est le troisième étage de l'enchaînement — vrille, tenue,
+     * saut — et rien n'oblige à les défaire pour les combiner.
+     */
+    hop: function () {
+      if (!run.fig || run.fig.kind !== "tilt" || run.hop) return false;
+      if (run.t < run.fig.arm) return false;             // pas avant d'être dressé
+      run.hop = { t: 0, v: HOP_VZ };
+      return true;
+    },
+    /** Saut sur place en cours ? */
+    hopping: function () { return !!run.hop; },
+
     setSide: function (side) {
       if (!run.fig || run.fig.kind !== "tilt") return false;
       if (run.t >= run.fig.arm) return false;             // la bascule est lancée
@@ -5725,6 +5815,8 @@ window.YLO = window.YLO || {};
     { pad: "L1", key: "A", act: "Double salto arrière" },
     { pad: "R1", key: "E", act: "540 McTwist" },
     { pad: "L1 + R1", key: "A + E", act: "Pirouette / 360 en l'air" },
+    { pad: "□ ○ pendant", key: "C V pendant", act: "…passe en tenue SANS cesser de tourner" },
+    { pad: "✕ en tenue", key: "Espace en tenue", act: "Saut sur place, dans la position" },
     { pad: "Clic stick G", key: "T", act: "Salto arrière enchaîné (tenu)" },
     { pad: "Clic stick D", key: "R", act: "Saut 180" },
     { pad: "Clic stick D ×2", key: "R ×2", act: "Saut 360" },
@@ -5795,6 +5887,17 @@ window.YLO = window.YLO || {};
       // rien et le robot restait dressé.
       if (Y.Stunt.active === id && f.sustain && Y.Stunt.release()) {
         say(f.label + " — repos");
+        return;
+      }
+      /* Une pirouette qu'on prolonge en tenue : le robot bascule sur deux
+         roues SANS cesser de tourner. C'est le seul enchaînement où deux
+         figures se superposent au lieu de se remplacer — elles n'agissent
+         pas sur les mêmes choses, l'une sur le lacet, l'autre sur l'assiette
+         et l'appui. */
+      if (Y.Stunt.active === "pirouette" && f.kind === "tilt") {
+        const done = Y.Stunt.chain(id);
+        if (done === "pente") { say("Sol non plat : tenue refusée"); return; }
+        if (done) say(f.label + " en tournant");
         return;
       }
       return;                        // une figure à la fois
@@ -5894,6 +5997,8 @@ window.YLO = window.YLO || {};
       if (down || !was) return;
       // Front descendant : le premier relâchement arrête la pirouette.
       if (Y.Stunt.active === "pirouette") { Y.Stunt.release(); return; }
+      // vrille passée à une tenue : lâcher les épaules la freine
+      if (Y.Stunt.twirling()) { Y.Stunt.twirlRelease(); return; }
       // Sinon c'était un appui bref sur une seule épaule : sa figure part
       // maintenant, au relâchement.
       if (waitBoth && waitBoth.side === side) { waitBoth = null; shoulderSolo(side); }
@@ -5914,8 +6019,14 @@ window.YLO = window.YLO || {};
       // la manette détendrait aussi un saut armé depuis le bandeau.
       const was = !!prev.cross;
       prev.cross = down;
-      if (down && !was) fire("wheeljump", true);
-      else if (!down && was) Y.Stunt.fire();
+      if (down && !was) {
+        /* En tenue, la croix ne relance pas un saut au sol : elle fait sauter
+           le robot SUR PLACE, dans sa position. Cabré ou sur le flanc, il
+           quitte le sol et y retombe sans rien défaire — c'est le troisième
+           étage de l'enchaînement vrille + tenue + saut. */
+        if (Y.Stunt.hop()) { say("Saut en position"); return; }
+        fire("wheeljump", true);
+      } else if (!down && was) Y.Stunt.fire();
       return;
     }
     /* Carré et rond : appui BREF d'un côté, appui LONG de l'autre.

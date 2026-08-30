@@ -423,6 +423,45 @@ et la roue entière rendait claire. Le moyeu a désormais sa propre matière,
 éditable comme les autres. Les anciens réglages restent disponibles sous le thème
 « Atelier », et le nouveau défaut a son thème « Officiel ».
 
+### Vrille + tenue + saut, en même temps
+
+Les figures se disputaient un seul emplacement : demander un cabrage pendant
+une pirouette arrêtait la pirouette. Elles n'agissent pourtant pas sur les
+mêmes choses — la vrille sur le lacet, la tenue sur l'assiette et l'appui, le
+saut sur la hauteur. La tenue devient donc **la figure**, et les deux autres
+ses **modificateurs**.
+
+L'enchaînement, relevé image par image :
+
+```
+L1+R1 tenus            pirouette · vrille    cap  336°  roll  11°  z 0,282
+puis ○                 deux roues · tenue    cap 1438°  roll  79°  z 0,375  VRILLE
+puis ✕                 deux roues · tenue    cap 1583°  roll  82°  z 0,480  VRILLE SAUT
+retombée               deux roues · tenue    cap 1892°  roll  82°  z 0,375  VRILLE
+épaules lâchées        deux roues · tenue    cap 2251°  roll  82°  z 0,375
+○ bref                 aucune                cap 2314°  roll   0°  z 0,305
+```
+
+Le robot bascule sur deux roues **sans cesser de tourner**, saute **dans sa
+position** — cabré ou sur le flanc — et y retombe, et on peut sauter autant de
+fois qu'on veut. Pareil avec □ pour le cabrage. Lâcher les épaules freine la
+vrille sans défaire la tenue ; un appui bref repose le robot.
+
+- **La vrille conservée** est une vitesse, pas un angle paramétré : elle se
+  tient tant qu'on garde les épaules et se freine proprement au lâcher. Elle
+  est plafonnée à 5 rad/s là où la pirouette libre monte à 9,8 — on ne tient
+  pas dix radians par seconde en équilibre sur deux roues.
+- **Le saut sur place** s'ajoute au *sol de référence* et non à la hauteur de
+  caisse : tout ce qui en découle — essieux, points d'appui — monte avec lui,
+  et le saut ne coûte donc rien aux articulations (0,0 rad/s).
+- **Le fondu d'entrée** était le prix à payer : passer d'une caisse gîtée et de
+  pattes en pose de vrille à un appui à plat coûtait **22 rad/s en une image**,
+  la moitié de plus que la butée. Une entrée fondue sur 180 ms ramène ce
+  passage à **2,1 rad/s**.
+
+Le simulateur Python n'a rien à porter ici non plus : il joue une figure à la
+fois, de durée fixe, et n'a pas de pirouette tenue d'où enchaîner.
+
 ### Le bouton décide du côté, et le salto roule vraiment
 
 **Bref d'un côté, long de l'autre, bref pour reposer.** La bascule ne change

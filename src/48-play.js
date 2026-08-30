@@ -136,6 +136,8 @@
     { pad: "L1", key: "A", act: "Double salto arrière" },
     { pad: "R1", key: "E", act: "540 McTwist" },
     { pad: "L1 + R1", key: "A + E", act: "Pirouette / 360 en l'air" },
+    { pad: "□ ○ pendant", key: "C V pendant", act: "…passe en tenue SANS cesser de tourner" },
+    { pad: "✕ en tenue", key: "Espace en tenue", act: "Saut sur place, dans la position" },
     { pad: "Clic stick G", key: "T", act: "Salto arrière enchaîné (tenu)" },
     { pad: "Clic stick D", key: "R", act: "Saut 180" },
     { pad: "Clic stick D ×2", key: "R ×2", act: "Saut 360" },
@@ -206,6 +208,17 @@
       // rien et le robot restait dressé.
       if (Y.Stunt.active === id && f.sustain && Y.Stunt.release()) {
         say(f.label + " — repos");
+        return;
+      }
+      /* Une pirouette qu'on prolonge en tenue : le robot bascule sur deux
+         roues SANS cesser de tourner. C'est le seul enchaînement où deux
+         figures se superposent au lieu de se remplacer — elles n'agissent
+         pas sur les mêmes choses, l'une sur le lacet, l'autre sur l'assiette
+         et l'appui. */
+      if (Y.Stunt.active === "pirouette" && f.kind === "tilt") {
+        const done = Y.Stunt.chain(id);
+        if (done === "pente") { say("Sol non plat : tenue refusée"); return; }
+        if (done) say(f.label + " en tournant");
         return;
       }
       return;                        // une figure à la fois
@@ -305,6 +318,8 @@
       if (down || !was) return;
       // Front descendant : le premier relâchement arrête la pirouette.
       if (Y.Stunt.active === "pirouette") { Y.Stunt.release(); return; }
+      // vrille passée à une tenue : lâcher les épaules la freine
+      if (Y.Stunt.twirling()) { Y.Stunt.twirlRelease(); return; }
       // Sinon c'était un appui bref sur une seule épaule : sa figure part
       // maintenant, au relâchement.
       if (waitBoth && waitBoth.side === side) { waitBoth = null; shoulderSolo(side); }
@@ -325,8 +340,14 @@
       // la manette détendrait aussi un saut armé depuis le bandeau.
       const was = !!prev.cross;
       prev.cross = down;
-      if (down && !was) fire("wheeljump", true);
-      else if (!down && was) Y.Stunt.fire();
+      if (down && !was) {
+        /* En tenue, la croix ne relance pas un saut au sol : elle fait sauter
+           le robot SUR PLACE, dans sa position. Cabré ou sur le flanc, il
+           quitte le sol et y retombe sans rien défaire — c'est le troisième
+           étage de l'enchaînement vrille + tenue + saut. */
+        if (Y.Stunt.hop()) { say("Saut en position"); return; }
+        fire("wheeljump", true);
+      } else if (!down && was) Y.Stunt.fire();
       return;
     }
     /* Carré et rond : appui BREF d'un côté, appui LONG de l'autre.
