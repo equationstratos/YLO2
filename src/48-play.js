@@ -70,14 +70,14 @@
     standard: {
       label: "disposition standard",
       button: { cross: 0, circle: 1, square: 2, triangle: 3, l1: 4, r1: 5, l3: 10,
-                up: 12, down: 13, left: 14, right: 15 },
+                r3: 11, up: 12, down: 13, left: 14, right: 15 },
       trigger: { l2: { btn: 6 }, r2: { btn: 7 } },
       stick: { lx: 0, rx: 2, ry: 3 },
       hat: -1
     },
     sony: {
       label: "disposition Sony brute",
-      button: { square: 0, cross: 1, circle: 2, triangle: 3, l1: 4, r1: 5, l3: 10 },
+      button: { square: 0, cross: 1, circle: 2, triangle: 3, l1: 4, r1: 5, l3: 10, r3: 11 },
       // en HID brut, les gâchettes sont analogiques sur des axes, à plat en -1
       trigger: { l2: { axis: 3 }, r2: { axis: 4 } },
       stick: { lx: 0, rx: 2, ry: 5 },
@@ -109,7 +109,11 @@
     up:    { one: "wheelfrontflip", two: "wheeldoublefrontflip" },
     down:  { one: "wheelflip", two: "wheeldoubleflip" },
     left:  { one: "wheelsideflipL", two: "wheeldoublesideflipL" },
-    right: { one: "wheelsideflipR", two: "wheeldoublesideflipR" }
+    right: { one: "wheelsideflipR", two: "wheeldoublesideflipR" },
+    /* Le clic du stick DROIT donne les sauts vrillés : une fois le 180, deux
+       fois le 360. Même geste que les saltos — un appui, la figure simple ;
+       deux, la double — donc rien de nouveau à apprendre. */
+    r3:    { one: "wheeljump180", two: "wheeljump360" }
   };
 
   /**
@@ -118,16 +122,18 @@
    * pas de panneau qui ment sur ce que fait la manette.
    */
   const MAP = [
-    { pad: "✕", key: "Espace", act: "Saut — tenir arme, lâcher détend" },
+    { pad: "✕", key: "Espace", act: "Saut — tenir arme, lâcher détend ; tourner en armant fait pivoter" },
     { pad: "△", key: "H", act: "Hauteur de caisse" },
-    { pad: "□", key: "C", act: "Cabrage (tenu, on roule)" },
-    { pad: "○", key: "V", act: "Deux roues (tenu, on roule)" },
+    { pad: "□", key: "C", act: "Cabrage — tenu, il passe sur les roues avant" },
+    { pad: "○", key: "V", act: "Deux roues — tenu, il passe sur l'autre flanc" },
     { pad: "R2", key: "↑", act: "Accélérer" },
     { pad: "L2", key: "↓", act: "Freiner, puis marche arrière" },
     { pad: "L1", key: "A", act: "Double salto arrière" },
     { pad: "R1", key: "E", act: "540 McTwist" },
     { pad: "L1 + R1", key: "A + E", act: "Pirouette / 360 en l'air" },
     { pad: "Clic stick G", key: "T", act: "Salto arrière enchaîné (tenu)" },
+    { pad: "Clic stick D", key: "R", act: "Saut 180" },
+    { pad: "Clic stick D ×2", key: "R ×2", act: "Saut 360" },
     { pad: "↑ ↓ ← →", key: "Z S Q D", act: "Salto dans cette direction" },
     { pad: "flèche ×2", key: "touche ×2", act: "Salto double" },
     { pad: "— en l'air —", key: "— en l'air —", act: "les mêmes touches font tourner le vol" },
@@ -376,7 +382,7 @@
       ["up", "down", "left", "right"].forEach(function (d) { dpad[d] = on(d); });
     }
 
-    ["cross", "circle", "square", "triangle", "l1", "r1", "l3"]
+    ["cross", "circle", "square", "triangle", "l1", "r1", "l3", "r3"]
       .forEach(function (name) { actOn(name, on(name)); });
     ["up", "down", "left", "right"].forEach(function (d) { actOn(d, dpad[d]); });
 
@@ -462,7 +468,7 @@
 
   const KEYMAP = {
     " ": "cross", h: "triangle", c: "square", v: "circle",
-    a: "l1", e: "r1", t: "l3",
+    a: "l1", e: "r1", t: "l3", r: "r3",
     z: "up", s: "down", q: "left", d: "right"
   };
 

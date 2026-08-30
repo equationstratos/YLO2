@@ -423,6 +423,69 @@ et la roue entière rendait claire. Le moyeu a désormais sa propre matière,
 éditable comme les autres. Les anciens réglages restent disponibles sous le thème
 « Atelier », et le nouveau défaut a son thème « Officiel ».
 
+### Sauts vrillés, bascule sur l'autre paire, et un salto qui roule
+
+**Deux sauts vrillés.** `Saut 180` et `Saut 360` : un saut à plat pendant lequel
+la caisse fait un demi-tour ou un tour complet autour de la verticale. Les
+roues restent sous le robot — c'est le *shove-it* du skate, pas un salto. Le
+180 retombe en **fakie**, comme le 540 : le robot repart roues à l'envers.
+Mesuré sur sol plat :
+
+| Figure | cap | apex | sens à la réception | pic articulaire |
+|---|---|---|---|---|
+| Saut | 0° | 0,62 m | avant | 10,9 rad/s |
+| Saut 180 | 180,0° | 0,62 m | **fakie** | 10,9 rad/s |
+| Saut 360 | 360,0° | 0,72 m | avant | 10,6 rad/s |
+
+Ils se prennent au **clic du stick droit** : une fois le 180, deux fois le 360
+— le même geste que les saltos, où un appui donne la figure simple et deux la
+double. Au clavier, `R` et `R ×2`.
+
+**Tenir la bascule fait passer sur l'autre paire de roues.** Garder □ enfoncé
+sur un cabrage fait redescendre le robot à plat puis le relève sur ses roues
+**avant** ; garder ○ sur la tenue latérale le fait passer sur l'**autre
+flanc**. Le changement se fait au passage par zéro — le seul instant où les
+quatre roues sont sous le robot, donc le seul où il ne coûte rien — et il
+recommence toutes les 1,6 s tant qu'on tient. Relevé sur cinq secondes de
+maintien :
+
+```
+Cabrage      0,90 s tenue à −83°  ·  2,50 s retour à plat  ·  3,20 s tenue à +83°
+Sur 2 roues  1,00 s tenue à +80°  ·  2,60 s retour à plat  ·  3,30 s tenue à −80°
+```
+
+**Tourner en armant le saut fait pivoter le robot.** Un corps qui quitte le sol
+en pivotant garde son moment cinétique : le robot part avec la rotation qu'on
+lui a donnée pendant l'armement et la **garde tant que le stick est tenu**. On
+choisit donc son angle de réception au stick plutôt que dans un catalogue :
+
+```
+armement 0,5 s, stick lâché au décollage   →  34°
+armement 1,5 s, stick lâché au décollage   → 103°
+armement 1,5 s, stick gardé                → 201°
+armement 3,0 s, stick gardé                → 304°
+```
+
+**Le salto enchaîné ne traîne plus ses genoux.** Le genou de la patte arrière
+porteuse passait **98 mm sous le sol** au moment où la caisse se dresse à 74°.
+Ce n'était pas la faute des pattes libres : le modèle n'a pas de genou inversé
+(course KFE −159°…−37°), donc une patte pliée sous une hanche proche du sol ne
+peut que plonger. La correction est de **tendre** la patte qui pousse —
+`press` passe de 1,18 à 1,85 — pour qu'elle reste alignée sur hanche-essieu.
+Les pattes libres, elles, se groupent désormais **à fond et en boule** (pose
+`ball`, genou à −155°) et n'ouvrent qu'aux deux tiers du tour au lieu de 42 % :
+ouvrir tôt envoyait l'essieu chercher un sol qui n'était pas encore sous lui.
+
+| | avant | après |
+|---|---|---|
+| Genou le plus bas | −98 mm | **+27 mm** |
+| Moyeu le plus bas | −50 mm | −4 mm |
+| Pic articulaire | 17,1 rad/s | 18,7 rad/s (butée 20) |
+
+L'amorti de réception a été rendu (`absorb` 0,78 → 0,72) pour que la caisse
+creuse toujours ses 22 mm sous la garde au poser : sans ça, la patte tendue
+faisait atterrir le robot comme une pièce mécanique.
+
 ### Enregistrer son run, le rejouer, l'envoyer
 
 Quatre boutons à côté de **Session AUTO**, en mode roues : **Enregistrer**,

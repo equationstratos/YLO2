@@ -731,6 +731,7 @@ class TestWheelFigures(unittest.TestCase):
                           "wheeldoubleflip", "wheeldoublefrontflip",
                           "wheeldoublesideflipL", "wheeldoublesideflipR",
                           "wheelflip", "wheelfrontflip", "wheelie", "wheeljump",
+                          "wheeljump180", "wheeljump360",
                           "wheelsideflipL", "wheelsideflipR", "wheeltumble",
                           "wheeltwist540"])
         with self.assertRaises(KeyError):

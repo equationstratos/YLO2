@@ -982,6 +982,11 @@
      ===================================================================== */
   const POSE = {
     tuck:  { front: [0, 1.55, -2.55], hind: [0, 1.35, -2.60] },
+    /* Groupé serré, pour le salto enchaîné : genou à −155°, quatre degrés au-
+       dessus de la butée de l'URDF (−159°). Le robot s'y met en boule et
+       passe SUR ses roues au lieu de traîner ses genoux — c'est ce qui fait
+       lire le mouvement comme une roue plutôt que comme une reptation. */
+    ball:  { front: [0, 1.88, -2.70], hind: [0, 1.73, -2.70] },
     pike:  { front: [0, 1.70, -2.35], hind: [0, 1.15, -2.50] },
     reach: { front: [0, 0.55, -1.45], hind: [0, 0.85, -1.70] },
     twist: { front: [0.35, 1.45, -2.45], hind: [-0.35, 1.30, -2.50] }
@@ -1070,12 +1075,14 @@
     wheelie: {
       label: "Cabrage", mode: "roues", kind: "tilt", axis: "pitch",
       arm: 0.30, rise: 0.60, hold: 1.40, drop: 0.65,
-      angle: -1.45, stand: 0.34, wobble: 0.030, sustain: true
+      angle: -1.45, stand: 0.34, wobble: 0.030, sustain: true,
+      swapAt: 1.6, swap: 0.70
     },
     sidestand: {
       label: "Sur deux roues", mode: "roues", kind: "tilt", axis: "roll",
       arm: 0.30, rise: 0.70, hold: 1.60, drop: 0.75,
-      angle: 1.40, stand: 0.30, wobble: 0.035, sustain: true
+      angle: 1.40, stand: 0.30, wobble: 0.035, sustain: true,
+      swapAt: 1.6, swap: 0.70
     },
     pirouette: {
       label: "Pirouette", mode: "roues", kind: "spin", sustain: true,
@@ -1095,12 +1102,28 @@
     wheeltumble: {
       label: "Salto arrière enchaîné", mode: "roues", kind: "tumble", sustain: true,
       rear: 0.30, over: 0.42, plant: 0.30, recover: 0.40, lift: 1.30, turns: 1,
-      press: 1.18, absorb: 0.78
+      press: 1.85, absorb: 0.72
     },
     wheeljump: {
       label: "Saut", mode: "roues", kind: "jump",
       crouch: 0.30, push: 0.16, land: 0.26, recover: 0.34,
       vz: 2.30, crouchZ: 0.80, tuck: 0.15
+    },
+    /* Sauts vrillés : un saut à plat pendant lequel la caisse fait un demi-
+       tour ou un tour complet autour de la verticale. Ce n'est pas un salto —
+       les roues restent sous le robot —, c'est le « shove-it » du skate, et
+       c'est la figure qu'on place le plus souvent parce qu'elle demande peu
+       de hauteur. Le 360 en demande quand même plus que le 180 : un tour
+       entier dans le même vol, ça se paie en impulsion. */
+    wheeljump180: {
+      label: "Saut 180", mode: "roues", kind: "jump",
+      crouch: 0.30, push: 0.16, land: 0.26, recover: 0.34,
+      vz: 2.30, crouchZ: 0.80, tuck: 0.15, spinTurns: 0.5
+    },
+    wheeljump360: {
+      label: "Saut 360", mode: "roues", kind: "jump",
+      crouch: 0.32, push: 0.17, land: 0.28, recover: 0.36,
+      vz: 2.70, crouchZ: 0.76, tuck: 0.15, spinTurns: 1
     },
     wheelflip: {
       label: "Salto roues", mode: "roues", kind: "flip",
@@ -1364,6 +1387,7 @@
       state.roll = 0;
       state.z = base + state.height;
       if (f.twist) state.yaw = run.yaw0 + 2 * Math.PI * f.twist;
+      if (f.spinTurns) state.yaw = run.yaw0 + 2 * Math.PI * f.spinTurns;
       nat.zBody = state.z; nat.vz = 0;
       // Le générateur d'allure raisonne en appuis plantés dans le monde. Après
       // une figure — surtout un 540, qui tourne le robot d'un demi-tour et le
@@ -1460,11 +1484,18 @@
 
     if (f.kind === "tilt") {
       const t1 = f.arm, t2 = t1 + f.rise, t3 = t2 + f.hold;
-      // essieux qui restent au sol : l'arrière pour le cabrage, le côté
-      // droit pour la tenue latérale
+      /* Essieux qui restent au sol : l'arrière pour le cabrage, le côté droit
+         pour la tenue latérale — et l'AUTRE paire quand la figure a basculé.
+         Tenir longtemps fait passer le robot sur ses deux autres roues : du
+         cabrage au « nose manual », d'un flanc à l'autre. C'est une vraie
+         manœuvre — le robot se ramasse au-dessus de son appui, redescend à
+         plat et se relève de l'autre côté — et c'est ce qui donne envie de
+         garder le bouton enfoncé. */
+      const side = run.tiltSide || 1;
       const onGround = f.axis === "roll"
-        ? function (L) { return L.m < 0; }
-        : function (L) { return L.f < 0; };
+        ? function (L) { return side > 0 ? L.m < 0 : L.m > 0; }
+        : function (L) { return side > 0 ? L.f < 0 : L.f > 0; };
+      const angle0 = f.angle * side;
 
       /* En roulant sur deux roues, le sol sous l'essieu porteur change. Sans
          ce suivi, la caisse gardait la hauteur du point de départ et
@@ -1500,8 +1531,8 @@
         if (!onGround(L)) return [L.x, ny, run.holdZ];
         // cible : essieu droit sous l'origine caisse une fois basculé
         const a1 = f.axis === "roll"
-          ? [L.x, -Math.sin(f.angle) * stand, -Math.cos(f.angle) * stand]
-          : [Math.sin(f.angle) * stand, ny, -Math.cos(f.angle) * stand];
+          ? [L.x, -Math.sin(angle0) * stand, -Math.cos(angle0) * stand]
+          : [Math.sin(angle0) * stand, ny, -Math.cos(angle0) * stand];
         return [lerp(L.x, a1[0], k), lerp(ny, a1[1], k), lerp(run.holdZ, a1[2], k)];
       };
 
@@ -1584,10 +1615,36 @@
         if (t < t2) {
           phase = f.axis === "roll" ? "bascule" : "cabrage";
           const k = smooth((t - t1) / f.rise);
-          tilt(k, f.angle * k);
+          tilt(k, angle0 * k);
         } else if (t < t3) {
           phase = "tenue";
           run.holdT += dt;
+          /* Passage sur l'autre paire de roues. On redescend à plat, on
+             change d'appui au passage par zéro — c'est le seul instant où les
+             quatre roues sont sous le robot, donc le seul où le changement ne
+             coûte rien — et on se relève de l'autre côté. */
+          if (f.swap && run.swapT === null && run.holdT > f.swapAt && !run.release) {
+            run.swapT = 0;
+          }
+          if (run.swapT !== null) {
+            run.swapT += dt;
+            const u = clamp(run.swapT / f.swap, 0, 1);
+            if (u < 0.5) {
+              phase = "retour à plat";
+              const k = 1 - smooth(u / 0.5);
+              tilt(k, angle0 * k);
+            } else {
+              if (run.tiltSide === side) {           // on n'a pas encore basculé
+                run.tiltSide = -side;
+                run.holdT = 0;
+              }
+              phase = f.axis === "roll" ? "sur l'autre flanc" : "sur les roues avant";
+              const k = smooth((u - 0.5) / 0.5);
+              tilt(k, f.angle * run.tiltSide * k);
+            }
+            if (u >= 1) run.swapT = null;
+            if (f.sustain && !run.release) run.t = t2;
+          } else {
           // tenue maintenue : tant qu'on n'a pas redemandé, le chrono de la
           // figure ne s'écoule pas — le robot reste dressé indéfiniment
           if (run.wantRelease) {
@@ -1598,14 +1655,15 @@
             run.release = true;
             run.t = f.arm + f.rise + f.hold;
           }
-          if (f.sustain && !run.release) run.t = t2;
-          tilt(1, f.angle + Math.sin(run.holdT * 11) * f.wobble);
+            if (f.sustain && !run.release) run.t = t2;
+            tilt(1, angle0 + Math.sin(run.holdT * 11) * f.wobble * side);
+          }
         } else {
           const sd = smooth((t - t3) / f.drop);
           if (sd < 0.65) {                          // on redescend, appui tenu
             phase = "reprise";
             const k = 1 - sd / 0.65;
-            tilt(k, f.angle * k);
+            tilt(k, angle0 * k);
           } else {                                  // puis fondu vers l'appui normal
             phase = "reprise";
             const u = smooth((sd - 0.65) / 0.35);
@@ -1826,8 +1884,12 @@
           const ell = lerp(ride, ellPush, smooth(s));      // la poussée
           state.pitch = th;
           state.z = base + pivotZ(th, -K.legX, ell);
-          // les pattes libres se replient à mi-groupé, prêtes à serrer
-          tumbleLegs(th, ell, rearOn, towards(POSE.tuck, smooth(s) * 0.55));
+          /* Les pattes libres se replient À FOND, et en boule. À mi-groupé —
+             ce qu'on faisait — la caisse arrivait à 79° de cabré avec les
+             pattes avant encore ouvertes, et leurs genoux passaient 98 mm
+             SOUS le sol. On ne se dresse pas sur son essieu arrière les
+             jambes pendantes : on se ramasse. */
+          tumbleLegs(th, ell, rearOn, towards(POSE.ball, smooth(s)));
         } else if (tu < f.rear + f.over) {
           phase = "vol";
           const tf = tu - f.rear;
@@ -1839,8 +1901,12 @@
           // sinon la première image de vol saute — les pattes porteuses
           // sortaient d'une position tendue, pas de la garde.
           if (!run.takeoffQ) run.takeoffQ = captureQ();
-          if (s < 0.42) poseFromQ(run.takeoffQ, POSE.tuck, smooth(s / 0.42));
-          else poseMixQ(POSE.tuck, POSE.reach, smooth((s - 0.42) / 0.58));
+          /* On reste en boule plus longtemps — 62 % du tour au lieu de 42 —
+             puis on ouvre. Ouvrir tôt faisait passer l'essieu 79 mm sous le
+             sol au trois quarts du tour : la patte allait chercher un sol
+             qui n'était pas encore sous elle. */
+          if (s < 0.62) poseFromQ(run.takeoffQ, POSE.ball, smooth(s / 0.62));
+          else poseMixQ(POSE.ball, POSE.reach, smooth((s - 0.62) / 0.38));
           Y.LEGS.forEach(function (L) {
             const n = Y.Robot.legs[L.id];
             if (n.wheel) n.wheel.rotation.y = nat.spin[L.id];
@@ -2028,6 +2094,19 @@
           });
         } else {
           // saut à plat : les roues pendent, se rentrent au sommet, se tendent
+          // — et la caisse vrille, s'il y a une vrille à faire
+          if (f.spinTurns) state.yaw = run.yaw0 + 2 * Math.PI * f.spinTurns * smoother(s);
+          else {
+            /* Sinon, c'est le PILOTE qui tourne. Un corps qui quitte le sol en
+               pivotant garde son moment cinétique : il continue de tourner. Le
+               robot part donc avec la rotation qu'on lui a donnée pendant
+               l'armement et la garde tant que le stick est tenu ; on la coupe
+               en relâchant, les pattes servant de balancier. C'est ce qui
+               permet de choisir son angle de réception au stick plutôt que
+               dans un catalogue. */
+            nat.wz = approach(nat.wz, clamp(state.wz, -1.6, 1.6), 3.0, dt);
+            state.yaw += nat.wz * dt;
+          }
           const arc = Math.sin(Math.PI * clamp(s, 0, 1));
           const hang = lerp(ride + WHEEL_R, ride * 0.5, arc);
           place(function () { return state.z - hang; }, function () { return false; });
@@ -2047,6 +2126,18 @@
         // un tour de roulis ramène la caisse à l'endroit : 2π et 0, c'est la
         // même orientation, on recale sans dérouler la rotation à l'envers
         if (f.rollTurns) state.roll = 0;
+        if (f.spinTurns) {
+          /* Cap net à la réception. Un demi-tour repart en fakie, comme le
+             540 : les pneus sont traînés en arrière et le robot continue sur
+             son erre, roues à l'envers. Un tour entier retombe dans le sens
+             de départ, il n'y a rien à inverser. */
+          state.yaw = run.yaw0 + 2 * Math.PI * f.spinTurns;
+          if (Math.abs((f.spinTurns % 1) - 0.5) < 0.01 && !run.fakie) {
+            run.fakie = true;
+            nat.vx = -nat.vx;
+            nat.dir = -nat.dir;
+          }
+        }
         if (f.twist) {                                // on remet la gîte à plat
           state.yaw = run.yaw0 + 2 * Math.PI * f.twist;
           state.roll = lerp(state.roll, 0, Math.min(1, dt * 8));
@@ -2103,6 +2194,7 @@
       if (f.kind === "spin") { state.yaw = run.yaw0 + run.spinA; nat.wz = 0; }
       if (f.kind === "slide") { state.yaw = run.yaw0 + f.yawSweep * (f.side || 1); nat.vx = 0; }
       if (f.twist) state.yaw = run.yaw0 + 2 * Math.PI * f.twist;
+      if (f.spinTurns) state.yaw = run.yaw0 + 2 * Math.PI * f.spinTurns;
       state.z = terrainAt(state.px, state.py) + ride + WHEEL_R;
       nat.zBody = state.z; nat.vz = 0; nat.prevTarget = null; nat.ffz = 0;
       run.carry = null;
@@ -2169,6 +2261,7 @@
       run.spinA = 0; run.spinW = 0; run.spinHold = false; run.spinTarget = null;
       run.hold = f.kind === "tilt" ? true : !!hold;
       run.tumbleT = 0; run.prevA = {};
+      run.tiltSide = 1; run.swapT = null;
       // on amorce le limiteur de débattement sur la position réelle des pieds :
       // sinon la première image saute d'un rayon de roue et coûte 57 rad/s
       Y.LEGS.forEach(function (L) {

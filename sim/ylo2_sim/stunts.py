@@ -20,6 +20,9 @@ G_ACC = 9.81
 # poses articulaires (haa, hfe, kfe) en radians ; haa est reflété par patte
 POSE: Dict[str, Dict[str, Tuple[float, float, float]]] = {
     "tuck":   {"front": (0.0, 1.55, -2.55), "hind": (0.0, 1.35, -2.60)},
+    # Groupé serré, pour le salto enchaîné : le robot s'y met en boule et passe
+    # SUR ses roues au lieu de traîner ses genoux.
+    "ball":   {"front": (0.0, 1.88, -2.70), "hind": (0.0, 1.73, -2.70)},
     "pike":   {"front": (0.0, 1.70, -2.35), "hind": (0.0, 1.15, -2.50)},
     "reach":  {"front": (0.0, 0.55, -1.45), "hind": (0.0, 0.85, -1.70)},
     "twist":  {"front": (0.35, 1.45, -2.45), "hind": (-0.35, 1.30, -2.50)},
@@ -60,7 +63,12 @@ class WheelFigure:
     twist: float = 0.0          # tours de lacet (540 McTwist : 1,5)
     cork: float = 0.0           # gîte pendant la vrille (rad)
     lean: float = 0.20
-    press: float = 1.18         # tumble : allongement de la patte qui pousse
+    # Tumble : allongement de la patte qui POUSSE. 1,18 laissait la hanche
+    # arrière trop près de l'essieu à 74° de cabré, et le genou de la patte
+    # porteuse passait 98 mm sous le sol — le modèle n'a pas de genou
+    # inversé, une patte pliée ne peut que plonger. Tendue, elle reste
+    # alignée sur hanche-essieu et le genou dégage.
+    press: float = 1.85
     absorb: float = 0.78        # tumble : repli de la patte qui reçoit
     sustain: bool = False       # tenue : la figure dure tant qu'on commande
     sustain_s: float = 0.0      # spin : durée de vrille tenue en plus
@@ -72,6 +80,7 @@ class WheelFigure:
     vz: float = 0.0
     crouch_z: float = 0.80
     tuck: float = 0.15
+    spin_turns: float = 0.0
     mode: str = "roues"
 
     @property
@@ -125,9 +134,18 @@ WHEEL_FIGURES: Dict[str, WheelFigure] = {
     # il ne reste qu'un peu plus de 3,6 rad à faire en l'air.
     "wheeltumble": WheelFigure("wheeltumble", "Salto arrière enchaîné", "tumble",
                                rear=0.30, over=0.42, plant=0.30, recover=0.40,
-                               lift=1.30, press=1.18, absorb=0.78, sustain=True),
+                               lift=1.30, press=1.85, absorb=0.72, sustain=True),
     "wheeljump": WheelFigure("wheeljump", "Saut", "jump", crouch=0.30, push=0.16,
                              land=0.26, recover=0.34, vz=2.30, crouch_z=0.80, tuck=0.15),
+    # Sauts vrillés : un saut à plat pendant lequel la caisse fait un demi-tour
+    # ou un tour complet autour de la verticale. Les roues restent sous le
+    # robot — c'est le « shove-it » du skate, pas un salto.
+    "wheeljump180": WheelFigure("wheeljump180", "Saut 180", "jump", crouch=0.30,
+                                push=0.16, land=0.26, recover=0.34, vz=2.30,
+                                crouch_z=0.80, tuck=0.15, spin_turns=0.5),
+    "wheeljump360": WheelFigure("wheeljump360", "Saut 360", "jump", crouch=0.32,
+                                push=0.17, land=0.28, recover=0.36, vz=2.70,
+                                crouch_z=0.76, tuck=0.15, spin_turns=1.0),
     "wheelflip": WheelFigure("wheelflip", "Salto roues", "flip", crouch=0.34, push=0.20,
                              land=0.26, recover=0.42, vz=2.95, crouch_z=0.72,
                              turns=1.0, tuck=0.20),
@@ -724,9 +742,12 @@ def perform_wheels(robot, fig: WheelFigure,
                     ell = ride + (ell_push - ride) * _smooth(s)      # la poussée
                     robot.base[4] = th
                     robot.base[2] = g_base + pivot_z(th, -model.leg_offset_x, ell)
-                    # les pattes libres se replient à mi-groupé, prêtes à serrer
+                    # Les pattes libres se replient À FOND, et en boule. À
+                    # mi-groupé, la caisse arrivait à 74° de cabré les pattes
+                    # avant encore ouvertes : on ne se dresse pas sur son
+                    # essieu arrière les jambes pendantes, on se ramasse.
                     tumble_legs(th, ell, lambda leg: leg.front < 0,
-                                towards("tuck", _smooth(s) * 0.55, ride))
+                                towards("ball", _smooth(s), ride))
                     takeoff_q[:] = list(robot.q)
                 elif u < fig.rear + fig.over:
                     tf = u - fig.rear
@@ -741,10 +762,13 @@ def perform_wheels(robot, fig: WheelFigure,
                     # serre pour tourner vite, on ouvre pour aller chercher la
                     # poutre. On repart de la pose RÉELLE du décollage, sinon
                     # la première image de vol saute.
-                    if s < 0.42:
-                        pose_from(takeoff_q, "tuck", _smooth(s / 0.42))
+                    # On reste en boule plus longtemps — 62 % du tour au lieu
+                    # de 42 — puis on ouvre : ouvrir tôt envoyait la patte
+                    # chercher un sol qui n'était pas encore sous elle.
+                    if s < 0.62:
+                        pose_from(takeoff_q, "ball", _smooth(s / 0.62))
                     else:
-                        pose_mix("tuck", "reach", _smooth((s - 0.42) / 0.58))
+                        pose_mix("ball", "reach", _smooth((s - 0.62) / 0.38))
                     for leg in model.legs:
                         nat.fig_axle[leg.name] = None
                 else:
@@ -871,6 +895,9 @@ def perform_wheels(robot, fig: WheelFigure,
                     for leg in model.legs:
                         nat.fig_axle[leg.name] = None
                 else:
+                    # saut à plat : la caisse vrille, s'il y a une vrille à faire
+                    if fig.spin_turns:
+                        robot.base[5] = yaw0 + math.tau * fig.spin_turns * _smoother(s)
                     robot.base[4] = -0.14 + 0.24 * _smooth(s)
                     arc = math.sin(math.pi * min(max(s, 0.0), 1.0))
                     hang = (ride + radius) + (ride * 0.5 - ride - radius) * arc
@@ -892,6 +919,13 @@ def perform_wheels(robot, fig: WheelFigure,
                 # c'est la même orientation, on recale sans dérouler à l'envers
                 if fig.roll_turns:
                     robot.base[3] = 0.0
+                if fig.spin_turns:
+                    # Cap net. Un demi-tour repart en fakie, comme le 540.
+                    robot.base[5] = yaw0 + math.tau * fig.spin_turns
+                    if abs((fig.spin_turns % 1.0) - 0.5) < 0.01 and not fakie[0]:
+                        fakie[0] = True
+                        nat.vx = -nat.vx
+                        nat.direction = -nat.direction
                 if fig.twist:                            # on remet la gîte à plat
                     robot.base[5] = yaw0 + math.tau * fig.twist
                     robot.base[3] *= 1 - min(1.0, dt * 8)
@@ -941,6 +975,8 @@ def perform_wheels(robot, fig: WheelFigure,
     if fig.kind == "slide":
         robot.base[5] = yaw0 + fig.yaw_sweep * fig.side
         nat.vx = 0.0
+    if fig.spin_turns:
+        robot.base[5] = yaw0 + math.tau * fig.spin_turns
     if fig.twist:
         robot.base[5] = yaw0 + math.tau * fig.twist
     robot.base[2] = (robot.terrain.height_at(robot.base[0], robot.base[1])
