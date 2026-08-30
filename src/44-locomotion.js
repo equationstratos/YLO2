@@ -1354,6 +1354,11 @@
       // sur une pente, « à plat » c'est l'assiette de la pente : remettre zéro
       // arracherait le robot de la courbe qu'il vient d'épouser
       const dL = K.legX;
+      // `cy` et `sy` étaient lus sans exister ici : la fin d'une figure sur
+      // PATTES levait donc une ReferenceError. Elle ne se voyait pas — les
+      // figures sur pattes ne finissaient jamais dans ce chemin tant que la
+      // session ne les jouait pas.
+      const cy = Math.cos(state.yaw), sy = Math.sin(state.yaw);
       state.pitch = Math.atan2(terrainAt(state.px - cy * dL, state.py - sy * dL)
                              - terrainAt(state.px + cy * dL, state.py + sy * dL), 2 * dL);
       state.roll = 0;

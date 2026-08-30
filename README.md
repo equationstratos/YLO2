@@ -401,6 +401,88 @@ un bouton, c'est le premier mètre parcouru qui compte — et s'arrête en entra
 dans l'arrivée. Revenir se poser sur le départ remet tout à zéro : on retente
 sans rien réinitialiser, et le meilleur temps est gardé.
 
+### La livrée officielle
+
+Les couleurs par défaut ne sont plus choisies à l'œil : elles sont **relevées
+dans les textures des maillages officiels**, celles-là mêmes dont ce
+visualiseur affiche la géométrie. Les `*color.png` des dossiers `textured` de
+`champ_for_ylo2/ylo2_description` donnent, en fréquence de pixels :
+
+| Pièce | Texture | Couleur dominante |
+|---|---|---|
+| Carénages | `covers.png` | **#fc9000**, orange, 99 % |
+| Corps | `bodycolor.png` | #000000 → #0c0c0c, noir mat, 93 % |
+| Hanches, cuisses, jambes | `hip/upper/lowercolor.png` | #181818, 94 à 100 % |
+| Moteurs mjbots | `abadcolor.png` | **#fcfcfc**, blanc, 55 % |
+| Pieds silicone | `footcolor.png` | #909c9c, gris-bleu |
+
+C'est donc un robot **orange sur châssis noir, moteurs blancs** — et non le
+gris d'atelier d'avant. Les anciens réglages restent disponibles sous le thème
+« Atelier », et le nouveau défaut a son thème « Officiel ».
+
+### La session auto roule comme un skateur
+
+La session enchaînait des lignes droites et trois figures. Elle prend
+maintenant tout le parc, dans l'ordre demandé — **la table du milieu, puis la
+rampe de la fin, puis l'équilibre** — et elle joue **tout le catalogue**.
+
+**On ne va plus d'un module à l'autre en ligne droite.** L'acte `carve` fait
+serpenter le robot autour de sa ligne, comme un skateur qui pompe ses appuis.
+L'amplitude se referme à l'approche de la cible pour finir dans l'axe, et un
+rappel vers la ligne — plus lourd que la serpentine — l'empêche de dériver :
+à la première tentative, à 0,85 rad d'amplitude, le robot finissait deux
+mètres à côté du module qu'il visait.
+
+**L'équilibre se fait SUR l'obstacle et le long.** Le ledge fait 400 mm de
+large, la voie du robot 308 : il tient dessus. Le run le monte par le bout et
+le remonte en entier, roues sur le béton — un 50-50, mesuré à **5,4 s passées
+sur le ledge, caisse à 460 mm**. Puis il redescend d'une voie et le longe sur
+deux roues, et enfin en cabrage.
+
+**Les figures aériennes partent de la rampe.** L'acte `air` charge la lèvre en
+roue libre, lâche la figure DANS le vol et attend le verdict de la réception —
+c'est la couche roues qui juge, pas le script. Six passages, **six réceptions
+posées 10/10** : salto arrière, salto avant, latéral gauche, latéral droit,
+360, et un passage d'enchaînement. Deux enseignements de mesure :
+
+- La vitesse d'attaque ne fait pas la hauteur. Le vol vaut 0,65 à 0,73 s de
+  1,5 à 4 m/s — c'est la transition qui lance. Au-delà de 2 m/s le robot
+  *franchit* le deck, et un bord plat ne lance rien : la figure est alors
+  refusée faute de hauteur, et c'est ainsi que les premiers essais partaient
+  rouler à vingt mètres du parc sans avoir rien tenté.
+- Les 450 mm du quarter ne tiennent qu'une figure par vol. Le double salto et
+  le McTwist s'y reçoivent de travers ; ils passent avec leur propre poussée,
+  sur la lèvre, et c'est le reste du catalogue aérien. Le même mécanisme
+  d'enchaînement en passe bien deux sur la mega ramp : c'est la rampe qui
+  décide.
+
+**La roue libre ne dure que le temps du passage.** Tenue sur tout le run, elle
+rendait le robot ingouvernable entre deux modules : la gravité l'emmenait, une
+liaison mettait quatorze secondes à le replacer. C'est une physique de saut,
+pas une physique de déplacement.
+
+Trois défauts de pilotage ont été corrigés au passage. Une liaison qui vise un
+point de côté prenait son demi-tour **en roulant** : l'arc était plus large que
+la distance à la cible et le robot s'éloignait en tournant — au-delà d'un
+quart de tour d'écart, il pivote maintenant sur place. Un `face` **remet le
+sens de marche à l'endroit** : le robot y est à l'arrêt, « l'avant » est un
+choix libre, et le laisser en fakie faisait calculer les braquages à l'envers.
+Enfin la fin d'une figure sur pattes levait une `ReferenceError` — `cy` et `sy`
+lus sans exister — que rien ne déclenchait tant que la session ne jouait pas
+ces figures-là.
+
+Relevé du run complet :
+
+```
+durée 183 s · vitesse maxi 2,96 m/s (plafond roues 3,0)
+19/19 figures au sol jouées · 6/6 figures en vol posées 10/10
+50-50 : 5,4 s SUR le ledge, caisse à 0,46 m
+```
+
+Les 2,96 m/s ne sont pas un défaut d'élan : le limiteur de relief rabote la
+consigne de 1 % au sortir de la transition. C'est le plafond réel à cet
+endroit du parc.
+
 ### La roue ne traverse plus la paroi
 
 « Les roues du robot passent à travers, surtout les deux rampes du

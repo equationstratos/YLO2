@@ -11,6 +11,9 @@
 
      place  { x, y, yaw }    poser le robot là, d'aplomb sur le relief
      roll   { to, v }        rouler jusqu'à l'abscisse `to`, dans le monde
+     carve  { to, y, v }     y aller en SERPENTANT, comme un skateur qui pompe
+                             ses appuis : c'est ce qui donne le liant entre
+                             deux modules, et c'est là qu'on prend la vitesse
      goto   { x, y, v }      rejoindre un point en braquant : sert à changer
                              de voie, pour longer le ledge par exemple
      face   { yaw }          pivoter sur place jusqu'au cap voulu
@@ -19,6 +22,13 @@
                              tenue quand elle se maintient, `v` la vitesse à
                              tenir pendant — c'est ainsi qu'on roule sur deux
                              roues le long d'un obstacle
+     air    { ids, lip, v }  charger la lèvre en roue libre et lâcher une ou
+                             plusieurs figures DANS le vol, puis attendre le
+                             verdict de la réception
+     free   { on }           roue libre : la physique de skate, gravité et
+                             pompage compris
+     mode   { to }           passer sur pattes ou sur roues : quatre figures
+                             du catalogue ne se font que jambes au sol
      pause  { hold }         tenir la position quelques dixièmes
 
    Les figures qui décollent sont placées AVANT le module, pour que le vol
@@ -36,34 +46,137 @@
    */
   const RUN = [
     // Le run part du point le plus haut du parc — la plateforme du quarter
-    // arrière, à 450 mm — descend la transition et enchaîne jusqu'au quarter
-    // avant. Les figures aériennes sont déclenchées 0,76 m avant la lèvre
-    // visée, pour que la POUSSÉE tombe dessus : c'est la rampe qui lance.
+    // arrière, à 450 mm —, descend la transition et prend le parc dans
+    // l'ordre : LA TABLE DU MILIEU, puis LA RAMPE DE LA FIN, puis
+    // L'ÉQUILIBRE sur le ledge. Entre les modules on ne roule pas droit : on
+    // carve. Un skateur ne va jamais d'un point à un autre en ligne droite,
+    // il serpente, et c'est en serpentant qu'il prend sa vitesse.
     //
     // Cotes : quarter arrière -2,60 (transition) / -3,05 à -3,95 (plateforme)
-    // · kicker 1,40 → 2,10 · funbox 3,60 → 6,00 · ledge y 1,70 → 2,10, x 3,40
-    // → 6,20 · quarter avant 7,80 (transition) / 8,25 à 9,15 (plateforme).
+    // · kicker 1,40 → 2,10 · funbox 3,60 → 6,00 (plateau 4,30 → 5,30 à
+    // 180 mm) · ledge y 1,70 → 2,10, x 3,40 → 6,20, 200 mm · quarter avant
+    // 7,80 (transition) / 8,25 à 9,15 (plateforme).
     { act: "place", x: -3.50, y: 0, yaw: 0, say: "en haut du quarter arrière" },
-    { act: "roll", to: -2.95, v: 1.0, say: "drop-in dans la transition" },
+    { act: "roll", to: -2.95, v: 1.1, say: "drop-in dans la transition" },
     { act: "fig", id: "wheelfrontflip", say: "salto avant lancé par la transition" },
 
-    { act: "roll", to: 1.34, v: 1.4, say: "élan vers le kicker" },
+    // Plein gaz vers le kicker, en serpentant : c'est ici que le robot va
+    // chercher sa vitesse maximale.
+    { act: "carve", to: 1.30, y: 0, v: 3.2, amp: 0.38, wave: 1.7,
+      say: "carve plein gaz vers le kicker" },
     { act: "fig", id: "wheeljump", say: "saut lancé par le kicker" },
 
-    // on se range le long du ledge et on le remonte sur deux roues, sur toute
-    // sa longueur — dans le sens de la marche, un demi-tour mordrait dessus
-    { act: "goto", x: 2.90, y: 1.35, v: 1.2, say: "on se range le long du ledge" },
-    { act: "face", yaw: 0, say: "dans l'axe du ledge" },
-    { act: "brake", say: "mise en appui" },
-    { act: "fig", id: "sidestand", hold: 2.2, v: 0.9,
-      say: "sur deux roues, tout le long du ledge" },
+    /* ---------------- la table du milieu ---------------- */
+    { act: "carve", to: 3.05, y: 0, v: 2.3, amp: 0.28, wave: 1.4,
+      say: "on se présente sur la table" },
+    { act: "fig", id: "wheelflip", say: "salto roues par-dessus la table" },
+    { act: "roll", to: 4.65, v: 1.3, say: "sur le plateau de la table" },
+    { act: "fig", id: "wheelie", hold: 1.5, v: 0.9,
+      say: "cabrage roulé sur la table" },
+    { act: "fig", id: "powerslide", say: "slide sur la table" },
+    { act: "face", yaw: 0, say: "on se remet dans l'axe" },
+    { act: "roll", to: 6.45, v: 2.2, say: "sortie de table" },
 
-    { act: "goto", x: 7.05, y: 0.0, v: 1.2, say: "retour dans l'axe" },
-    { act: "face", yaw: 0, say: "face au quarter avant" },
+    /* ---------------- la rampe de la fin ---------------- */
+    // Cinq figures lâchées DANS le vol, une par passage, plus un enchaînement
+    // de deux dans le même saut. Le verdict de la réception est affiché.
+    { act: "air", ids: ["back"], v: 1.7, say: "salto arrière au-dessus de la lèvre" },
+    { act: "roll", to: 6.30, v: 2.2, say: "on reprend de l'élan" },
+    { act: "air", ids: ["front"], v: 1.7, say: "salto avant au-dessus de la lèvre" },
+    { act: "roll", to: 6.30, v: 2.2, say: "on reprend de l'élan" },
+    { act: "air", ids: ["sideL"], v: 1.7, say: "salto latéral gauche en l'air" },
+    { act: "roll", to: 6.30, v: 2.2, say: "on reprend de l'élan" },
+    { act: "air", ids: ["sideR"], v: 1.7, say: "salto latéral droit en l'air" },
+    { act: "roll", to: 6.30, v: 2.2, say: "on reprend de l'élan" },
+    { act: "air", ids: ["spin360"], v: 2.1, say: "360 en l'air" },
+    { act: "roll", to: 6.30, v: 2.2, say: "on reprend de l'élan" },
+    { act: "air", ids: ["spin360", "back"], v: 2.1,
+      say: "360, et salto arrière si la hauteur suit" },
+
+    // Le passage d'enchaînement tente deux figures dans le même vol. Les
+    // 450 mm du quarter n'en donnent qu'une : mesuré, le vol vaut 0,65 s et
+    // la seconde figure est refusée faute de hauteur au moment où la
+    // première se boucle. Le mécanisme est le même que celui du combo de la
+    // mega ramp, où il en passe bien deux — c'est la rampe qui décide.
+    //
+    // Les figures lourdes ne tiennent pas dans les 450 mm du quarter : elles
+    // se lancent avec leur propre poussée, sur la lèvre. C'est la même
+    // rampe, et c'est le reste du catalogue aérien.
+    { act: "roll", to: 7.05, v: 2.2, say: "retour vers la lèvre" },
     { act: "roll", to: 7.25, v: 0.9, say: "élan mesuré vers la lèvre" },
+    { act: "fig", id: "wheeldoubleflip", say: "double salto arrière lancé par la lèvre" },
+    { act: "goto", x: 7.05, y: 0, v: 2.0, say: "replacement" },
+    { act: "face", yaw: 0 },
+    { act: "fig", id: "wheeldoublefrontflip", say: "double salto avant sur la lèvre" },
+    { act: "goto", x: 7.05, y: 0, v: 2.0, say: "replacement" },
+    { act: "face", yaw: 0 },
+    { act: "fig", id: "wheeldoublesideflipL", say: "double latéral gauche" },
+    { act: "goto", x: 7.05, y: 0, v: 2.0, say: "replacement" },
+    { act: "face", yaw: 0 },
+    { act: "fig", id: "wheeldoublesideflipR", say: "double latéral droit" },
+    { act: "goto", x: 7.05, y: 0, v: 2.0, say: "replacement" },
+    { act: "face", yaw: 0 },
+    { act: "fig", id: "wheelsideflipL", say: "salto latéral gauche roues" },
+    { act: "goto", x: 7.05, y: 0, v: 2.0, say: "replacement" },
+    { act: "face", yaw: 0 },
+    { act: "fig", id: "wheelsideflipR", say: "salto latéral droit roues" },
+    { act: "goto", x: 7.05, y: 0, v: 2.0, say: "replacement" },
+    { act: "face", yaw: 0 },
+    { act: "roll", to: 7.25, v: 0.9, say: "dernier élan vers la lèvre" },
     { act: "fig", id: "wheeltwist540", say: "540 McTwist lancé par la lèvre" },
 
-    { act: "roll", to: 3.40, v: 2.0, say: "retour fakie" },
+    /* ---------------- l'équilibre, sur ET le long du ledge ---------------- */
+    // D'abord SUR l'obstacle : le ledge fait 400 mm de large, la voie du
+    // robot 308 — il tient dessus. On le monte par le bout et on le remonte
+    // en entier, roues sur le béton : c'est un 50-50.
+    { act: "roll", to: 3.00, v: 2.2, say: "retour au bout du parc" },
+    { act: "brake" },
+    { act: "face", yaw: 0 },
+    { act: "goto", x: 2.95, y: 1.90, v: 1.6, say: "on se présente au bout du ledge" },
+    { act: "face", yaw: 0, say: "dans l'axe du ledge" },
+    { act: "roll", to: 6.05, v: 1.0, say: "50-50 : SUR le ledge, sur toute sa longueur" },
+    { act: "roll", to: 6.70, v: 1.2, say: "sortie de ledge" },
+
+    // Puis LE LONG : on redescend d'une voie et on le longe sur deux roues.
+    { act: "roll", to: 3.00, v: 2.0, say: "retour au bout du ledge" },
+    { act: "brake" },
+    { act: "face", yaw: 0 },
+    { act: "goto", x: 2.90, y: 1.35, v: 1.6, say: "on se range le long du ledge" },
+    { act: "face", yaw: 0, say: "dans l'axe du ledge" },
+    { act: "brake", say: "mise en appui" },
+    { act: "fig", id: "sidestand", hold: 2.6, v: 0.95,
+      say: "sur deux roues, LE LONG du ledge" },
+    { act: "goto", x: 2.90, y: 1.35, v: 1.6, say: "on reprend le bas du ledge" },
+    { act: "face", yaw: 0 },
+    { act: "brake" },
+    { act: "fig", id: "wheelie", hold: 1.8, v: 0.9,
+      say: "cabrage roulé le long du ledge" },
+
+    /* ---------------- le reste du catalogue ---------------- */
+    { act: "brake" },
+    { act: "face", yaw: 0 },
+    { act: "goto", x: 0.20, y: 0, v: 2.2, say: "retour au centre de la plaza" },
+    { act: "face", yaw: 0 },
+    { act: "brake" },
+    { act: "fig", id: "pirouette", hold: 1.5, say: "pirouette tenue" },
+    { act: "brake" },
+    { act: "fig", id: "wheeltumble", say: "salto arrière enchaîné, roues 2 par 2" },
+    { act: "brake" },
+    { act: "mode", to: "pattes", say: "on repasse sur pattes" },
+    { act: "pause", hold: 0.7 },
+    { act: "fig", id: "backflip", say: "salto arrière sur pattes" },
+    { act: "brake" },
+    { act: "fig", id: "frontflip", say: "salto avant sur pattes" },
+    { act: "brake" },
+    { act: "fig", id: "doubleflip", say: "double salto sur pattes" },
+    { act: "brake" },
+    { act: "fig", id: "mctwist540", say: "540 McTwist sur pattes" },
+    { act: "pause", hold: 0.5 },
+    { act: "mode", to: "roues", say: "et on repart sur roues" },
+    { act: "pause", hold: 0.5 },
+
+    { act: "face", yaw: 0 },
+    { act: "carve", to: 3.40, y: 0, v: 2.6, amp: 0.32, wave: 1.5, say: "dernier carve" },
     { act: "fig", id: "powerslide", say: "slide final" },
     { act: "pause", hold: 1.4, say: "fin de session" }
   ];
@@ -82,7 +195,12 @@
 
   const S = {
     running: false, i: 0, t: 0, waited: 0, started: false,
-    label: "", listeners: []
+    label: "", listeners: [],
+    mode: "roues",    // mode attendu : si l'utilisateur en change, on arrête
+    vmax: 0,          // vitesse la plus haute atteinte pendant la session
+    fired: 0,         // figures déjà lâchées dans le vol en cours
+    verdict: null,    // dernière réception jugée
+    tricks: 0, clean: 0
   };
 
   function emit() { S.listeners.forEach(function (fn) { fn(S); }); }
@@ -90,7 +208,9 @@
   function shotFor(step) {
     if (!step) return SHOTS.pause;
     if (step.act === "brake" || step.act === "place" || step.act === "face") return SHOTS.tilt;
-    if (step.act === "goto") return SHOTS.roll;
+    if (step.act === "goto" || step.act === "carve") return SHOTS.roll;
+    if (step.act === "air") return SHOTS.fig;
+    if (step.act === "free") return SHOTS.roll;
     if (step.act !== "fig") return SHOTS[step.act] || SHOTS.roll;
     const f = Y.Stunt.figures[step.id];
     if (f && f.kind === "tilt") return SHOTS.tilt;
@@ -100,6 +220,7 @@
 
   function advance() {
     S.i += 1; S.t = 0; S.waited = 0; S.started = false; S.side = 0;
+    S.fired = 0; S.verdict = null; S.settle = 0;
     if (S.i >= RUN.length) { Y.Session.stop(); return; }
     S.label = RUN[S.i].say || "";
     emit();
@@ -117,6 +238,8 @@
     start: function () {
       if (Y.Motion.state.mode !== "roues") return false;
       S.running = true; S.i = -1;
+      S.mode = "roues";
+      S.vmax = 0; S.tricks = 0; S.clean = 0;
       advance();
       return true;
     },
@@ -125,6 +248,7 @@
       if (!S.running) return;
       S.running = false; S.label = "";
       Y.Motion.state.vx = 0; Y.Motion.state.wz = 0;
+      if (Y.Natural.setFreeRoll) Y.Natural.setFreeRoll(false);
       emit();
     },
 
@@ -138,10 +262,122 @@
     step: function (dt) {
       if (!S.running) return false;
       const st = Y.Motion.state;
-      if (st.mode !== "roues") { this.stop(); return false; }
+      /* On compare au mode ATTENDU et non à « roues » : le run passe
+         lui-même sur pattes le temps des quatre figures qui ne se font pas
+         autrement. Si c'est l'utilisateur qui change de mode, l'attente ne
+         correspond plus et la session s'arrête, comme avant. */
+      if (st.mode !== S.mode) { this.stop(); return false; }
       const step = RUN[S.i];
       if (!step) { this.stop(); return false; }
       S.t += dt;
+      // La vitesse maximale atteinte est une donnée du run, au même titre que
+      // les figures posées : c'est elle qui dit si le parc a été pris vite.
+      S.vmax = Math.max(S.vmax, Math.abs(Y.Natural.state.vx));
+
+      if (step.act === "mode") {
+        st.mode = S.mode = step.to;
+        st.vx = 0; st.wz = 0;
+        Y.Natural.reset();
+        Y.Motion.blendFrom(0.3);
+        advance();
+        return true;
+      }
+
+      if (step.act === "free") {
+        if (Y.Natural.setFreeRoll) Y.Natural.setFreeRoll(!!step.on);
+        advance();
+        return true;
+      }
+
+      if (step.act === "carve") {
+        /* Serpenter, et non aller droit. Un skateur qui traverse un parc
+           pompe ses appuis d'un bord à l'autre ; en ligne droite le robot
+           avait l'air d'un chariot. L'amplitude se referme à l'approche de
+           la cible pour finir dans l'axe, et un rappel vers la ligne
+           empêche la serpentine de dériver — on louvoie AUTOUR d'un cap, on
+           ne s'en va pas avec. */
+        const gap = step.to - st.px;
+        if (!S.side) S.side = gap >= 0 ? 1 : -1;
+        const done = gap * S.side <= 0.06;
+        const heading = Math.cos(st.yaw) >= 0 ? 1 : -1;
+        const dir = Y.Natural.state.dir || 1;
+        st.vx = done ? 0 : Math.abs(step.v) * S.side * heading * dir;
+        const near = clamp(Math.abs(gap) / 1.4, 0, 1);
+        const wave = (step.amp === undefined ? 0.35 : step.amp)
+          * Math.sin(S.t * Math.PI * 2 / (step.wave || 1.6)) * near;
+        /* Le rappel vers la ligne pèse plus lourd que la serpentine, sinon
+           elle n'est plus un louvoiement mais un départ : à 0,85 rad
+           d'amplitude le robot finissait deux mètres à côté du module qu'il
+           visait. On carve AUTOUR d'une ligne. */
+        const yErr = ((step.y || 0) - st.py) * S.side;
+        const axis = S.side > 0 ? 0 : Math.PI;
+        const want = axis + clamp(yErr * 1.5, -0.7, 0.7) + wave;
+        let err = ((want - st.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+        st.wz = done ? 0 : clamp(err * 2.0, -1.7, 1.7);
+        if (done || S.t > 16) advance();
+        return true;
+      }
+
+      if (step.act === "air") {
+        /* Charger la lèvre, et lâcher la figure DANS le vol. C'est le geste
+           du skate : on quitte le béton d'abord, on choisit ensuite, et on
+           enchaîne tant qu'il reste du vol. La réception est jugée par la
+           couche roues, pas par le script — le run affiche le verdict qu'il
+           reçoit, propre ou non. */
+        const dir = Y.Natural.state.dir || 1;
+        const heading = Math.cos(st.yaw) >= 0 ? 1 : -1;
+        if (!S.started) { S.started = true; Y.Natural.setFreeRoll(true); }
+        st.wz = 0;
+        /* On vise la lèvre dans le MONDE et on en déduit le signe, comme un
+           `roll` : après un 360 le robot repart en fakie, et sans ce signe il
+           chargeait la lèvre à l'envers. Passé la lèvre on coupe les gaz —
+           sinon il franchit le deck et s'en va rouler à vingt mètres du parc,
+           et la liaison suivante passe dix secondes à le ramener. */
+        const lip = step.lip === undefined ? 8.15 : step.lip;
+        const gap = lip - st.px;
+        if (!S.side) S.side = gap >= 0 ? 1 : -1;
+        st.vx = (gap * S.side <= 0 || S.verdict) ? 0
+          : Math.abs(step.v || 3.0) * S.side * heading * dir;
+        const ids = step.ids || [step.id];
+        if (Y.Natural.wheelAirborne() && !Y.Natural.tricking() && S.fired < ids.length) {
+          if (Y.Natural.trick(ids[S.fired])) S.fired++;
+        }
+        const got = Y.Natural.takeLanding();
+        if (got) {
+          S.tricks++; if (got.ok) S.clean++;
+          S.verdict = got;
+          /* On ne rend la main à la physique de roulage qu'une fois TOUTES
+             les figures du passage lâchées. En coupant la roue libre dès la
+             première, on interrompait le vol au milieu d'un enchaînement :
+             le 360 qui devait suivre le salto n'avait plus d'air où se
+             faire. */
+          if (S.fired >= ids.length) {
+            Y.Natural.setFreeRoll(false);
+            Y.Natural.state.vx *= 0.35;
+          }
+          S.label = (step.say || got.label) + " — "
+            + (got.ok ? "posé 10/10" : "réception manquée") + " · " + got.label;
+          emit();
+        }
+        /* Trois secondes suffisent pour monter la transition : au-delà, le
+           passage est manqué et on coupe les gaz plutôt que de le laisser
+           partir. C'est la transition qui LANCE, pas la vitesse — mesuré, le
+           vol vaut 0,65 à 0,73 s de 1,5 à 4 m/s, et au-delà de 2 m/s le robot
+           franchit le deck : il quitte alors un bord PLAT, ce qui ne lance
+           rien, et la figure est refusée faute de hauteur. */
+        if (S.t > 3.2 && !S.verdict) st.vx = 0;
+        if (S.verdict) S.settle += dt;
+        /* La roue libre ne dure que le temps du passage. Tenue sur tout le
+           run, elle rendait le robot ingouvernable entre deux modules : la
+           gravité l'emmenait, une liaison mettait quatorze secondes à le
+           replacer et il finissait à vingt mètres du parc. C'est une physique
+           de saut, pas une physique de déplacement. */
+        if ((S.verdict && S.settle > 0.55 && S.fired >= ids.length) || S.t > 6) {
+          Y.Natural.setFreeRoll(false);
+          advance();
+        }
+        return true;
+      }
 
       if (step.act === "roll") {
         // On vise une abscisse dans le MONDE, et on en déduit le signe de la
@@ -186,14 +422,25 @@
         const dir = Y.Natural.state.dir || 1;
         const dx = step.x - st.px, dy = (step.y || 0) - st.py;
         const dist = Math.hypot(dx, dy);
-        if (dist <= 0.10 || S.t > 14) { st.vx = 0; st.wz = 0; advance(); return true; }
+        if (dist <= 0.16 || S.t > 8) { st.vx = 0; st.wz = 0; advance(); return true; }
         let err = Math.atan2(dy, dx) - st.yaw;
         if (dir < 0) err += Math.PI;
         err = ((err + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-        st.wz = clamp(err * 2.2, -1.4, 1.4);
-        // on ralentit tant qu'on n'est pas dans l'axe : braquer à pleine
-        // vitesse ferait déraper le robot au lieu de le placer
-        st.vx = Math.abs(step.v) * dir * Math.max(0.25, Math.cos(err));
+        st.wz = clamp(err * 2.0, -1.5, 1.5);
+        /* On ralentit tant qu'on n'est pas dans l'axe — braquer à pleine
+           vitesse ferait déraper le robot au lieu de le placer. Une petite
+           correction se prend EN roulant, à pleine allure : c'est ce qui
+           donne le liant. Un demi-tour, non : à 55 % de la vitesse le rayon
+           de braquage dépasse la distance à la cible et le robot tourne
+           autour sans jamais l'atteindre — quatorze secondes à orbiter. */
+        /* Au-delà d'un quart de tour d'écart, on pivote SUR PLACE. Une
+           correction de cap se prend en roulant — c'est ce qui donne le
+           liant —, mais un demi-tour pris en roulant décrit un arc plus
+           large que la distance à la cible : le robot s'éloignait en
+           tournant, et une liaison finissait à vingt mètres du parc. */
+        const ae = Math.abs(err);
+        st.vx = ae > 1.2 ? 0
+          : Math.abs(step.v) * dir * (ae > 0.9 ? 0.30 : Math.max(0.55, Math.cos(err)));
         return true;
       }
 
@@ -205,7 +452,16 @@
         let err = ((want - st.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
         st.vx = 0;
         st.wz = clamp(err * 2.0, -1.0, 1.0);
-        if (Math.abs(err) < 0.03 || S.t > 6) { st.wz = 0; advance(); }
+        if (Math.abs(err) < 0.03 || S.t > 6) {
+          st.wz = 0;
+          /* Et on reprend le sens de marche à l'endroit. Le robot est à
+             l'arrêt : « l'avant » est ici un choix libre, et le laisser en
+             fakie coûtait cher — une liaison qui vise un point de côté
+             calcule son braquage à l'envers, tourne du mauvais bord et s'en
+             va. C'est le seul endroit du run où ce choix est gratuit. */
+          if (Y.Natural.state) Y.Natural.state.dir = 1;
+          advance();
+        }
         return true;
       }
 

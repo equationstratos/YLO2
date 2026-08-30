@@ -75,15 +75,22 @@ window.YLO = window.YLO || {};
     declared: 1.7             // au-delà, les 20 rad/s de l'URDF sont dépassés
   };
 
-  /* --- groupes de matières, éditables depuis l'interface --- */
+  /* --- groupes de matières, éditables depuis l'interface ---
+
+     Les couleurs par défaut sont celles du VRAI robot, relevées dans les
+     textures des maillages du dépôt amont (les `*color.png` des dossiers
+     `textured` de `champ_for_ylo2/ylo2_description`) plutôt qu'à l'œil : carénages orange
+     #fc9000 à 99 % de `covers.png`, corps et jambes noirs (#000 à #181818),
+     moteurs mjbots blancs à 55 % de `abadcolor.png`, pieds silicone gris-bleu
+     #909c9c. C'est la livrée officielle, pas une interprétation. */
   Y.MATGROUPS = [
-    { id: "cover",   name: "Carénages",     preset: { color: "#d9dcd4", metal: 0.12, rough: 0.42, pattern: "none" } },
-    { id: "frame",   name: "Châssis",       preset: { color: "#3c443e", metal: 0.25, rough: 0.72, pattern: "print" } },
-    { id: "abad",    name: "Moteurs ABAD",  preset: { color: "#b9c0ba", metal: 0.70, rough: 0.34, pattern: "brushed" } },
-    { id: "hip",     name: "Hanches",       preset: { color: "#c2c8c2", metal: 0.62, rough: 0.30, pattern: "brushed" } },
-    { id: "upper",   name: "Cuisses",       preset: { color: "#c6ccc6", metal: 0.62, rough: 0.30, pattern: "brushed" } },
-    { id: "lower",   name: "Jambes",        preset: { color: "#9aa39c", metal: 0.55, rough: 0.40, pattern: "brushed" } },
-    { id: "foot",    name: "Pieds silicone", preset: { color: "#ff6a2b", metal: 0.00, rough: 0.85, pattern: "none" } },
+    { id: "cover",   name: "Carénages",     preset: { color: "#fc9000", metal: 0.10, rough: 0.30, pattern: "none" } },
+    { id: "frame",   name: "Châssis",       preset: { color: "#0d0e0e", metal: 0.20, rough: 0.78, pattern: "print" } },
+    { id: "abad",    name: "Moteurs ABAD",  preset: { color: "#f1f2f0", metal: 0.55, rough: 0.32, pattern: "brushed" } },
+    { id: "hip",     name: "Hanches",       preset: { color: "#1b1c1c", metal: 0.50, rough: 0.42, pattern: "brushed" } },
+    { id: "upper",   name: "Cuisses",       preset: { color: "#1b1c1c", metal: 0.50, rough: 0.42, pattern: "brushed" } },
+    { id: "lower",   name: "Jambes",        preset: { color: "#1b1c1c", metal: 0.45, rough: 0.46, pattern: "brushed" } },
+    { id: "foot",    name: "Pieds silicone", preset: { color: "#909c9c", metal: 0.00, rough: 0.85, pattern: "none" } },
     { id: "sensor",  name: "Capteurs",      preset: { color: "#2b3134", metal: 0.45, rough: 0.38, pattern: "none" } },
     { id: "battery", name: "Batterie",      preset: { color: "#1d232a", metal: 0.25, rough: 0.70, pattern: "none" } },
     { id: "board",   name: "Électronique",  preset: { color: "#1c6b48", metal: 0.20, rough: 0.60, pattern: "none" } },
@@ -105,6 +112,8 @@ window.YLO = window.YLO || {};
   ];
 
   Y.THEMES = [
+    { id: "officiel", name: "Officiel", set: { cover: "#fc9000", frame: "#0d0e0e", foot: "#909c9c" },
+      pat: { cover: "none", frame: "print" } },
     { id: "atelier", name: "Atelier", set: { cover: "#d9dcd4", frame: "#3c443e", foot: "#ff6a2b" } },
     { id: "carbone", name: "Carbone", set: { cover: "#1b1e20", frame: "#16181a", foot: "#e8e8e8" },
       pat: { cover: "carbon", frame: "carbon" } },
