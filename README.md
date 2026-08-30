@@ -458,9 +458,13 @@ fichier                                       35,7 Ko
 Le fichier est un **JSON lisible** : format, version, date, terrain, état de
 départ, images, événements. C'est ce fichier qui s'envoie — il pèse 1,4 Ko par
 seconde de run là où une vidéo en pèserait mille fois plus, et il se rejoue
-dans la page de n'importe qui. **Exporter** le télécharge *et* le copie dans le
-presse-papier : un téléchargement lancé depuis une page en bac à sable est
-parfois refusé sans rien dire, et un coller suffit alors à récupérer la prise.
+dans la page de n'importe qui. **Exporter** a deux voies de sortie, parce que la page
+vit à deux endroits : sur une page ordinaire — GitHub Pages, un fichier
+local — un lien de téléchargement suffit ; publiée en Artifact, elle tourne
+dans un bac à sable qui refuse les téléchargements sans rien dire, et c'est
+alors l'hôte qui remet le fichier après avoir demandé au lecteur. La page
+tente l'hôte, retombe sur le lien, et copie la prise dans le presse-papier
+par-dessus le marché.
 
 ```json
 { "format": "ylo2-run", "version": 1, "date": "…", "terrain": "skatepark",

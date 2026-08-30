@@ -7271,28 +7271,52 @@ window.YLO = window.YLO || {};
       if (!Y.Record.play()) flash("Aucune prise à rejouer");
       recRefresh();
     });
-    recSave.addEventListener("click", function () {
-      const info = Y.Record.info(); if (!info) return;
-      const json = Y.Record.toJSON();
+    /* Deux voies de sortie, parce que la page vit à deux endroits. Sur une
+       page ordinaire — GitHub Pages, un fichier local — un lien de
+       téléchargement suffit. Publiée en Artifact, elle tourne dans un bac à
+       sable qui refuse les téléchargements sans rien dire : là c'est l'hôte
+       qui remet le fichier, et il demande d'abord au lecteur. On tente donc
+       l'hôte, et on retombe sur le lien. */
+    let saver = null;
+    if (window.claude && typeof window.claude.use === "function") {
+      window.claude.use("downloads").then(function (d) { saver = d; })
+        .catch(function () { saver = null; });
+    }
+    function saveTake(name, json) {
+      if (saver) {
+        saver.save({ filename: name, data: json }).then(function () {
+          flash("Prise enregistrée : " + name);
+        }).catch(function (e) {
+          const code = e && e.code;
+          if (code === "declined") flash("Export annulé");
+          else { linkSave(name, json); }
+        });
+        return;
+      }
+      linkSave(name, json);
+    }
+    function linkSave(name, json) {
       const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url;
-      a.download = "ylo2-run-" + info.terrain + "-"
-        + info.date.slice(0, 19).replace(/[:T]/g, "-") + ".json";
+      a.href = url; a.download = name;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
-      /* Et une copie dans le presse-papier. Le téléchargement d'une page
-         embarquée dans un bac à sable est parfois refusé sans rien dire ;
-         là, un coller suffit à récupérer la prise. */
+      /* Et une copie dans le presse-papier : si le téléchargement est refusé
+         sans rien dire, un coller suffit à récupérer la prise. */
       let copied = false;
       try {
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(json); copied = true;
         }
       } catch (e) { copied = false; }
-      flash("Prise exportée : " + a.download
+      flash("Prise exportée : " + name
         + (copied ? " — et copiée dans le presse-papier" : ""));
+    }
+    recSave.addEventListener("click", function () {
+      const info = Y.Record.info(); if (!info) return;
+      saveTake("ylo2-run-" + info.terrain + "-"
+        + info.date.slice(0, 19).replace(/[:T]/g, "-") + ".json", Y.Record.toJSON());
     });
     document.getElementById("recLoad").addEventListener("click", function () { recFile.click(); });
     recFile.addEventListener("change", function () {
