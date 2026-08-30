@@ -1093,13 +1093,13 @@
       label: "Cabrage", mode: "roues", kind: "tilt", axis: "pitch",
       arm: 0.30, rise: 0.60, hold: 1.40, drop: 0.65,
       angle: -1.45, stand: 0.34, wobble: 0.030, sustain: true,
-      swapAt: 1.6, swap: 0.70
+      swap: 0.70
     },
     sidestand: {
       label: "Sur deux roues", mode: "roues", kind: "tilt", axis: "roll",
       arm: 0.30, rise: 0.70, hold: 1.60, drop: 0.75,
       angle: 1.40, stand: 0.30, wobble: 0.035, sustain: true,
-      swapAt: 1.6, swap: 0.70
+      swap: 0.70
     },
     pirouette: {
       label: "Pirouette", mode: "roues", kind: "spin", sustain: true,
@@ -1118,8 +1118,8 @@
        figure du salto roues, où tout le tour se fait pendant le vol. */
     wheeltumble: {
       label: "Salto arrière enchaîné", mode: "roues", kind: "tumble", sustain: true,
-      rear: 0.30, over: 0.42, plant: 0.40, recover: 0.40, lift: 1.30, turns: 1,
-      press: 0.97, absorb: 0.72
+      rear: 0.46, over: 0.38, plant: 0.60, recover: 0.40, lift: 1.42, turns: 1,
+      press: 0.97, absorb: 0.66
     },
     wheeljump: {
       label: "Saut", mode: "roues", kind: "jump",
@@ -1403,8 +1403,8 @@
                              - terrainAt(state.px + cy * dL, state.py + sy * dL), 2 * dL);
       state.roll = 0;
       state.z = base + state.height;
-      if (f.twist) state.yaw = run.yaw0 + 2 * Math.PI * f.twist;
-      if (f.spinTurns) state.yaw = run.yaw0 + 2 * Math.PI * f.spinTurns;
+      if (f.twist) state.yaw = run.yaw0 + 2 * Math.PI * f.twist + run.freeYaw;
+      if (f.spinTurns) state.yaw = run.yaw0 + 2 * Math.PI * f.spinTurns + run.freeYaw;
       nat.zBody = state.z; nat.vz = 0;
       // Le générateur d'allure raisonne en appuis plantés dans le monde. Après
       // une figure — surtout un 540, qui tourne le robot d'un demi-tour et le
@@ -1644,8 +1644,13 @@
           /* Passage sur l'autre paire de roues. On redescend à plat, on
              change d'appui au passage par zéro — c'est le seul instant où les
              quatre roues sont sous le robot, donc le seul où le changement ne
-             coûte rien — et on se relève de l'autre côté. */
-          if (f.swap && run.swapT === null && run.holdT > f.swapAt && !run.release) {
+             coûte rien — et on se relève de l'autre côté.
+             Il est DEMANDÉ et non automatique : un appui bref pose le robot
+             d'un côté, un appui long l'envoie de l'autre, et un appui bref
+             pendant la tenue le repose. Une bascule au chronomètre décidait à
+             la place du pilote. */
+          if (f.swap && run.swapT === null && run.wantSwap && !run.release) {
+            run.wantSwap = false;
             run.swapT = 0;
           }
           if (run.swapT !== null) {
@@ -1830,8 +1835,13 @@
        * l'amorti entrent dans la trajectoire : allonger la patte pendant
        * l'élan ne fait pas que changer la pose, ça lève la caisse.
        */
+      /* L'essieu porteur reste UN RAYON au-dessus du sol, quel que soit
+         l'angle. La forme précédente — `cos(θ)·(ell + R)` — revenait à faire
+         descendre l'essieu avec le cosinus : juste à plat, fausse de 54 mm à
+         74° de cabré, et de tout le rayon à la verticale. C'est cette erreur
+         qui enfonçait les moyeux et interdisait de se dresser plus haut. */
       const pivotZ = function (theta, a, ell) {
-        return Math.sin(theta) * a + Math.cos(theta) * (ell + WHEEL_R);
+        return WHEEL_R + Math.sin(theta) * a + Math.cos(theta) * ell;
       };
       /* Patte tendue : la poussée, en fraction de l'ALLONGE RÉELLE et non de
          la garde de caisse. Réglée sur la garde, elle dépendait d'un chiffre
@@ -2170,6 +2180,17 @@
         }
       } else if (t < t4) {
         phase = "réception";
+        /* Dès le contact, le pilote reprend la main sur le cap. Sans ça, le
+           robot passait sa réception et sa stabilisation — plus d'un demi-
+           quart de seconde — cap figé : on posait un 180, on demandait de
+           tourner, et il ne répondait qu'une fois la figure finie. Les roues
+           sont au sol, elles peuvent braquer. */
+        nat.wz = approach(nat.wz, clamp(state.wz, -1.6, 1.6), 3.0, dt);
+        /* Une figure qui impose son cap — 180, 360, McTwist — le réassigne
+           plus bas : sa correction de pilotage doit donc s'accumuler à part.
+           Une figure qui n'impose rien, elle, tourne directement. */
+        if (f.twist || f.spinTurns) run.freeYaw += nat.wz * dt;
+        else state.yaw += nat.wz * dt;
         const s = smooth((t - t3) / f.land);
         // On se reçoit sur le sol qui est SOUS le robot, pas sur celui d'où
         // il a décollé. C'est ce qui permet de partir de la lèvre d'une rampe
@@ -2188,7 +2209,7 @@
              540 : les pneus sont traînés en arrière et le robot continue sur
              son erre, roues à l'envers. Un tour entier retombe dans le sens
              de départ, il n'y a rien à inverser. */
-          state.yaw = run.yaw0 + 2 * Math.PI * f.spinTurns;
+          state.yaw = run.yaw0 + 2 * Math.PI * f.spinTurns + run.freeYaw;
           if (Math.abs((f.spinTurns % 1) - 0.5) < 0.01 && !run.fakie) {
             run.fakie = true;
             nat.vx = -nat.vx;
@@ -2196,7 +2217,7 @@
           }
         }
         if (f.twist) {                                // on remet la gîte à plat
-          state.yaw = run.yaw0 + 2 * Math.PI * f.twist;
+          state.yaw = run.yaw0 + 2 * Math.PI * f.twist + run.freeYaw;
           state.roll = lerp(state.roll, 0, Math.min(1, dt * 8));
           // Un 540 tourne le robot d'un demi-tour net : il retombe face à
           // l'arrière de sa trajectoire. Au toucher, les pneus sont donc
@@ -2233,6 +2254,9 @@
         }
       } else {
         phase = "stabilisation";
+        nat.wz = approach(nat.wz, clamp(state.wz, -1.6, 1.6), 3.0, dt);
+        if (f.twist || f.spinTurns) run.freeYaw += nat.wz * dt;
+        else state.yaw += nat.wz * dt;
         const s = smooth((t - t4) / f.recover);
         state.z = groundRef() + ride * lerp(0.80, 1.0, s) + WHEEL_R;
         // puis on rejoint l'assiette de la pente, pas l'horizontale
@@ -2319,6 +2343,7 @@
       run.hold = f.kind === "tilt" ? true : !!hold;
       run.tumbleT = 0; run.prevA = {};
       run.tiltSide = 1; run.swapT = null; run.swapDone = false; run.reseat = false;
+      run.wantSwap = false; run.freeYaw = 0;
       // on amorce le limiteur de débattement sur la position réelle des pieds :
       // sinon la première image saute d'un rayon de roue et coûte 57 rad/s
       Y.LEGS.forEach(function (L) {
@@ -2409,6 +2434,21 @@
      * repos est mis en attente et part dès que la tenue commence. Sans ça,
      * rappuyer trop vite ne faisait rien et le robot restait dressé.
      */
+    /**
+     * Demander le passage sur l'AUTRE paire de roues, pendant une tenue.
+     *
+     * C'est le bouton qui décide, pas un chronomètre : un appui bref pose le
+     * robot d'un côté, le même bouton gardé enfoncé l'envoie de l'autre.
+     */
+    swapSide: function () {
+      if (!run.fig || run.fig.kind !== "tilt" || !run.fig.swap) return false;
+      if (run.release || run.swapT !== null || run.wantSwap) return false;
+      run.wantSwap = true;
+      return true;
+    },
+    /** Côté d'appui d'une tenue en cours : +1 le côté d'entrée, -1 l'autre. */
+    tiltSide: function () { return run.fig && run.fig.kind === "tilt" ? (run.tiltSide || 1) : 0; },
+
     release: function () {
       if (!run.fig || !run.fig.sustain || !run.hold || run.release || run.wantRelease) return false;
       // Vrille et bascule enchaînée s'arrêtent d'elles-mêmes proprement : la

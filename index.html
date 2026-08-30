@@ -564,6 +564,10 @@ window.YLO = window.YLO || {};
 
   Y.K = {
     trunkL: 0.569125, trunkW: 0.350, trunkH: 0.148521,
+    // Dessus de caisse, relevé sur le maillage du tronc : c'est le plan sur
+    // lequel se visse l'embase du lidar. Le prendre à trunkH/2 le plantait
+    // dans le pont — le maillage n'est pas centré sur son milieu.
+    trunkTop: 0.125,
     legX: 0.387 / 2 - 0.019,      // ±0.1745 m, entraxe HAA avant/arrière
     legY: 0.1144 / 2 + 0.006,     // ±0.0632 m, entraxe HAA gauche/droite
     legZ: 0.023,                  // décalage vertical tronc -> axe HAA
@@ -1738,13 +1742,38 @@ window.YLO = window.YLO || {};
         body.add(tag(slab, "frame", [0, 0, 0.3]));
       }
 
-      /* --- lidar : hors URDF, posé sur le dessus --- */
+      /* --- lidar : hors URDF, posé sur le dessus ---
+
+         Il était planté 22 mm DANS le tronc — son maillage est centré sur son
+         milieu, pas sur sa semelle, et le poser à la hauteur du dessus de
+         caisse l'enfonçait d'une demi-hauteur. Et c'est tout le capteur qui
+         tournait, embase comprise : un RPLIDAR a une embase FIXE, vissée sur
+         le pont, et seule la tête tourne dessus. On dessine donc l'embase, on
+         pose la tête à sa hauteur réelle, et on ne fait tourner que la tête —
+         autour de son propre axe, recalé sur le centre du maillage. */
+      const LID = { z: K.trunkTop, x: -0.02 };
       const lidar = new T.Group();
+      const mount = new T.Mesh(new T.CylinderGeometry(0.042, 0.046, 0.012, 24),
+        Y.Mat.get("frame"));
+      mount.rotation.x = Math.PI / 2;                 // cylindre : axe Y -> Z
+      mount.position.z = 0.006;
+      lidar.add(mount);
+      const head = new T.Group();
+      head.position.z = 0.012;
       const lidarMesh = real ? meshOf("lidar", "sensor") : cyl(0.037, 0.045, "sensor");
-      if (lidarMesh) lidar.add(lidarMesh);
-      lidar.position.set(-0.02, 0, 0.112);
+      if (lidarMesh) {
+        const bb = new T.Box3().setFromObject(lidarMesh);
+        // l'axe de rotation passe par le centre du maillage, sa semelle repose
+        // sur l'embase : deux recalages que le maillage ne porte pas lui-même
+        lidarMesh.position.set(-(bb.min.x + bb.max.x) / 2,
+                               -(bb.min.y + bb.max.y) / 2,
+                               -bb.min.z);
+        head.add(lidarMesh);
+      }
+      lidar.add(head);
+      lidar.position.set(LID.x, 0, LID.z);
       body.add(tag(lidar, "lidar", [0, 0, 0.5]));
-      extras.lidarSpin = lidarMesh;
+      extras.lidarSpin = head;
 
       /* --- électronique et capteurs non modélisés dans le dépôt --- */
       const upx = new T.Group();
@@ -1863,25 +1892,55 @@ window.YLO = window.YLO || {};
         const wheelR = 0.075;
         const wheel = new T.Group();
         wheel.position.set(0, L.m * 0.012, 0);
-        // tore : son axe est Z, on le bascule sur Y pour l'aligner sur l'essieu
-        const tyre = new T.Mesh(new T.TorusGeometry(wheelR * 0.82, wheelR * 0.18, 14, 30),
+        /* Pneu large et cranté. Le tore fait 26 % du rayon de section — 39 mm
+           de large contre 27 —, et une couronne de crampons vient dessus : sur
+           un robot qui roule sur du béton cassé, une roue lisse et étroite ne
+           dit pas ce qu'elle fait. Le tore a son axe sur Z, on le bascule sur
+           Y pour l'aligner sur l'essieu. */
+        /* Rayon moyen + section = exactement `wheelR` : le pneu touche le sol
+           là où la physique le croit. Un tore plus gros que le rayon de
+           contact ferait flotter le robot de la différence. */
+        const tyre = new T.Mesh(new T.TorusGeometry(wheelR * 0.78, wheelR * 0.22, 16, 36),
           Y.Mat.get("wheel"));
         tyre.rotation.x = Math.PI / 2;
-        // cylindres : leur axe est déjà Y, il ne faut pas les tourner
-        const rim = new T.Mesh(new T.CylinderGeometry(wheelR * 0.72, wheelR * 0.72, 0.030, 24),
-          Y.Mat.get("rim"));
-        // Le moyeu a sa propre matière : la jante prend la couleur du robot,
-        // le moyeu reste noir. Il empruntait celle des moteurs — blanche —,
-        // et la roue entière rendait claire.
-        const hubCap = new T.Mesh(new T.CylinderGeometry(wheelR * 0.26, wheelR * 0.26, 0.042, 16),
-          Y.Mat.get("hub"));
-        for (let k = 0; k < 6; k++) {                 // rayons, dans le plan XZ
-          const spoke = new T.Mesh(new T.BoxGeometry(wheelR * 1.3, 0.014, 0.018),
-            Y.Mat.get("rim"));
-          spoke.rotation.y = k * Math.PI / 6;
-          wheel.add(spoke);
+        wheel.add(tyre);
+        // crampons : deux rangées décalées, comme une bande de pneu tout-terrain
+        for (let k = 0; k < 12; k++) {
+          const a = k * Math.PI / 6;
+          for (let r = -1; r <= 1; r += 2) {
+            // le crampon affleure la bande de roulement, il ne la dépasse pas
+            const lug = new T.Mesh(new T.BoxGeometry(0.020, 0.018, 0.012),
+              Y.Mat.get("wheel"));
+            lug.position.set(Math.cos(a + (r > 0 ? 0.26 : 0)) * wheelR * 0.867,
+                             r * wheelR * 0.16,
+                             Math.sin(a + (r > 0 ? 0.26 : 0)) * wheelR * 0.867);
+            lug.rotation.y = -(a + (r > 0 ? 0.26 : 0));
+            wheel.add(lug);
+          }
         }
-        wheel.add(tyre, rim, hubCap);
+        /* Jante à cinq branches : une couronne, cinq bras qui s'affinent vers
+           le centre, un moyeu noir. Cinq et non six — c'est ce qui distingue
+           une jante d'un simple disque à rayons —, et pas davantage : on la
+           voit tourner à vingt tours par seconde, le détail s'y perdrait. */
+        const ring = new T.Mesh(new T.TorusGeometry(wheelR * 0.66, wheelR * 0.085, 10, 30),
+          Y.Mat.get("rim"));
+        ring.rotation.x = Math.PI / 2;
+        const disc = new T.Mesh(new T.CylinderGeometry(wheelR * 0.30, wheelR * 0.30, 0.026, 20),
+          Y.Mat.get("rim"));
+        for (let k = 0; k < 5; k++) {
+          const a = k * Math.PI * 2 / 5;
+          const arm = new T.Mesh(new T.BoxGeometry(wheelR * 0.42, 0.020, 0.026), Y.Mat.get("rim"));
+          arm.position.set(Math.cos(a) * wheelR * 0.44, 0, Math.sin(a) * wheelR * 0.44);
+          arm.rotation.y = -a;
+          wheel.add(arm);
+        }
+        /* Le moyeu a sa propre matière : la jante prend la couleur du robot,
+           le moyeu reste noir. */
+        const hubCap = new T.Mesh(new T.CylinderGeometry(wheelR * 0.24, wheelR * 0.24, 0.046, 18),
+          Y.Mat.get("hub"));
+        const boss = new T.Mesh(new T.CylinderGeometry(wheelR * 0.10, wheelR * 0.10, 0.052, 12),
+          Y.Mat.get("hub"));
+        wheel.add(ring, disc, hubCap, boss);
         wheel.visible = false;
         tag(wheel, "wheels", [0, L.m * 0.3, -0.1]);
         foot.add(wheel);
@@ -3317,13 +3376,13 @@ window.YLO = window.YLO || {};
       label: "Cabrage", mode: "roues", kind: "tilt", axis: "pitch",
       arm: 0.30, rise: 0.60, hold: 1.40, drop: 0.65,
       angle: -1.45, stand: 0.34, wobble: 0.030, sustain: true,
-      swapAt: 1.6, swap: 0.70
+      swap: 0.70
     },
     sidestand: {
       label: "Sur deux roues", mode: "roues", kind: "tilt", axis: "roll",
       arm: 0.30, rise: 0.70, hold: 1.60, drop: 0.75,
       angle: 1.40, stand: 0.30, wobble: 0.035, sustain: true,
-      swapAt: 1.6, swap: 0.70
+      swap: 0.70
     },
     pirouette: {
       label: "Pirouette", mode: "roues", kind: "spin", sustain: true,
@@ -3342,8 +3401,8 @@ window.YLO = window.YLO || {};
        figure du salto roues, où tout le tour se fait pendant le vol. */
     wheeltumble: {
       label: "Salto arrière enchaîné", mode: "roues", kind: "tumble", sustain: true,
-      rear: 0.30, over: 0.42, plant: 0.40, recover: 0.40, lift: 1.30, turns: 1,
-      press: 0.97, absorb: 0.72
+      rear: 0.46, over: 0.38, plant: 0.60, recover: 0.40, lift: 1.42, turns: 1,
+      press: 0.97, absorb: 0.66
     },
     wheeljump: {
       label: "Saut", mode: "roues", kind: "jump",
@@ -3627,8 +3686,8 @@ window.YLO = window.YLO || {};
                              - terrainAt(state.px + cy * dL, state.py + sy * dL), 2 * dL);
       state.roll = 0;
       state.z = base + state.height;
-      if (f.twist) state.yaw = run.yaw0 + 2 * Math.PI * f.twist;
-      if (f.spinTurns) state.yaw = run.yaw0 + 2 * Math.PI * f.spinTurns;
+      if (f.twist) state.yaw = run.yaw0 + 2 * Math.PI * f.twist + run.freeYaw;
+      if (f.spinTurns) state.yaw = run.yaw0 + 2 * Math.PI * f.spinTurns + run.freeYaw;
       nat.zBody = state.z; nat.vz = 0;
       // Le générateur d'allure raisonne en appuis plantés dans le monde. Après
       // une figure — surtout un 540, qui tourne le robot d'un demi-tour et le
@@ -3868,8 +3927,13 @@ window.YLO = window.YLO || {};
           /* Passage sur l'autre paire de roues. On redescend à plat, on
              change d'appui au passage par zéro — c'est le seul instant où les
              quatre roues sont sous le robot, donc le seul où le changement ne
-             coûte rien — et on se relève de l'autre côté. */
-          if (f.swap && run.swapT === null && run.holdT > f.swapAt && !run.release) {
+             coûte rien — et on se relève de l'autre côté.
+             Il est DEMANDÉ et non automatique : un appui bref pose le robot
+             d'un côté, un appui long l'envoie de l'autre, et un appui bref
+             pendant la tenue le repose. Une bascule au chronomètre décidait à
+             la place du pilote. */
+          if (f.swap && run.swapT === null && run.wantSwap && !run.release) {
+            run.wantSwap = false;
             run.swapT = 0;
           }
           if (run.swapT !== null) {
@@ -4054,8 +4118,13 @@ window.YLO = window.YLO || {};
        * l'amorti entrent dans la trajectoire : allonger la patte pendant
        * l'élan ne fait pas que changer la pose, ça lève la caisse.
        */
+      /* L'essieu porteur reste UN RAYON au-dessus du sol, quel que soit
+         l'angle. La forme précédente — `cos(θ)·(ell + R)` — revenait à faire
+         descendre l'essieu avec le cosinus : juste à plat, fausse de 54 mm à
+         74° de cabré, et de tout le rayon à la verticale. C'est cette erreur
+         qui enfonçait les moyeux et interdisait de se dresser plus haut. */
       const pivotZ = function (theta, a, ell) {
-        return Math.sin(theta) * a + Math.cos(theta) * (ell + WHEEL_R);
+        return WHEEL_R + Math.sin(theta) * a + Math.cos(theta) * ell;
       };
       /* Patte tendue : la poussée, en fraction de l'ALLONGE RÉELLE et non de
          la garde de caisse. Réglée sur la garde, elle dépendait d'un chiffre
@@ -4394,6 +4463,17 @@ window.YLO = window.YLO || {};
         }
       } else if (t < t4) {
         phase = "réception";
+        /* Dès le contact, le pilote reprend la main sur le cap. Sans ça, le
+           robot passait sa réception et sa stabilisation — plus d'un demi-
+           quart de seconde — cap figé : on posait un 180, on demandait de
+           tourner, et il ne répondait qu'une fois la figure finie. Les roues
+           sont au sol, elles peuvent braquer. */
+        nat.wz = approach(nat.wz, clamp(state.wz, -1.6, 1.6), 3.0, dt);
+        /* Une figure qui impose son cap — 180, 360, McTwist — le réassigne
+           plus bas : sa correction de pilotage doit donc s'accumuler à part.
+           Une figure qui n'impose rien, elle, tourne directement. */
+        if (f.twist || f.spinTurns) run.freeYaw += nat.wz * dt;
+        else state.yaw += nat.wz * dt;
         const s = smooth((t - t3) / f.land);
         // On se reçoit sur le sol qui est SOUS le robot, pas sur celui d'où
         // il a décollé. C'est ce qui permet de partir de la lèvre d'une rampe
@@ -4412,7 +4492,7 @@ window.YLO = window.YLO || {};
              540 : les pneus sont traînés en arrière et le robot continue sur
              son erre, roues à l'envers. Un tour entier retombe dans le sens
              de départ, il n'y a rien à inverser. */
-          state.yaw = run.yaw0 + 2 * Math.PI * f.spinTurns;
+          state.yaw = run.yaw0 + 2 * Math.PI * f.spinTurns + run.freeYaw;
           if (Math.abs((f.spinTurns % 1) - 0.5) < 0.01 && !run.fakie) {
             run.fakie = true;
             nat.vx = -nat.vx;
@@ -4420,7 +4500,7 @@ window.YLO = window.YLO || {};
           }
         }
         if (f.twist) {                                // on remet la gîte à plat
-          state.yaw = run.yaw0 + 2 * Math.PI * f.twist;
+          state.yaw = run.yaw0 + 2 * Math.PI * f.twist + run.freeYaw;
           state.roll = lerp(state.roll, 0, Math.min(1, dt * 8));
           // Un 540 tourne le robot d'un demi-tour net : il retombe face à
           // l'arrière de sa trajectoire. Au toucher, les pneus sont donc
@@ -4457,6 +4537,9 @@ window.YLO = window.YLO || {};
         }
       } else {
         phase = "stabilisation";
+        nat.wz = approach(nat.wz, clamp(state.wz, -1.6, 1.6), 3.0, dt);
+        if (f.twist || f.spinTurns) run.freeYaw += nat.wz * dt;
+        else state.yaw += nat.wz * dt;
         const s = smooth((t - t4) / f.recover);
         state.z = groundRef() + ride * lerp(0.80, 1.0, s) + WHEEL_R;
         // puis on rejoint l'assiette de la pente, pas l'horizontale
@@ -4543,6 +4626,7 @@ window.YLO = window.YLO || {};
       run.hold = f.kind === "tilt" ? true : !!hold;
       run.tumbleT = 0; run.prevA = {};
       run.tiltSide = 1; run.swapT = null; run.swapDone = false; run.reseat = false;
+      run.wantSwap = false; run.freeYaw = 0;
       // on amorce le limiteur de débattement sur la position réelle des pieds :
       // sinon la première image saute d'un rayon de roue et coûte 57 rad/s
       Y.LEGS.forEach(function (L) {
@@ -4633,6 +4717,21 @@ window.YLO = window.YLO || {};
      * repos est mis en attente et part dès que la tenue commence. Sans ça,
      * rappuyer trop vite ne faisait rien et le robot restait dressé.
      */
+    /**
+     * Demander le passage sur l'AUTRE paire de roues, pendant une tenue.
+     *
+     * C'est le bouton qui décide, pas un chronomètre : un appui bref pose le
+     * robot d'un côté, le même bouton gardé enfoncé l'envoie de l'autre.
+     */
+    swapSide: function () {
+      if (!run.fig || run.fig.kind !== "tilt" || !run.fig.swap) return false;
+      if (run.release || run.swapT !== null || run.wantSwap) return false;
+      run.wantSwap = true;
+      return true;
+    },
+    /** Côté d'appui d'une tenue en cours : +1 le côté d'entrée, -1 l'autre. */
+    tiltSide: function () { return run.fig && run.fig.kind === "tilt" ? (run.tiltSide || 1) : 0; },
+
     release: function () {
       if (!run.fig || !run.fig.sustain || !run.hold || run.release || run.wantRelease) return false;
       // Vrille et bascule enchaînée s'arrêtent d'elles-mêmes proprement : la
@@ -5502,6 +5601,7 @@ window.YLO = window.YLO || {};
   "use strict";
 
   const DOUBLE_S = 0.30;            // fenêtre du double appui sur une flèche
+  const LONG_S = 0.38;              // au-delà, un appui de tenue est « long »
   const SOLO_S = 0.40;              // au-delà, une épaule seule tenue part quand même
   const DEAD = 0.15;                // zone morte des sticks
   const TRIG = 0.12;                // seuil des gâchettes analogiques
@@ -5588,8 +5688,8 @@ window.YLO = window.YLO || {};
   const MAP = [
     { pad: "✕", key: "Espace", act: "Saut — tenir arme, lâcher détend ; tourner en armant fait pivoter" },
     { pad: "△", key: "H", act: "Hauteur de caisse" },
-    { pad: "□", key: "C", act: "Cabrage — tenu, il passe sur les roues avant" },
-    { pad: "○", key: "V", act: "Deux roues — tenu, il passe sur l'autre flanc" },
+    { pad: "□", key: "C", act: "Cabrage : bref = roues arrière, long = roues avant, bref = repose" },
+    { pad: "○", key: "V", act: "Deux roues : bref = flanc droit, long = flanc gauche, bref = repose" },
     { pad: "R2", key: "↑", act: "Accélérer" },
     { pad: "L2", key: "↓", act: "Freiner, puis marche arrière" },
     { pad: "L1", key: "A", act: "Double salto arrière" },
@@ -5631,6 +5731,7 @@ window.YLO = window.YLO || {};
   // état d'entrée : appuis précédents, gestes en attente, consigne courante
   const prev = {};
   const keys = {};
+  const held = {};                  // instants d'appui des boutons de tenue
   let waitDir = null;               // { dir, t } — salto simple en attente
   let waitBoth = null;              // { side, t } — épaule simple en attente
   let heightStep = 1;
@@ -5787,12 +5888,44 @@ window.YLO = window.YLO || {};
       else if (!down && was) Y.Stunt.fire();
       return;
     }
+    /* Carré et rond : appui BREF d'un côté, appui LONG de l'autre.
+       Un appui bref pose le robot sur ses roues arrière (carré) ou sur son
+       flanc droit (rond). En gardant le bouton, il redescend et repart sur
+       les roues avant, ou sur l'autre flanc. Et un appui bref pendant la
+       tenue le repose, quel que soit le côté levé — c'est le même bouton qui
+       met et qui enlève, comme un interrupteur. */
+    if (name === "square" || name === "circle") {
+      const id = name === "square" ? "wheelie" : "sidestand";
+      const was = !!prev[name];
+      prev[name] = down;
+      if (down && !was) { held[name] = now(); fire(id); }
+      else if (!down && was) held[name] = 0;
+      return;
+    }
     if (edge(name, down)) {
       if (name === "triangle") cycleHeight();
-      if (name === "square") fire("wheelie");
-      if (name === "circle") fire("sidestand");
       if (DIR[name]) pressDir(name);
     }
+  }
+
+  /**
+   * Bouton de tenue gardé enfoncé : on demande l'autre paire de roues.
+   *
+   * Le geste se juge sur la DURÉE et non au relâchement : décider à la levée
+   * du doigt ferait attendre le robot, et on veut le voir passer d'un appui à
+   * l'autre pendant qu'on appuie.
+   */
+  function resolveHold() {
+    ["square", "circle"].forEach(function (name) {
+      if (!held[name]) return;
+      const id = name === "square" ? "wheelie" : "sidestand";
+      if (Y.Stunt.active !== id) { held[name] = 0; return; }
+      if (now() - held[name] < LONG_S) return;
+      held[name] = 0;
+      if (Y.Stunt.swapSide()) {
+        say(id === "wheelie" ? "Sur les roues avant" : "Sur l'autre flanc");
+      }
+    });
   }
 
   /** Manette branchée, s'il y en a une : la première connectée gagne. */
@@ -5950,7 +6083,7 @@ window.YLO = window.YLO || {};
       S.on = true;
       Object.keys(prev).forEach(function (k) { prev[k] = false; });
       Object.keys(keys).forEach(function (k) { delete keys[k]; });
-      waitDir = null; waitBoth = null;
+      waitDir = null; waitBoth = null; held.square = 0; held.circle = 0;
       if (hooks.mode) hooks.mode("roues");     // toutes ces figures sont sur roues
       if (hooks.setBrake) hooks.setBrake(false);
       S.combo.length = 0; S.last = ""; S.score = 0; pending = 0; wasAir = false;
@@ -5963,7 +6096,7 @@ window.YLO = window.YLO || {};
 
     stop: function () {
       S.on = false; S.say = ""; S.padName = "";
-      waitDir = null; waitBoth = null;
+      waitDir = null; waitBoth = null; held.square = 0; held.circle = 0;
       if (hooks.setVx) hooks.setVx(0);
       if (hooks.setWz) hooks.setWz(0);
       if (hooks.setBrake) hooks.setBrake(false);
@@ -5998,6 +6131,7 @@ window.YLO = window.YLO || {};
       if (!S.on) return false;
       if (S.source === "manette") stepPad(); else stepKeys();
       resolvePending();
+      resolveHold();
       stepCombo();
       return true;
     },

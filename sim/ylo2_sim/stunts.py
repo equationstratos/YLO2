@@ -143,8 +143,8 @@ WHEEL_FIGURES: Dict[str, WheelFigure] = {
     # à 1,30 rad (74°) le robot est presque debout sur ses roues arrière, et
     # il ne reste qu'un peu plus de 3,6 rad à faire en l'air.
     "wheeltumble": WheelFigure("wheeltumble", "Salto arrière enchaîné", "tumble",
-                               rear=0.30, over=0.42, plant=0.40, recover=0.40,
-                               lift=1.30, press=0.97, absorb=0.72, sustain=True),
+                               rear=0.46, over=0.38, plant=0.60, recover=0.40,
+                               lift=1.42, press=0.97, absorb=0.66, sustain=True),
     "wheeljump": WheelFigure("wheeljump", "Saut", "jump", crouch=0.30, push=0.16,
                              land=0.26, recover=0.34, vz=2.30, crouch_z=0.80, tuck=0.15),
     # Sauts vrillés : un saut à plat pendant lequel la caisse fait un demi-tour
@@ -686,7 +686,10 @@ def perform_wheels(robot, fig: WheelFigure,
                 patte pendant l'élan ne change pas que la pose, ça lève la
                 caisse.
                 """
-                return math.sin(theta) * a + math.cos(theta) * (ell + radius)
+                # L'essieu porteur reste UN RAYON au-dessus du sol quel que
+                # soit l'angle. La forme précédente faisait descendre l'essieu
+                # avec le cosinus : fausse de 54 mm à 74° de cabré.
+                return radius + math.sin(theta) * a + math.cos(theta) * ell
 
             ell_push = REACH_MAX * fig.press
 

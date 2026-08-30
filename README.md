@@ -423,6 +423,69 @@ et la roue entière rendait claire. Le moyeu a désormais sa propre matière,
 éditable comme les autres. Les anciens réglages restent disponibles sous le thème
 « Atelier », et le nouveau défaut a son thème « Officiel ».
 
+### Le bouton décide du côté, et le salto roule vraiment
+
+**Bref d'un côté, long de l'autre, bref pour reposer.** La bascule ne change
+plus de côté toute seule au bout de 1,6 s — c'est le bouton qui décide, et un
+chronomètre décidait à la place du pilote :
+
+| Geste | ○ (deux roues) | □ (cabrage) |
+|---|---|---|
+| Appui bref | flanc **droit**, +82° | roues **arrière**, −83° |
+| Appui long | flanc **gauche**, −80° | roues **avant**, +82° |
+| Appui bref en tenue | repose, quel que soit le côté levé | idem |
+
+Le geste se juge à la **durée** (0,38 s) et non au relâchement : décider à la
+levée du doigt ferait attendre le robot, alors qu'on veut le voir passer d'un
+appui à l'autre pendant qu'on appuie.
+
+**Le cap répond dès le contact.** Après un 180 ou un 360, la réception et la
+stabilisation gardaient le cap figé : on posait la figure, on demandait de
+tourner, et rien ne bougeait pendant plus d'un demi-quart de seconde. Les roues
+sont au sol, elles peuvent braquer — le pilote reprend donc la main au toucher.
+Mesuré, le cap répond **175 ms** après le contact au lieu de 650, et ces
+175 ms ne sont que la rampe de la consigne.
+
+**Le salto enchaîné : une erreur de géométrie, pas de réglage.** La hauteur de
+caisse d'une bascule rigide était calculée `sin(θ)·a + cos(θ)·(ell + R)`. Juste
+à plat ; à 74° de cabré elle plaçait l'essieu **54 mm trop bas**, et à la
+verticale d'un rayon entier. L'essieu porteur reste un rayon au-dessus du sol
+quel que soit l'angle : `R + sin(θ)·a + cos(θ)·ell`. C'est cette erreur qui
+enfonçait les moyeux, faisait racler le métal, et interdisait de se dresser
+plus haut.
+
+Une fois corrigée, on peut se cabrer davantage — et se cabrer davantage, c'est
+rester plus longtemps sur ses roues. La limite est **81°** : au-delà, c'est le
+coin arrière du tronc qui vient toucher, et aucun réglage de patte n'y peut
+rien.
+
+| | avant | après |
+|---|---|---|
+| Roue au sol | 56 % du tour | **65 %** |
+| Métal le plus bas | −12 mm | **+17 mm** |
+| Moyeu le plus bas | 20 mm | **61 mm** (posé = 75) |
+| Pic articulaire | 12,4 rad/s | 13,7 rad/s |
+
+Le tour dure 1,44 s au lieu de 1,13 : les phases au sol ont été allongées, et
+c'est précisément ce qui donne les neuf points de contact gagnés.
+
+### Roues larges et lidar sur son embase
+
+Le pneu passe de 27 à **33 mm de large** et reçoit deux rangées de crampons
+décalés. Le rayon extérieur reste **exactement** celui du contact — un tore
+plus gros que le rayon de roulement ferait flotter le robot de la différence,
+et les crampons affleurent la bande de roulement au lieu de la dépasser. La
+jante devient une couronne à **cinq branches** sur un moyeu noir : cinq et non
+six, c'est ce qui distingue une jante d'un disque à rayons, et pas davantage —
+elle tourne à vingt tours par seconde, le détail s'y perdrait.
+
+Le lidar était planté **22 mm dans le tronc** : son maillage est centré sur son
+milieu et non sur sa semelle, et le poser à la hauteur du pont l'enfonçait
+d'une demi-hauteur. Et c'est tout le capteur qui tournait, embase comprise —
+un RPLIDAR a une embase FIXE, vissée sur le pont, et seule la tête tourne
+dessus. L'embase est maintenant dessinée, la tête posée à sa hauteur réelle, et
+seule la tête tourne, autour d'un axe recalé sur le centre de son maillage.
+
 ### Sauts vrillés, bascule sur l'autre paire, et un salto qui roule
 
 **Deux sauts vrillés.** `Saut 180` et `Saut 360` : un saut à plat pendant lequel

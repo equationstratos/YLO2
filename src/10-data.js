@@ -11,6 +11,10 @@ window.YLO = window.YLO || {};
 
   Y.K = {
     trunkL: 0.569125, trunkW: 0.350, trunkH: 0.148521,
+    // Dessus de caisse, relevé sur le maillage du tronc : c'est le plan sur
+    // lequel se visse l'embase du lidar. Le prendre à trunkH/2 le plantait
+    // dans le pont — le maillage n'est pas centré sur son milieu.
+    trunkTop: 0.125,
     legX: 0.387 / 2 - 0.019,      // ±0.1745 m, entraxe HAA avant/arrière
     legY: 0.1144 / 2 + 0.006,     // ±0.0632 m, entraxe HAA gauche/droite
     legZ: 0.023,                  // décalage vertical tronc -> axe HAA

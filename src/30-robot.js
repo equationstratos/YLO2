@@ -128,13 +128,38 @@
         body.add(tag(slab, "frame", [0, 0, 0.3]));
       }
 
-      /* --- lidar : hors URDF, posé sur le dessus --- */
+      /* --- lidar : hors URDF, posé sur le dessus ---
+
+         Il était planté 22 mm DANS le tronc — son maillage est centré sur son
+         milieu, pas sur sa semelle, et le poser à la hauteur du dessus de
+         caisse l'enfonçait d'une demi-hauteur. Et c'est tout le capteur qui
+         tournait, embase comprise : un RPLIDAR a une embase FIXE, vissée sur
+         le pont, et seule la tête tourne dessus. On dessine donc l'embase, on
+         pose la tête à sa hauteur réelle, et on ne fait tourner que la tête —
+         autour de son propre axe, recalé sur le centre du maillage. */
+      const LID = { z: K.trunkTop, x: -0.02 };
       const lidar = new T.Group();
+      const mount = new T.Mesh(new T.CylinderGeometry(0.042, 0.046, 0.012, 24),
+        Y.Mat.get("frame"));
+      mount.rotation.x = Math.PI / 2;                 // cylindre : axe Y -> Z
+      mount.position.z = 0.006;
+      lidar.add(mount);
+      const head = new T.Group();
+      head.position.z = 0.012;
       const lidarMesh = real ? meshOf("lidar", "sensor") : cyl(0.037, 0.045, "sensor");
-      if (lidarMesh) lidar.add(lidarMesh);
-      lidar.position.set(-0.02, 0, 0.112);
+      if (lidarMesh) {
+        const bb = new T.Box3().setFromObject(lidarMesh);
+        // l'axe de rotation passe par le centre du maillage, sa semelle repose
+        // sur l'embase : deux recalages que le maillage ne porte pas lui-même
+        lidarMesh.position.set(-(bb.min.x + bb.max.x) / 2,
+                               -(bb.min.y + bb.max.y) / 2,
+                               -bb.min.z);
+        head.add(lidarMesh);
+      }
+      lidar.add(head);
+      lidar.position.set(LID.x, 0, LID.z);
       body.add(tag(lidar, "lidar", [0, 0, 0.5]));
-      extras.lidarSpin = lidarMesh;
+      extras.lidarSpin = head;
 
       /* --- électronique et capteurs non modélisés dans le dépôt --- */
       const upx = new T.Group();
@@ -253,25 +278,55 @@
         const wheelR = 0.075;
         const wheel = new T.Group();
         wheel.position.set(0, L.m * 0.012, 0);
-        // tore : son axe est Z, on le bascule sur Y pour l'aligner sur l'essieu
-        const tyre = new T.Mesh(new T.TorusGeometry(wheelR * 0.82, wheelR * 0.18, 14, 30),
+        /* Pneu large et cranté. Le tore fait 26 % du rayon de section — 39 mm
+           de large contre 27 —, et une couronne de crampons vient dessus : sur
+           un robot qui roule sur du béton cassé, une roue lisse et étroite ne
+           dit pas ce qu'elle fait. Le tore a son axe sur Z, on le bascule sur
+           Y pour l'aligner sur l'essieu. */
+        /* Rayon moyen + section = exactement `wheelR` : le pneu touche le sol
+           là où la physique le croit. Un tore plus gros que le rayon de
+           contact ferait flotter le robot de la différence. */
+        const tyre = new T.Mesh(new T.TorusGeometry(wheelR * 0.78, wheelR * 0.22, 16, 36),
           Y.Mat.get("wheel"));
         tyre.rotation.x = Math.PI / 2;
-        // cylindres : leur axe est déjà Y, il ne faut pas les tourner
-        const rim = new T.Mesh(new T.CylinderGeometry(wheelR * 0.72, wheelR * 0.72, 0.030, 24),
-          Y.Mat.get("rim"));
-        // Le moyeu a sa propre matière : la jante prend la couleur du robot,
-        // le moyeu reste noir. Il empruntait celle des moteurs — blanche —,
-        // et la roue entière rendait claire.
-        const hubCap = new T.Mesh(new T.CylinderGeometry(wheelR * 0.26, wheelR * 0.26, 0.042, 16),
-          Y.Mat.get("hub"));
-        for (let k = 0; k < 6; k++) {                 // rayons, dans le plan XZ
-          const spoke = new T.Mesh(new T.BoxGeometry(wheelR * 1.3, 0.014, 0.018),
-            Y.Mat.get("rim"));
-          spoke.rotation.y = k * Math.PI / 6;
-          wheel.add(spoke);
+        wheel.add(tyre);
+        // crampons : deux rangées décalées, comme une bande de pneu tout-terrain
+        for (let k = 0; k < 12; k++) {
+          const a = k * Math.PI / 6;
+          for (let r = -1; r <= 1; r += 2) {
+            // le crampon affleure la bande de roulement, il ne la dépasse pas
+            const lug = new T.Mesh(new T.BoxGeometry(0.020, 0.018, 0.012),
+              Y.Mat.get("wheel"));
+            lug.position.set(Math.cos(a + (r > 0 ? 0.26 : 0)) * wheelR * 0.867,
+                             r * wheelR * 0.16,
+                             Math.sin(a + (r > 0 ? 0.26 : 0)) * wheelR * 0.867);
+            lug.rotation.y = -(a + (r > 0 ? 0.26 : 0));
+            wheel.add(lug);
+          }
         }
-        wheel.add(tyre, rim, hubCap);
+        /* Jante à cinq branches : une couronne, cinq bras qui s'affinent vers
+           le centre, un moyeu noir. Cinq et non six — c'est ce qui distingue
+           une jante d'un simple disque à rayons —, et pas davantage : on la
+           voit tourner à vingt tours par seconde, le détail s'y perdrait. */
+        const ring = new T.Mesh(new T.TorusGeometry(wheelR * 0.66, wheelR * 0.085, 10, 30),
+          Y.Mat.get("rim"));
+        ring.rotation.x = Math.PI / 2;
+        const disc = new T.Mesh(new T.CylinderGeometry(wheelR * 0.30, wheelR * 0.30, 0.026, 20),
+          Y.Mat.get("rim"));
+        for (let k = 0; k < 5; k++) {
+          const a = k * Math.PI * 2 / 5;
+          const arm = new T.Mesh(new T.BoxGeometry(wheelR * 0.42, 0.020, 0.026), Y.Mat.get("rim"));
+          arm.position.set(Math.cos(a) * wheelR * 0.44, 0, Math.sin(a) * wheelR * 0.44);
+          arm.rotation.y = -a;
+          wheel.add(arm);
+        }
+        /* Le moyeu a sa propre matière : la jante prend la couleur du robot,
+           le moyeu reste noir. */
+        const hubCap = new T.Mesh(new T.CylinderGeometry(wheelR * 0.24, wheelR * 0.24, 0.046, 18),
+          Y.Mat.get("hub"));
+        const boss = new T.Mesh(new T.CylinderGeometry(wheelR * 0.10, wheelR * 0.10, 0.052, 12),
+          Y.Mat.get("hub"));
+        wheel.add(ring, disc, hubCap, boss);
         wheel.visible = false;
         tag(wheel, "wheels", [0, L.m * 0.3, -0.1]);
         foot.add(wheel);

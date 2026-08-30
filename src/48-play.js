@@ -38,6 +38,7 @@
   "use strict";
 
   const DOUBLE_S = 0.30;            // fenêtre du double appui sur une flèche
+  const LONG_S = 0.38;              // au-delà, un appui de tenue est « long »
   const SOLO_S = 0.40;              // au-delà, une épaule seule tenue part quand même
   const DEAD = 0.15;                // zone morte des sticks
   const TRIG = 0.12;                // seuil des gâchettes analogiques
@@ -124,8 +125,8 @@
   const MAP = [
     { pad: "✕", key: "Espace", act: "Saut — tenir arme, lâcher détend ; tourner en armant fait pivoter" },
     { pad: "△", key: "H", act: "Hauteur de caisse" },
-    { pad: "□", key: "C", act: "Cabrage — tenu, il passe sur les roues avant" },
-    { pad: "○", key: "V", act: "Deux roues — tenu, il passe sur l'autre flanc" },
+    { pad: "□", key: "C", act: "Cabrage : bref = roues arrière, long = roues avant, bref = repose" },
+    { pad: "○", key: "V", act: "Deux roues : bref = flanc droit, long = flanc gauche, bref = repose" },
     { pad: "R2", key: "↑", act: "Accélérer" },
     { pad: "L2", key: "↓", act: "Freiner, puis marche arrière" },
     { pad: "L1", key: "A", act: "Double salto arrière" },
@@ -167,6 +168,7 @@
   // état d'entrée : appuis précédents, gestes en attente, consigne courante
   const prev = {};
   const keys = {};
+  const held = {};                  // instants d'appui des boutons de tenue
   let waitDir = null;               // { dir, t } — salto simple en attente
   let waitBoth = null;              // { side, t } — épaule simple en attente
   let heightStep = 1;
@@ -323,12 +325,44 @@
       else if (!down && was) Y.Stunt.fire();
       return;
     }
+    /* Carré et rond : appui BREF d'un côté, appui LONG de l'autre.
+       Un appui bref pose le robot sur ses roues arrière (carré) ou sur son
+       flanc droit (rond). En gardant le bouton, il redescend et repart sur
+       les roues avant, ou sur l'autre flanc. Et un appui bref pendant la
+       tenue le repose, quel que soit le côté levé — c'est le même bouton qui
+       met et qui enlève, comme un interrupteur. */
+    if (name === "square" || name === "circle") {
+      const id = name === "square" ? "wheelie" : "sidestand";
+      const was = !!prev[name];
+      prev[name] = down;
+      if (down && !was) { held[name] = now(); fire(id); }
+      else if (!down && was) held[name] = 0;
+      return;
+    }
     if (edge(name, down)) {
       if (name === "triangle") cycleHeight();
-      if (name === "square") fire("wheelie");
-      if (name === "circle") fire("sidestand");
       if (DIR[name]) pressDir(name);
     }
+  }
+
+  /**
+   * Bouton de tenue gardé enfoncé : on demande l'autre paire de roues.
+   *
+   * Le geste se juge sur la DURÉE et non au relâchement : décider à la levée
+   * du doigt ferait attendre le robot, et on veut le voir passer d'un appui à
+   * l'autre pendant qu'on appuie.
+   */
+  function resolveHold() {
+    ["square", "circle"].forEach(function (name) {
+      if (!held[name]) return;
+      const id = name === "square" ? "wheelie" : "sidestand";
+      if (Y.Stunt.active !== id) { held[name] = 0; return; }
+      if (now() - held[name] < LONG_S) return;
+      held[name] = 0;
+      if (Y.Stunt.swapSide()) {
+        say(id === "wheelie" ? "Sur les roues avant" : "Sur l'autre flanc");
+      }
+    });
   }
 
   /** Manette branchée, s'il y en a une : la première connectée gagne. */
@@ -486,7 +520,7 @@
       S.on = true;
       Object.keys(prev).forEach(function (k) { prev[k] = false; });
       Object.keys(keys).forEach(function (k) { delete keys[k]; });
-      waitDir = null; waitBoth = null;
+      waitDir = null; waitBoth = null; held.square = 0; held.circle = 0;
       if (hooks.mode) hooks.mode("roues");     // toutes ces figures sont sur roues
       if (hooks.setBrake) hooks.setBrake(false);
       S.combo.length = 0; S.last = ""; S.score = 0; pending = 0; wasAir = false;
@@ -499,7 +533,7 @@
 
     stop: function () {
       S.on = false; S.say = ""; S.padName = "";
-      waitDir = null; waitBoth = null;
+      waitDir = null; waitBoth = null; held.square = 0; held.circle = 0;
       if (hooks.setVx) hooks.setVx(0);
       if (hooks.setWz) hooks.setWz(0);
       if (hooks.setBrake) hooks.setBrake(false);
@@ -534,6 +568,7 @@
       if (!S.on) return false;
       if (S.source === "manette") stepPad(); else stepKeys();
       resolvePending();
+      resolveHold();
       stepCombo();
       return true;
     },
