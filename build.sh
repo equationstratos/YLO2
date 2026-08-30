@@ -28,7 +28,7 @@ else
   echo "// maillages absents : lancer tools/convert_meshes.py" > "$GEN"
 fi
 
-APP=(src/10-data.js src/12-terrain.js src/13-ball.js src/20-materials.js src/30-robot.js src/40-motion.js
+APP=(src/10-data.js src/12-terrain.js src/13-ball.js src/14-range.js src/20-materials.js src/30-robot.js src/40-motion.js
      src/44-locomotion.js src/46-session.js src/47-record.js src/48-play.js src/50-app.js)
 
 emit_scripts() {

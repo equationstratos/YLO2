@@ -182,6 +182,41 @@
       // seul module du parc qui bouge quand on le touche.
       ball: [0.60, -1.60] },
 
+    /* Champ de tir : un couloir de 30 m bordé de merlons, une ligne de tir au
+       départ et huit cibles escamotables réparties en profondeur et en
+       largeur. Le sol est plat et roulant — ici on ne franchit rien, on se
+       place et on tire. */
+    { id: "standtir", name: "Champ de tir", maxStep: 0.12,
+      desc: "Couloir de 30 m, merlons latéraux, butte de tir au fond. " +
+            "Huit cibles se relèvent quand on entre sur la ligne de tir ; " +
+            "L1 tire, la visée est automatique.",
+      boxes: (function () {
+        const out = [];
+        // merlons : deux longs bourrelets qui tiennent le couloir
+        [-4.2, 4.2].forEach(function (y) {
+          for (let i = 0; i < 16; i++) {
+            const h = 0.30 + 0.10 * Math.sin(i * 1.7);
+            out.push(box(-2 + i * 2.0, -2 + i * 2.0 + 1.95,
+                         y - 0.9, y + 0.9, h));
+          }
+        });
+        // butte de tir au fond : ce qui arrête les balles
+        bank(30.0, 33.0, -4.5, 4.5, 0.0, 1.60, 24).forEach(function (b) { out.push(b); });
+        // plate-forme de la ligne de tir, légèrement surélevée
+        out.push(box(-1.60, 1.60, -1.80, 1.80, 0.06));
+        return out;
+      })(),
+      start: [-3.2, 0, 0],
+      zones: [{ kind: "start", x0: -1.60, x1: 1.60, y0: -1.80, y1: 1.80, z: 0.06 }],
+      /* Les cibles : abscisse, écart latéral. Elles alternent de part et
+         d'autre de l'axe et s'éloignent — on ne les prend pas toutes du même
+         endroit, il faut avancer. */
+      range: {
+        zone: [-1.60, 1.60, -1.80, 1.80],
+        targets: [[6.0, -2.4], [8.5, 1.9], [11.5, -1.1], [14.5, 2.6],
+                  [18.0, -2.8], [21.0, 1.0], [24.5, -2.0], [28.0, 2.2]]
+      } },
+
     // Mini-ramp : deux grandes transitions qui se font face, un flat entre
     // les deux. C'est l'objet de skate le plus simple et le plus riche — on
     // n'y franchit rien, on y roule : la pente rend l'élan qu'on lui a donné,

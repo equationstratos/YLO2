@@ -133,7 +133,7 @@
     { pad: "○", key: "V", act: "Deux roues : bref = flanc droit, long = flanc gauche, bref = repose" },
     { pad: "R2", key: "↑", act: "Accélérer" },
     { pad: "L2", key: "↓", act: "Freiner, puis marche arrière" },
-    { pad: "L1", key: "A", act: "Double salto arrière" },
+    { pad: "L1", key: "A", act: "Double salto arrière — au champ de tir : TIR" },
     { pad: "R1", key: "E", act: "540 McTwist" },
     { pad: "L1 + R1", key: "A + E", act: "Pirouette / 360 en l'air" },
     { pad: "□ ○ pendant", key: "C V pendant", act: "…passe en tenue SANS cesser de tourner" },
@@ -265,6 +265,13 @@
    * la garder enfoncée aurait l'air de ne rien faire.
    */
   function pressShoulder(side) {
+    /* Au champ de tir, L1 n'est plus une figure : c'est la détente. Le robot
+       y porte une arme et la visée est automatique — il n'y a rien à cadrer,
+       seulement à choisir le moment. Ailleurs, L1 garde son double salto. */
+    if (side === "l" && Y.Range.active()) {
+      if (Y.Range.fire()) say("Rafale");
+      return;
+    }
     if (prev[side === "l" ? "r1" : "l1"]) {        // l'autre est déjà tenue
       waitBoth = null;
       /* Déjà en tenue ? On ne relance pas une pirouette à sa place : on la
@@ -320,6 +327,11 @@
       // Tant que la gâchette TIENT, il ne se passe rien de plus. Sans cette
       // ligne, la pirouette était relâchée à l'image suivant son départ —
       // toujours enfoncée, mais déjà arrêtée : elle ne tournait jamais.
+      if (down && was && side === "l" && Y.Range.active()) {
+        // gâchette tenue : les rafales s'enchaînent, la cadence les espace
+        if (Y.Range.fire()) say("Rafale");
+        return;
+      }
       if (down || !was) return;
       // Front descendant : le premier relâchement arrête la pirouette.
       if (Y.Stunt.active === "pirouette") { Y.Stunt.release(); return; }

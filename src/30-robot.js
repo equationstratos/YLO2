@@ -137,15 +137,19 @@
          le pont, et seule la tête tourne dessus. On dessine donc l'embase, on
          pose la tête à sa hauteur réelle, et on ne fait tourner que la tête —
          autour de son propre axe, recalé sur le centre du maillage. */
-      const LID = { z: K.trunkTop, x: -0.02 };
+      /* Il se pose sur LE cercle du pont — la platine ronde de 70 mm à
+         x = +100 mm, la seule du dessus de caisse —, et pas au milieu du
+         tronc comme il l'était. La couronne de diodes qui la borde lui sert
+         d'embase : c'est elle, sur le robot réel, qui reçoit le capteur. */
+      const LID = { z: 0.1075, x: 0.10 };
       const lidar = new T.Group();
-      const mount = new T.Mesh(new T.CylinderGeometry(0.042, 0.046, 0.012, 24),
+      const collar = new T.Mesh(new T.CylinderGeometry(0.034, 0.038, 0.006, 24),
         Y.Mat.get("frame"));
-      mount.rotation.x = Math.PI / 2;                 // cylindre : axe Y -> Z
-      mount.position.z = 0.006;
-      lidar.add(mount);
+      collar.rotation.x = Math.PI / 2;                // cylindre : axe Y -> Z
+      collar.position.z = 0.003;
+      lidar.add(collar);
       const head = new T.Group();
-      head.position.z = 0.012;
+      head.position.z = 0.006;
       const lidarMesh = real ? meshOf("lidar", "sensor") : cyl(0.037, 0.045, "sensor");
       if (lidarMesh) {
         const bb = new T.Box3().setFromObject(lidarMesh);

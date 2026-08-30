@@ -1512,6 +1512,26 @@
 
     let phase = "";
 
+    /* --- saut sur place --- Une détente verticale qui ne touche ni à
+       l'assiette ni à l'appui : le robot quitte le sol DANS sa position —
+       cabré, sur le flanc, ou en pleine vrille — et y retombe. On l'ajoute au
+       sol de référence plutôt qu'à la hauteur de caisse : tout ce qui en
+       découle, essieux et traces d'appui, monte alors avec lui. */
+    if (run.hopArmed) {
+      /* Armement : le robot se ramasse sur son appui tant qu'on tient la
+         touche, et la détente vaut ce qu'on a chargé. C'est le geste du
+         saut normal, appliqué à la position tenue — appuyer arme, lâcher
+         détend — et non une impulsion fixe. */
+      run.hopCharge = Math.min(run.hopCharge + dt, HOP_CHARGE);
+      run.hopZ = -HOP_CROUCH * smooth(run.hopCharge / HOP_CHARGE);
+    } else if (run.hop) {
+      run.hop.t += dt;
+      const z = run.hop.v * run.hop.t - 0.5 * G_ACC * run.hop.t * run.hop.t;
+      if (z <= 0 && run.hop.t > 0.04) { run.hop = null; run.hopZ = 0; }
+      else run.hopZ = Math.max(0, z);
+    } else run.hopZ = 0;
+
+
     if (f.kind === "tilt") {
       const t1 = f.arm, t2 = t1 + f.rise, t3 = t2 + f.hold;
 
@@ -1525,24 +1545,6 @@
       run.twirlW = approach(run.twirlW, wantW, TWIRL_RAMP, dt);
       if (Math.abs(run.twirlW) > 1e-4) state.yaw += run.twirlW * dt;
 
-      /* --- saut sur place --- Une détente verticale qui ne touche ni à
-         l'assiette ni à l'appui : le robot quitte le sol DANS sa position,
-         cabré ou sur le flanc, et y retombe. On l'ajoute au sol de référence
-         plutôt qu'à la hauteur de caisse : tout ce qui en découle — les
-         essieux, les traces d'appui — monte alors avec lui. */
-      if (run.hopArmed) {
-        /* Armement : le robot se ramasse sur son appui tant qu'on tient la
-           touche, et la détente vaut ce qu'on a chargé. C'est le geste du
-           saut normal, appliqué à la position tenue — appuyer arme, lâcher
-           détend — et non une impulsion fixe. */
-        run.hopCharge = Math.min(run.hopCharge + dt, HOP_CHARGE);
-        run.hopZ = -HOP_CROUCH * smooth(run.hopCharge / HOP_CHARGE);
-      } else if (run.hop) {
-        run.hop.t += dt;
-        const z = run.hop.v * run.hop.t - 0.5 * G_ACC * run.hop.t * run.hop.t;
-        if (z <= 0 && run.hop.t > 0.04) { run.hop = null; run.hopZ = 0; }
-        else run.hopZ = Math.max(0, z);
-      } else run.hopZ = 0;
       /* Essieux qui restent au sol : l'arrière pour le cabrage, le côté droit
          pour la tenue latérale — et l'AUTRE paire quand la figure a basculé.
          Tenir longtemps fait passer le robot sur ses deux autres roues : du
@@ -1797,6 +1799,7 @@
          se faisait couper avant d'avoir rendu son tour et demi. */
       const wMax = 2 * Math.PI * f.turns / f.spin * 1.25;
       const ramp = wMax / 0.18;                             // rad/s² de mise en route
+      base += run.hopZ;                            // on saute aussi en tournant
       if (t < t1) {
         phase = "appui";
         const s = smooth(t / t1);
@@ -2605,8 +2608,12 @@
      * saut — et rien n'oblige à les défaire pour les combiner.
      */
     hop: function () {
-      if (!run.fig || run.fig.kind !== "tilt" || run.hop || run.hopArmed) return false;
-      if (run.t < run.fig.arm) return false;             // pas avant d'être dressé
+      /* Une pirouette saute aussi : la vrille est une rotation, elle n'a rien
+         à voir avec la hauteur. On peut donc sauter en tournant, comme on
+         saute en tenue. */
+      if (!run.fig || run.hop || run.hopArmed) return false;
+      if (run.fig.kind !== "tilt" && run.fig.kind !== "spin") return false;
+      if (run.t < run.fig.arm) return false;             // pas avant d'être lancé
       run.hopArmed = true; run.hopCharge = 0;
       return true;
     },

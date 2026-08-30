@@ -104,7 +104,11 @@ window.YLO = window.YLO || {};
     { id: "obstacle", name: "Obstacles",    preset: { color: "#5a6360", metal: 0.05, rough: 0.92, pattern: "print" } },
     { id: "obstacleEdge", name: "Nez de marche", preset: { color: "#ffc24d", metal: 0.10, rough: 0.65, pattern: "none" } },
     { id: "ball",     name: "Boule",         preset: { color: "#e8ecec", metal: 0.05, rough: 0.55, pattern: "none" } },
-    { id: "ballBand", name: "Ceintures",     preset: { color: "#1b1c1c", metal: 0.10, rough: 0.70, pattern: "none" } }
+    { id: "ballBand", name: "Ceintures",     preset: { color: "#1b1c1c", metal: 0.10, rough: 0.70, pattern: "none" } },
+    { id: "gun",      name: "Arme",          preset: { color: "#2a2d2c", metal: 0.35, rough: 0.55, pattern: "none" } },
+    { id: "gunSteel", name: "Canon",         preset: { color: "#7b8280", metal: 0.85, rough: 0.28, pattern: "brushed" } },
+    { id: "targetFace", name: "Cibles",      preset: { color: "#d8d2c4", metal: 0.02, rough: 0.85, pattern: "none" } },
+    { id: "targetRing", name: "Mouches",     preset: { color: "#d8341f", metal: 0.05, rough: 0.70, pattern: "none" } }
   ];
 
   Y.PATTERNS = [

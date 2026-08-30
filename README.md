@@ -121,7 +121,7 @@ et un rappel amorti au contact — c'est ce qui donne le poids à la réception.
 
 ## Terrains et obstacles
 
-Un sélecteur, huit terrains, et un bouton **Réinitialiser** (touche `R`) qui
+Un sélecteur, douze terrains, et un bouton **Réinitialiser** (touche `R`) qui
 replace le robot au centre, à plat, face au +X — le plus court chemin pour
 réattaquer un obstacle. Changer de terrain le déclenche aussi, sinon on peut se
 retrouver dans un mur. La même description analytique sert à calculer la hauteur
@@ -137,6 +137,7 @@ géométrie sont la même chose, il n'y a pas de collision approchée.
 | Rampe 20° | pente continue | assiette qui épouse la pente |
 | Gravats | blocs jusqu'à 90 mm | appuis à des hauteurs différentes |
 | **Skatepark** | mini-plaza : kicker, funbox, ledge, deux quarter pipes | reliefs enchaînés, en pattes comme en roues |
+| **Champ de tir** | plateforme de tir, deux merlons, talus de réception, huit cibles | rouler et tirer en même temps |
 | **Big ramp** | mini-ramp : deux transitions de 1,20 m face à face | un objet qu'on **roule** au lieu de le franchir |
 | **Mega ramp** | roll-in de 2,60 m, tremplin, gap, réception, transition de 2,60 m | un run complet, de la vitesse jusqu'au saut |
 | **Méga-parcours** | tout le catalogue à la suite, **fenêtre comprise** | 46 m d'obstacles enchaînés |
@@ -423,6 +424,56 @@ et la roue entière rendait claire. Le moyeu a désormais sa propre matière,
 éditable comme les autres. Les anciens réglages restent disponibles sous le thème
 « Atelier », et le nouveau défaut a son thème « Officiel ».
 
+### Le champ de tir
+
+Un septième terrain, **Champ de tir** : une plateforme de tir de 3,2 m sur 3,6
+m, deux merlons de terre à ±4,2 m qui ferment le couloir, et un talus de
+réception au fond qui monte à 1,60 m — une ligne de tir a toujours un
+pare-balles derrière les cibles. Huit silhouettes sont plantées entre 6 et 28 m,
+décalées à gauche et à droite pour qu'aucune ne se prenne dans l'axe de la
+précédente.
+
+**Les cibles se lèvent toutes seules.** Elles restent couchées tant que le
+robot n'est pas sur la plateforme ; entrer dans la zone les redresse et lance
+le chrono, et la série est finie quand la huitième tombe. Sortir de la zone
+recouche tout et remet à zéro : on recommence sans toucher à rien.
+
+**On tire avec L1, et la visée est automatique** — la figure qui occupait cette
+touche a été déplacée : sur ce terrain, L1 tire. Le canon cherche la cible
+debout la plus proche dans un cône de ±115° et à moins de 13 m, puis pivote
+vers elle à 3,4 rad/s. Le HUD affiche `VERROUILLÉ` quand l'axe est à moins de
+45 mrad : c'est le moment de tirer, pas avant.
+
+L'intérêt n'est pas de viser — c'est de **rouler et tirer en même temps**. La
+dispersion vaut 0,70° à l'arrêt, plus 1,30° par mètre par seconde, plus le
+recul accumulé de la rafale : tirer trois coups à l'arrêt met tout dedans,
+la même rafale à 3 m/s en met un. Le tir est en rafales de trois à 0,085 s
+d'intervalle, chargeur de 30, rechargement de 1,7 s. Le robot est donc obligé
+de faire ce qu'il fait de mieux : rouler jusqu'à la portée, **s'arrêter net**,
+lâcher sa rafale, repartir. Mesuré : **8 cibles sur 8 en 17,4 s pour 87 coups**.
+
+Le fusil est monté sur le pont, à l'aplomb du tronc : embase, corps, garde-main,
+tube, frein de bouche, chargeur, optique et crosse. Il ne suit pas la caisse
+en lacet — c'est une tourelle, elle vise pendant que le robot manœuvre. Les
+traçantes durent 90 ms, la gerbe de bouche autant.
+
+Le simulateur Python ne porte pas le champ de tir : c'est un terrain et une
+tourelle, rien qui touche à la locomotion qu'il vérifie.
+
+### Le lidar se pose sur son cercle
+
+Le RPLIDAR était planté au milieu du pont, là où il n'y a rien pour le visser.
+Le dessus de caisse n'a qu'**une seule platine ronde**, à `x = +100 mm` — le
+disque vert bordé de sa couronne de diodes, à l'avant, juste derrière le nez.
+C'est elle qui reçoit le capteur sur le robot réel, et c'est là qu'il est
+maintenant : l'embase du lidar (34 à 38 mm de rayon) recouvre exactement le
+disque (35 mm), concentrique, posée à `z = 107,5 mm`.
+
+Le capteur n'est pas non plus tourné d'un bloc : un RPLIDAR a une embase
+**fixe**, vissée sur le pont, et seule la tête tourne dessus. L'embase est donc
+dessinée à part, et la tête recalée sur le centre de son propre maillage —
+sans ce recalage elle tournait autour d'un axe décentré, en tremblant.
+
 ### Une boule à pousser
 
 Le skatepark a désormais un module qui bouge : une boule de **520 mm de
@@ -478,6 +529,12 @@ vrille sans défaire la tenue ; un appui bref repose le robot.
   et le saut ne coûte donc rien aux articulations (0,0 rad/s). Il se **charge**
   comme le saut normal : appuyer arme, le robot se ramasse sur son appui, et
   lâcher détend. Appui bref, 60 mm ; appui long, 156 mm.
+- **La pirouette saute aussi.** Le saut sur place était réservé aux tenues, et
+  ✕ pendant une vrille ne faisait rien : une rotation n'a pourtant rien à voir
+  avec une hauteur. ✕ arme et détend maintenant depuis la pirouette elle-même,
+  sans l'interrompre — mesuré : **156 mm de détente pour 1195° de cap** sur le
+  même geste, le robot tourne pendant tout le vol et reprend sa vrille en se
+  reposant.
 - **L'enchaînement marche dans les deux sens.** R1+L1 pendant une tenue fait
   tourner le robot SUR PLACE au lieu de relancer une pirouette : on peut donc
   partir en vrille puis basculer, ou se dresser d'abord et se mettre à tourner
@@ -1330,7 +1387,7 @@ mentir sur ce que fait la manette.
 | ○ | `V` | Sur deux roues — idem |
 | R2 | `↑` | Accélérer (analogique, 0 à 2,2 m/s) — en roue libre la pente fait le reste |
 | L2 | `↓` | Freiner, **puis marche arrière** une fois arrêté (jusqu'à 1,4 m/s) |
-| L1 | `A` | Double salto arrière |
+| L1 | `A` | Double salto arrière — **et le tir**, sur le champ de tir |
 | R1 | `E` | 540 McTwist |
 | L1 + R1 **tenus ensemble** | `A` + `E` | Pirouette, tant que les deux restent enfoncés |
 | Clic stick gauche | `T` | **Salto arrière enchaîné**, tant qu'on tient |
@@ -1584,10 +1641,15 @@ une fois les deux panneaux repliés.
 ```
 src/10-data.js        cotes, allures, vitesses, sous-systèmes, groupes de matières
 src/12-terrain.js     terrains analytiques : hauteur sous le pied et volumes affichés
+src/13-ball.js        la boule poussable : inertie, pentes, rebonds, roulement sans glissement
+src/14-range.js       champ de tir : cibles escamotables, fusil, visée automatique, dispersion
 src/20-materials.js   matières PBR et motifs procéduraux
 src/30-robot.js       décodage des maillages et montage de l'arbre cinématique
 src/40-motion.js      cinématique inverse, allures, lecture de trajectoire, liaison directe
 src/44-locomotion.js  styles souple et félin, catalogue des figures
+src/46-session.js     session automatique : actes, parcours, enchaînements
+src/47-record.js      enregistrement, relecture et export des runs
+src/48-play.js        mode PLAY : clavier et manette
 src/50-app.js         scène, rendu, interface
 src/page.html         structure et styles
 vendor/three.min.js   three.js r160 (UMD)

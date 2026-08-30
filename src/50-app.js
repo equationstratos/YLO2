@@ -84,6 +84,7 @@
 
   function fitWorld(cur, ext) {
     Y.Ball.set(cur.ball);                          // la boule appartient au terrain
+    Y.Range.set(cur.range);                        // et le champ de tir aussi
     // De quoi couvrir le terrain en entier, avec de la marge autour, et
     // jamais moins que les 40 m d'origine : sur sol plat rien ne change.
     const want = Math.max(40, Math.ceil((2 * ext.radius + 10) / 4) * 4);
@@ -116,6 +117,7 @@
 
   Y.Terrain.build(scene);
   Y.Ball.build(scene);
+  Y.Range.build(scene);
   Y.Terrain.watch(fitWorld);
 
   /* --- état d'affichage --- */
@@ -1173,6 +1175,7 @@
     Y.Record.capture(dt);
     M.step(dt);
     Y.Ball.step(dt);
+    Y.Range.step(dt);
     if (Y.Session.state.running) followSession(dt);
 
     const target = view.explodeOn ? 1 : 0;
@@ -1269,7 +1272,9 @@
           ? "<br>Dernier temps de vol <b>" + (Y.Natural.lastFlight() * 1000).toFixed(0) + " ms</b>"
           : "") +
         "<br>Terrain <b>" + Y.Terrain.current.name + "</b> · sol <b>" +
-        (Y.Terrain.heightAt(M.state.px, M.state.py) * 1000).toFixed(0) + " mm</b>";
+        (Y.Terrain.heightAt(M.state.px, M.state.py) * 1000).toFixed(0) + " mm</b>" +
+        // le champ de tir a son propre compteur : cibles, munitions, chrono
+        (Y.Range.active() ? "<br><b>" + Y.Range.hud() + "</b>" : "");
       updateWarning(realV);
       const phaseTitle = document.querySelector(".card-phase h4");
       if (phaseTitle) {
