@@ -423,6 +423,28 @@ et la roue entière rendait claire. Le moyeu a désormais sa propre matière,
 éditable comme les autres. Les anciens réglages restent disponibles sous le thème
 « Atelier », et le nouveau défaut a son thème « Officiel ».
 
+### Une boule à pousser
+
+Le skatepark a désormais un module qui bouge : une boule de **520 mm de
+diamètre**, posée sur le plat entre le kicker et le funbox. Ce diamètre n'est
+pas décoratif — la caisse du robot roule à 300 mm du sol, et une boule plus
+petite passerait dessous au lieu d'être poussée. À cette taille elle arrive à
+hauteur de tronc, et il n'y a pas d'autre issue que de la pousser.
+
+Elle a sa propre inertie : le robot lui donne la part de sa vitesse dirigée
+vers elle — une boule ne prend pas ce qui la frôle, elle prend ce qui la
+pousse —, puis elle roule, descend les pentes du champ de hauteurs, rebondit
+sur ce qu'elle ne peut pas gravir (au-delà d'un quart de son rayon, c'est un
+mur) et s'arrête d'elle-même. Mesuré : poussée à 1,6 m/s elle part sur **5,8 m**
+et s'immobilise en six secondes ; la distance robot-boule ne descend jamais
+sous 473 mm, c'est-à-dire la somme des deux rayons — aucune traversée.
+
+Elle porte trois ceintures sombres sur les trois axes : sans repère, une sphère
+lisse tourne sans qu'on le voie, et tout l'intérêt est justement de la voir
+rouler. Son état de départ fait partie des prises enregistrées — son mouvement
+découle de celui du robot, donc la rejouer depuis la même place la rejoue à
+l'identique.
+
 ### Vrille + tenue + saut, en même temps
 
 Les figures se disputaient un seul emplacement : demander un cabrage pendant
@@ -460,6 +482,10 @@ vrille sans défaire la tenue ; un appui bref repose le robot.
   tourner le robot SUR PLACE au lieu de relancer une pirouette : on peut donc
   partir en vrille puis basculer, ou se dresser d'abord et se mettre à tourner
   ensuite (357° en 1,6 s, tenue à 79°, pic 7,1 rad/s).
+- **Et la rotation survit à la redescente.** Reposer la tenue alors que les
+  épaules sont toujours tenues rend la main à la pirouette : le robot revient
+  sur ses quatre roues et continue de tourner. La vrille s'arrêtait avec la
+  tenue, alors que la commande, elle, n'avait pas été relâchée.
 - **Le fondu d'entrée** était le prix à payer : passer d'une caisse gîtée et de
   pattes en pose de vrille à un appui à plat coûtait **22 rad/s en une image**,
   la moitié de plus que la butée. Une entrée fondue sur 180 ms ramène ce
@@ -562,9 +588,10 @@ Le pneu passe de 27 à **33 mm de large** et reçoit deux rangées de crampons
 décalés. Le rayon extérieur reste **exactement** celui du contact — un tore
 plus gros que le rayon de roulement ferait flotter le robot de la différence,
 et les crampons affleurent la bande de roulement au lieu de la dépasser. La
-jante devient une couronne à **cinq branches** sur un moyeu noir : cinq et non
-six, c'est ce qui distingue une jante d'un disque à rayons, et pas davantage —
-elle tourne à vingt tours par seconde, le détail s'y perdrait.
+jante est une **jante de 4x4** : anneau de beadlock boulonné — la couronne
+extérieure vissée qui pince le pneu —, cinq branches dédoublées en Y et un
+moyeu bombé noir. On s'arrête là : elle tourne à vingt tours par seconde, le
+détail s'y perdrait.
 
 Le lidar était planté **22 mm dans le tronc** : son maillage est centré sur son
 milieu et non sur sa semelle, et le poser à la hauteur du pont l'enfonçait
