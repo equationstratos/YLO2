@@ -643,7 +643,8 @@ window.YLO = window.YLO || {};
     { id: "battery", name: "Batterie",      preset: { color: "#1d232a", metal: 0.25, rough: 0.70, pattern: "none" } },
     { id: "board",   name: "Électronique",  preset: { color: "#1c6b48", metal: 0.20, rough: 0.60, pattern: "none" } },
     { id: "wheel",   name: "Pneus",         preset: { color: "#15181a", metal: 0.10, rough: 0.85, pattern: "none" } },
-    { id: "rim",     name: "Jantes",        preset: { color: "#b9c0ba", metal: 0.75, rough: 0.30, pattern: "brushed" } },
+    { id: "rim",     name: "Jantes",        preset: { color: "#fc9000", metal: 0.35, rough: 0.34, pattern: "brushed" } },
+    { id: "hub",     name: "Moyeux",        preset: { color: "#0d0e0e", metal: 0.55, rough: 0.40, pattern: "none" } },
     { id: "obstacle", name: "Obstacles",    preset: { color: "#5a6360", metal: 0.05, rough: 0.92, pattern: "print" } },
     { id: "obstacleEdge", name: "Nez de marche", preset: { color: "#ffc24d", metal: 0.10, rough: 0.65, pattern: "none" } }
   ];
@@ -660,7 +661,7 @@ window.YLO = window.YLO || {};
   ];
 
   Y.THEMES = [
-    { id: "officiel", name: "Officiel", set: { cover: "#fc9000", frame: "#0d0e0e", foot: "#909c9c" },
+    { id: "officiel", name: "Officiel", set: { cover: "#fc9000", frame: "#0d0e0e", foot: "#909c9c", rim: "#fc9000", hub: "#0d0e0e" },
       pat: { cover: "none", frame: "print" } },
     { id: "atelier", name: "Atelier", set: { cover: "#d9dcd4", frame: "#3c443e", foot: "#ff6a2b" } },
     { id: "carbone", name: "Carbone", set: { cover: "#1b1e20", frame: "#16181a", foot: "#e8e8e8" },
@@ -1864,8 +1865,11 @@ window.YLO = window.YLO || {};
         // cylindres : leur axe est déjà Y, il ne faut pas les tourner
         const rim = new T.Mesh(new T.CylinderGeometry(wheelR * 0.72, wheelR * 0.72, 0.030, 24),
           Y.Mat.get("rim"));
+        // Le moyeu a sa propre matière : la jante prend la couleur du robot,
+        // le moyeu reste noir. Il empruntait celle des moteurs — blanche —,
+        // et la roue entière rendait claire.
         const hubCap = new T.Mesh(new T.CylinderGeometry(wheelR * 0.26, wheelR * 0.26, 0.042, 16),
-          Y.Mat.get("abad"));
+          Y.Mat.get("hub"));
         for (let k = 0; k < 6; k++) {                 // rayons, dans le plan XZ
           const spoke = new T.Mesh(new T.BoxGeometry(wheelR * 1.3, 0.014, 0.018),
             Y.Mat.get("rim"));
@@ -4632,44 +4636,68 @@ window.YLO = window.YLO || {};
    * kicker 1,40 → 2,10 · funbox 3,60 → 6,00 · quarter à 7,80 et −2,60.
    */
   const RUN = [
-    // Le run part du point le plus haut du parc — la plateforme du quarter
-    // arrière, à 450 mm —, descend la transition et prend le parc dans
-    // l'ordre : LA TABLE DU MILIEU, puis LA RAMPE DE LA FIN, puis
-    // L'ÉQUILIBRE sur le ledge. Entre les modules on ne roule pas droit : on
-    // carve. Un skateur ne va jamais d'un point à un autre en ligne droite,
-    // il serpente, et c'est en serpentant qu'il prend sa vitesse.
+    // Chaque figure du catalogue est jouée UNE SEULE FOIS, et chaque module
+    // a les siennes : le kicker, la table, le ledge, les deux quarters, le
+    // plat. On ne répète pas un cabrage à deux endroits — un run de skate ne
+    // refait pas le même trick, il en place un par obstacle.
     //
-    // Cotes : quarter arrière -2,60 (transition) / -3,05 à -3,95 (plateforme)
+    // Cotes : quarter arrière -2,60 (transition) / -3,95 à -3,05 (plateforme)
     // · kicker 1,40 → 2,10 · funbox 3,60 → 6,00 (plateau 4,30 → 5,30 à
     // 180 mm) · ledge y 1,70 → 2,10, x 3,40 → 6,20, 200 mm · quarter avant
     // 7,80 (transition) / 8,25 à 9,15 (plateforme).
-    { act: "place", x: -3.50, y: 0, yaw: 0, say: "en haut du quarter arrière" },
+
+    /* ---------------- le quarter arrière : le départ ---------------- */
+    { act: "place", x: -3.80, y: 0, yaw: 0, say: "en haut du quarter arrière" },
+    { act: "roll", to: -3.15, y: 0, v: 0.9, say: "on roule sur le plat de la plateforme" },
     { act: "roll", to: -2.95, v: 1.1, say: "drop-in dans la transition" },
     { act: "fig", id: "wheelfrontflip", say: "salto avant lancé par la transition" },
 
-    // Plein gaz vers le kicker, en serpentant : c'est ici que le robot va
-    // chercher sa vitesse maximale.
+    /* ---------------- le kicker ---------------- */
     { act: "carve", to: 1.30, y: 0, v: 3.2, amp: 0.38, wave: 1.7,
       say: "carve plein gaz vers le kicker" },
-    { act: "fig", id: "wheeljump", say: "saut lancé par le kicker" },
+    { act: "fig", id: "wheelflip", say: "salto roues lancé par le kicker" },
 
     /* ---------------- la table du milieu ---------------- */
     { act: "carve", to: 3.05, y: 0, v: 2.3, amp: 0.28, wave: 1.4,
       say: "on se présente sur la table" },
-    { act: "fig", id: "wheelflip", say: "salto roues par-dessus la table" },
-    { act: "roll", to: 4.65, v: 1.3, say: "sur le plateau de la table" },
-    { act: "fig", id: "wheelie", hold: 1.5, v: 0.9,
-      say: "cabrage roulé sur la table" },
+    { act: "fig", id: "wheeldoubleflip", say: "double salto lancé par la table" },
+    { act: "brake" },
+    { act: "face", yaw: 0 },
+    { act: "roll", to: 4.65, y: 0, v: 1.3, say: "on roule sur le plat de la table" },
+    { act: "fig", id: "wheelie", hold: 1.5, v: 0.9, say: "cabrage roulé sur la table" },
     { act: "fig", id: "powerslide", say: "slide sur la table" },
-    { act: "face", yaw: 0, say: "on se remet dans l'axe" },
-    { act: "roll", to: 6.45, v: 2.2, say: "sortie de table" },
 
-    /* ---------------- la rampe de la fin ---------------- */
-    // Cinq figures lâchées DANS le vol, une par passage, plus un enchaînement
-    // de deux dans le même saut. Le verdict de la réception est affiché.
+    /* ---------------- le ledge : l'équilibre SUR l'obstacle ---------------- */
+    // Le ledge fait 400 mm de large, la voie du robot 308 : il tient dessus.
+    // On le monte par le bout, on le remonte en roulant, et c'est LÀ qu'on
+    // bascule sur deux roues — les deux du bas posées sur le béton du ledge,
+    // les deux du haut en l'air.
+    { act: "brake" },
+    { act: "face", yaw: 0 },
+    { act: "roll", to: 3.00, v: 2.0, say: "retour au bout du ledge" },
+    { act: "brake" },
+    { act: "face", yaw: 0 },
+    { act: "goto", x: 2.95, y: 1.90, v: 1.6, say: "on se présente au bout du ledge" },
+    { act: "face", yaw: 0, say: "dans l'axe du ledge" },
+    { act: "roll", to: 4.20, y: 1.90, v: 1.0, say: "50-50 : les quatre roues SUR le ledge" },
+    { act: "brake", say: "mise en appui sur le ledge" },
+    { act: "fig", id: "sidestand", hold: 2.6, v: 0.55,
+      say: "équilibre SUR le ledge : deux roues dessus, deux en l'air" },
+    { act: "roll", to: 6.70, y: 1.90, v: 1.2, say: "sortie de ledge" },
+    { act: "brake" },
+    { act: "face", yaw: 0 },
+    { act: "goto", x: 6.60, y: 1.35, v: 1.6, say: "on redescend d'une voie" },
+    { act: "brake" },
+    { act: "fig", id: "pirouette", hold: 1.5, say: "pirouette au pied du ledge" },
+
+    /* ---------------- le quarter avant : les figures en l'air ---------------- */
+    { act: "brake" },
+    { act: "face", yaw: 0 },
+    { act: "goto", x: 6.30, y: 0, v: 2.2, say: "retour dans l'axe du quarter" },
+    { act: "face", yaw: 0 },
     { act: "air", ids: ["back"], v: 1.7, say: "salto arrière au-dessus de la lèvre" },
     { act: "roll", to: 6.30, v: 2.2, say: "on reprend de l'élan" },
-    { act: "air", ids: ["front"], v: 1.7, say: "salto avant au-dessus de la lèvre" },
+    { act: "air", ids: ["front"], v: 1.5, say: "salto avant au-dessus de la lèvre" },
     { act: "roll", to: 6.30, v: 2.2, say: "on reprend de l'élan" },
     { act: "air", ids: ["sideL"], v: 1.7, say: "salto latéral gauche en l'air" },
     { act: "roll", to: 6.30, v: 2.2, say: "on reprend de l'élan" },
@@ -4677,95 +4705,69 @@ window.YLO = window.YLO || {};
     { act: "roll", to: 6.30, v: 2.2, say: "on reprend de l'élan" },
     { act: "air", ids: ["spin360"], v: 2.1, say: "360 en l'air" },
     { act: "roll", to: 6.30, v: 2.2, say: "on reprend de l'élan" },
+    // Le passage d'enchaînement tente deux figures dans le même vol. Les
+    // 450 mm du quarter n'en donnent qu'une : mesuré, le vol vaut 0,65 s et
+    // la seconde est refusée faute de hauteur au moment où la première se
+    // boucle. Le mécanisme est celui du combo de la mega ramp, où il en
+    // passe bien deux — c'est la rampe qui décide.
     { act: "air", ids: ["spin360", "back"], v: 2.1,
       say: "360, et salto arrière si la hauteur suit" },
 
-    // Le passage d'enchaînement tente deux figures dans le même vol. Les
-    // 450 mm du quarter n'en donnent qu'une : mesuré, le vol vaut 0,65 s et
-    // la seconde figure est refusée faute de hauteur au moment où la
-    // première se boucle. Le mécanisme est le même que celui du combo de la
-    // mega ramp, où il en passe bien deux — c'est la rampe qui décide.
-    //
-    // Les figures lourdes ne tiennent pas dans les 450 mm du quarter : elles
-    // se lancent avec leur propre poussée, sur la lèvre. C'est la même
-    // rampe, et c'est le reste du catalogue aérien.
+    // Puis les figures lourdes, avec leur propre poussée sur la lèvre.
     { act: "roll", to: 7.05, v: 2.2, say: "retour vers la lèvre" },
+    { act: "face", yaw: 0 },
     { act: "roll", to: 7.25, v: 0.9, say: "élan mesuré vers la lèvre" },
-    { act: "fig", id: "wheeldoubleflip", say: "double salto arrière lancé par la lèvre" },
-    { act: "goto", x: 7.05, y: 0, v: 2.0, say: "replacement" },
-    { act: "face", yaw: 0 },
     { act: "fig", id: "wheeldoublefrontflip", say: "double salto avant sur la lèvre" },
-    { act: "goto", x: 7.05, y: 0, v: 2.0, say: "replacement" },
-    { act: "face", yaw: 0 },
-    { act: "fig", id: "wheeldoublesideflipL", say: "double latéral gauche" },
-    { act: "goto", x: 7.05, y: 0, v: 2.0, say: "replacement" },
-    { act: "face", yaw: 0 },
-    { act: "fig", id: "wheeldoublesideflipR", say: "double latéral droit" },
-    { act: "goto", x: 7.05, y: 0, v: 2.0, say: "replacement" },
+    { act: "goto", x: 7.05, y: 0, v: 2.0 },
     { act: "face", yaw: 0 },
     { act: "fig", id: "wheelsideflipL", say: "salto latéral gauche roues" },
-    { act: "goto", x: 7.05, y: 0, v: 2.0, say: "replacement" },
+    { act: "goto", x: 7.05, y: 0, v: 2.0 },
     { act: "face", yaw: 0 },
     { act: "fig", id: "wheelsideflipR", say: "salto latéral droit roues" },
-    { act: "goto", x: 7.05, y: 0, v: 2.0, say: "replacement" },
+    { act: "goto", x: 7.05, y: 0, v: 2.0 },
+    { act: "face", yaw: 0 },
+    { act: "fig", id: "wheeldoublesideflipL", say: "double latéral gauche" },
+    { act: "goto", x: 7.05, y: 0, v: 2.0 },
+    { act: "face", yaw: 0 },
+    { act: "fig", id: "wheeldoublesideflipR", say: "double latéral droit" },
+    { act: "goto", x: 7.05, y: 0, v: 2.0 },
     { act: "face", yaw: 0 },
     { act: "roll", to: 7.25, v: 0.9, say: "dernier élan vers la lèvre" },
     { act: "fig", id: "wheeltwist540", say: "540 McTwist lancé par la lèvre" },
 
-    /* ---------------- l'équilibre, sur ET le long du ledge ---------------- */
-    // D'abord SUR l'obstacle : le ledge fait 400 mm de large, la voie du
-    // robot 308 — il tient dessus. On le monte par le bout et on le remonte
-    // en entier, roues sur le béton : c'est un 50-50.
-    { act: "roll", to: 3.00, v: 2.2, say: "retour au bout du parc" },
+    /* ---------------- le plat du quarter, et le saut de sortie ---------------- */
+    // On monte la transition, on roule sur le PLAT de la plateforme, et on
+    // repart par un saut : la réception tombe au-delà du nez, en dehors de
+    // la rampe, sur le sol plat.
     { act: "brake" },
     { act: "face", yaw: 0 },
-    { act: "goto", x: 2.95, y: 1.90, v: 1.6, say: "on se présente au bout du ledge" },
-    { act: "face", yaw: 0, say: "dans l'axe du ledge" },
-    { act: "roll", to: 6.05, v: 1.0, say: "50-50 : SUR le ledge, sur toute sa longueur" },
-    { act: "roll", to: 6.70, v: 1.2, say: "sortie de ledge" },
+    { act: "goto", x: 7.10, y: 0, v: 2.0 },
+    { act: "face", yaw: 0 },
+    /* Un seul `roll` du pied de la transition jusqu'au nez de la plateforme :
+       le robot monte, roule sur le plat, et arrive au bord AVEC de la
+       vitesse. En deux actes il arrivait au nez à l'arrêt, et le saut, qui
+       emporte la vitesse du moment, retombait dans la rampe. */
+    { act: "roll", to: 8.92, y: 0, v: 1.8,
+      say: "on monte et on roule sur le plat de la plateforme" },
+    { act: "fig", id: "wheeljump", v: 1.8,
+      say: "saut de sortie : la réception tombe hors de la rampe" },
 
-    // Puis LE LONG : on redescend d'une voie et on le longe sur deux roues.
-    { act: "roll", to: 3.00, v: 2.0, say: "retour au bout du ledge" },
+    /* ---------------- le plat central : la fin du catalogue ---------------- */
     { act: "brake" },
     { act: "face", yaw: 0 },
-    { act: "goto", x: 2.90, y: 1.35, v: 1.6, say: "on se range le long du ledge" },
-    { act: "face", yaw: 0, say: "dans l'axe du ledge" },
-    { act: "brake", say: "mise en appui" },
-    { act: "fig", id: "sidestand", hold: 2.6, v: 0.95,
-      say: "sur deux roues, LE LONG du ledge" },
-    { act: "goto", x: 2.90, y: 1.35, v: 1.6, say: "on reprend le bas du ledge" },
-    { act: "face", yaw: 0 },
-    { act: "brake" },
-    { act: "fig", id: "wheelie", hold: 1.8, v: 0.9,
-      say: "cabrage roulé le long du ledge" },
-
-    /* ---------------- le reste du catalogue ---------------- */
-    { act: "brake" },
-    { act: "face", yaw: 0 },
-    { act: "goto", x: 0.20, y: 0, v: 2.2, say: "retour au centre de la plaza" },
-    { act: "face", yaw: 0 },
-    { act: "brake" },
-    { act: "fig", id: "pirouette", hold: 1.5, say: "pirouette tenue" },
+    { act: "goto", x: 0.20, y: 0, v: 2.4, say: "retour au centre de la plaza" },
     { act: "brake" },
     { act: "fig", id: "wheeltumble", say: "salto arrière enchaîné, roues 2 par 2" },
     { act: "brake" },
     { act: "mode", to: "pattes", say: "on repasse sur pattes" },
     { act: "pause", hold: 0.7 },
     { act: "fig", id: "backflip", say: "salto arrière sur pattes" },
-    { act: "brake" },
     { act: "fig", id: "frontflip", say: "salto avant sur pattes" },
-    { act: "brake" },
     { act: "fig", id: "doubleflip", say: "double salto sur pattes" },
-    { act: "brake" },
     { act: "fig", id: "mctwist540", say: "540 McTwist sur pattes" },
     { act: "pause", hold: 0.5 },
     { act: "mode", to: "roues", say: "et on repart sur roues" },
-    { act: "pause", hold: 0.5 },
-
-    { act: "face", yaw: 0 },
-    { act: "carve", to: 3.40, y: 0, v: 2.6, amp: 0.32, wave: 1.5, say: "dernier carve" },
-    { act: "fig", id: "powerslide", say: "slide final" },
-    { act: "pause", hold: 1.4, say: "fin de session" }
+    { act: "pause", hold: 0.6, say: "fin de session" }
   ];
 
   /**
@@ -4984,7 +4986,20 @@ window.YLO = window.YLO || {};
         const heading = Math.cos(st.yaw) >= 0 ? 1 : -1;
         st.vx = done ? 0
           : Math.abs(step.v) * S.side * heading * (Y.Natural.state.dir || 1);
-        st.wz = 0;
+        /* Un `roll` peut tenir une LIGNE et pas seulement une abscisse. Sans
+           ça, le robot arrivait sur le plateau de la table à y = 0,98 pour un
+           module qui finit à 0,95, et sur le ledge à y = 1,95 pour un ledge
+           qui finit à 2,10 : une roue dehors, sol non plat sous les roues, et
+           la tenue sur deux roues était refusée. Une figure d'équilibre veut
+           ses appuis sur le béton, pas à moitié dans le vide. */
+        if (step.y === undefined || done) { st.wz = 0; }
+        else {
+          const yErr = ((step.y || 0) - st.py) * S.side;
+          const axis = S.side > 0 ? 0 : Math.PI;
+          const want = axis + clamp(yErr * 1.6, -0.5, 0.5);
+          const e = ((want - st.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+          st.wz = clamp(e * 2.0, -1.2, 1.2);
+        }
         if (done || S.t > 12) advance();
         return true;
       }

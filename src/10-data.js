@@ -95,7 +95,8 @@ window.YLO = window.YLO || {};
     { id: "battery", name: "Batterie",      preset: { color: "#1d232a", metal: 0.25, rough: 0.70, pattern: "none" } },
     { id: "board",   name: "Électronique",  preset: { color: "#1c6b48", metal: 0.20, rough: 0.60, pattern: "none" } },
     { id: "wheel",   name: "Pneus",         preset: { color: "#15181a", metal: 0.10, rough: 0.85, pattern: "none" } },
-    { id: "rim",     name: "Jantes",        preset: { color: "#b9c0ba", metal: 0.75, rough: 0.30, pattern: "brushed" } },
+    { id: "rim",     name: "Jantes",        preset: { color: "#fc9000", metal: 0.35, rough: 0.34, pattern: "brushed" } },
+    { id: "hub",     name: "Moyeux",        preset: { color: "#0d0e0e", metal: 0.55, rough: 0.40, pattern: "none" } },
     { id: "obstacle", name: "Obstacles",    preset: { color: "#5a6360", metal: 0.05, rough: 0.92, pattern: "print" } },
     { id: "obstacleEdge", name: "Nez de marche", preset: { color: "#ffc24d", metal: 0.10, rough: 0.65, pattern: "none" } }
   ];
@@ -112,7 +113,7 @@ window.YLO = window.YLO || {};
   ];
 
   Y.THEMES = [
-    { id: "officiel", name: "Officiel", set: { cover: "#fc9000", frame: "#0d0e0e", foot: "#909c9c" },
+    { id: "officiel", name: "Officiel", set: { cover: "#fc9000", frame: "#0d0e0e", foot: "#909c9c", rim: "#fc9000", hub: "#0d0e0e" },
       pat: { cover: "none", frame: "print" } },
     { id: "atelier", name: "Atelier", set: { cover: "#d9dcd4", frame: "#3c443e", foot: "#ff6a2b" } },
     { id: "carbone", name: "Carbone", set: { cover: "#1b1e20", frame: "#16181a", foot: "#e8e8e8" },

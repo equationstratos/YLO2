@@ -260,8 +260,11 @@
         // cylindres : leur axe est déjà Y, il ne faut pas les tourner
         const rim = new T.Mesh(new T.CylinderGeometry(wheelR * 0.72, wheelR * 0.72, 0.030, 24),
           Y.Mat.get("rim"));
+        // Le moyeu a sa propre matière : la jante prend la couleur du robot,
+        // le moyeu reste noir. Il empruntait celle des moteurs — blanche —,
+        // et la roue entière rendait claire.
         const hubCap = new T.Mesh(new T.CylinderGeometry(wheelR * 0.26, wheelR * 0.26, 0.042, 16),
-          Y.Mat.get("abad"));
+          Y.Mat.get("hub"));
         for (let k = 0; k < 6; k++) {                 // rayons, dans le plan XZ
           const spoke = new T.Mesh(new T.BoxGeometry(wheelR * 1.3, 0.014, 0.018),
             Y.Mat.get("rim"));

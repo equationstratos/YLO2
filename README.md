@@ -417,8 +417,52 @@ visualiseur affiche la géométrie. Les `*color.png` des dossiers `textured` de
 | Pieds silicone | `footcolor.png` | #909c9c, gris-bleu |
 
 C'est donc un robot **orange sur châssis noir, moteurs blancs** — et non le
-gris d'atelier d'avant. Les anciens réglages restent disponibles sous le thème
+gris d'atelier d'avant. Les **jantes prennent l'orange du robot** et le
+**moyeu reste noir** : il empruntait jusqu'ici la matière des moteurs, blanche,
+et la roue entière rendait claire. Le moyeu a désormais sa propre matière,
+éditable comme les autres. Les anciens réglages restent disponibles sous le thème
 « Atelier », et le nouveau défaut a son thème « Officiel ».
+
+### Une figure par module, et l'équilibre SUR le ledge
+
+Le run rejouait le cabrage et le slide à deux endroits, et l'équilibre se
+faisait à côté du ledge. Il a été réécrit : **chaque figure du catalogue est
+jouée une seule fois**, et **chaque module a les siennes** — un run de skate ne
+refait pas le même trick, il en place un par obstacle.
+
+| Module | Figures |
+|---|---|
+| Quarter arrière | roulage sur le plat de la plateforme, drop-in, salto avant roues |
+| Kicker | salto roues |
+| Table du milieu | double salto lancé par la table, cabrage roulé, slide |
+| Ledge | 50-50 puis **équilibre sur deux roues SUR le ledge**, pirouette au pied |
+| Quarter avant | 6 passages en l'air, puis 6 figures lourdes sur la lèvre |
+| Plateforme du quarter | roulage sur le plat, **saut de sortie** |
+| Plat central | salto arrière enchaîné, puis les 4 figures sur pattes |
+
+**L'équilibre est SUR l'obstacle.** Le robot monte le ledge par le bout, roule
+dessus, et c'est là qu'il bascule : les deux roues du bas posées sur le béton
+du ledge, les deux du haut en l'air. Il fallait pour cela que le `roll` sache
+tenir une **ligne** et pas seulement une abscisse — le robot arrivait à
+y = 1,95 sur un ledge qui finit à 2,10, une roue dans le vide, et la tenue
+était refusée pour « sol non plat ». Même défaut sur le plateau de la table,
+à y = 0,98 pour un module qui finit à 0,95.
+
+**Le saut de sortie.** Le robot monte la transition, roule sur le plat de la
+plateforme et repart par un saut dont la réception tombe **au-delà du nez**, en
+dehors de la rampe : mesuré à x = 11,62 pour un nez à 9,15. Il faut pour cela
+une seule montée continue jusqu'au bord — en deux actes le robot arrivait au
+nez à l'arrêt, et le saut, qui emporte la vitesse du moment, retombait dans la
+rampe.
+
+Relevé du run réécrit :
+
+```
+durée 174 s · vitesse maxi 2,96 m/s · écart latéral maxi 1,99 m
+19/19 figures au sol, chacune une seule fois · 6/6 figures en vol posées 10/10
+20,9 s de roulage sur le plat des plateformes
+saut de sortie : réception à x = 11,62 (nez de rampe à 9,15)
+```
 
 ### La session auto roule comme un skateur
 
