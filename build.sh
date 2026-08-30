@@ -29,7 +29,7 @@ else
 fi
 
 APP=(src/10-data.js src/12-terrain.js src/20-materials.js src/30-robot.js src/40-motion.js
-     src/44-locomotion.js src/46-session.js src/48-play.js src/50-app.js)
+     src/44-locomotion.js src/46-session.js src/47-record.js src/48-play.js src/50-app.js)
 
 emit_scripts() {
   printf '\n<script>\n'; cat vendor/three.min.js; printf '\n</script>\n'

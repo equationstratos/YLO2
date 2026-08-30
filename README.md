@@ -423,6 +423,52 @@ et la roue entière rendait claire. Le moyeu a désormais sa propre matière,
 éditable comme les autres. Les anciens réglages restent disponibles sous le thème
 « Atelier », et le nouveau défaut a son thème « Officiel ».
 
+### Enregistrer son run, le rejouer, l'envoyer
+
+Quatre boutons à côté de **Session AUTO**, en mode roues : **Enregistrer**,
+**Rejouer**, **Exporter**, **Importer**.
+
+Ce qui est enregistré n'est pas une vidéo mais **ce que le pilote a fait** :
+image par image, la consigne de vitesse, de rotation, de hauteur et de frein,
+plus les figures déclenchées. La physique du robot est une fonction pure de
+(état, consignes, pas de temps) — en redonnant la même suite depuis le même
+état de départ, on rejoue exactement le même run.
+
+Le **pas de temps fait partie de la prise**, et c'est ce qui fait la
+différence entre rejouer et ressembler : un navigateur ne rend pas deux fois de
+suite à la même cadence, et une prise faite à 45 images/s rejouée à 60 ne
+donnerait pas le même saut. Il est gardé à la microseconde près : arrondi au
+dixième de milliseconde, une prise de 900 images dérivait de 45 ms sur sa durée
+totale, soit 36 mm de position à 2 m/s — assez pour rater une lèvre.
+
+Les figures ne sont pas des consignes continues : elles arrivent sur une image
+et une seule. Les trois portes d'entrée (`Stunt.start`, `Stunt.release`,
+`Natural.trick`) sont donc enveloppées, si bien que **la manette, le clavier,
+les boutons de l'interface et la session auto sont enregistrés de la même
+façon**, sans que rien n'ait à le savoir.
+
+Fidélité mesurée sur un aller-retour complet par le fichier — 25 s, 1500
+images, 7 figures, kicker, funbox, ledge et quarter :
+
+```
+fichier                                       35,7 Ko
+écart maxi entre la prise et sa relecture     0,020 mm
+```
+
+Le fichier est un **JSON lisible** : format, version, date, terrain, état de
+départ, images, événements. C'est ce fichier qui s'envoie — il pèse 1,4 Ko par
+seconde de run là où une vidéo en pèserait mille fois plus, et il se rejoue
+dans la page de n'importe qui. **Exporter** le télécharge *et* le copie dans le
+presse-papier : un téléchargement lancé depuis une page en bac à sable est
+parfois refusé sans rien dire, et un coller suffit alors à récupérer la prise.
+
+```json
+{ "format": "ylo2-run", "version": 1, "date": "…", "terrain": "skatepark",
+  "start": { "mode": "roues", "px": -1.2, "py": 0, "z": 0.305, … },
+  "frames": [[0.016667, 1.8, 0, 0.25, 0], …],
+  "events": [[200, "fig", "wheeljump", false], [430, "fig", "wheelflip", false], …] }
+```
+
 ### Une figure par module, et l'équilibre SUR le ledge
 
 Le run rejouait le cabrage et le slide à deux endroits, et l'équilibre se

@@ -2327,6 +2327,8 @@
     },
     freeRolling: function () { return nat.freeRoll; },
     setBrake: function (on) { nat.brake = !!on; },
+    /** Frein serré ? L'enregistreur en a besoin : c'est une consigne. */
+    braking: function () { return !!nat.brake; },
     wheelAirborne: function () { return nat.wheelAir; },
     airFigures: AIR,
 

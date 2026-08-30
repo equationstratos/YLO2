@@ -1158,11 +1158,17 @@
   }
 
   function tick(now) {
-    const dt = Math.min((now - last) / 1000, 0.05); last = now;
+    /* En relecture, le pas de temps vient de la PRISE et non du navigateur :
+       c'est ce qui rend le rejeu identique et non seulement ressemblant. Une
+       prise faite à 45 images/s rejouée à 60 ne donnerait pas le même saut. */
+    const dtNow = Math.min((now - last) / 1000, 0.05); last = now;
+    const dt = Y.Record.frame(dtNow);
 
     M.state.frozen = view.explodeOn;
     if (Y.Session.state.running) Y.Session.step(dt);
-    Y.Play.step(dt);
+    if (Y.Record.replaying()) Y.Record.apply();
+    else Y.Play.step(dt);
+    Y.Record.capture(dt);
     M.step(dt);
     if (Y.Session.state.running) followSession(dt);
 
@@ -1368,6 +1374,84 @@
       }
       if (!Y.Session.start()) flash("La session demande le mode roues");
     });
+
+    /* --- enregistrer un run, le rejouer, l'envoyer ---
+       Ce qui est enregistré n'est pas une vidéo mais ce que le pilote a fait :
+       les consignes image par image et les figures déclenchées. Le fichier
+       pèse quelques dizaines de kilo-octets là où une vidéo en pèserait des
+       dizaines de méga, il se rejoue exactement, et il se lit. */
+    const recBtn = document.getElementById("recBtn");
+    const recPlay = document.getElementById("recPlay");
+    const recSave = document.getElementById("recSave");
+    const recFile = document.getElementById("recFile");
+
+    function recRefresh() {
+      const st = Y.Record.state, info = Y.Record.info();
+      recBtn.textContent = st.mode === "rec" ? "Arrêter" : "Enregistrer";
+      recBtn.classList.toggle("on", st.mode === "rec");
+      recPlay.textContent = st.mode === "play" ? "Stop" : "Rejouer";
+      recPlay.disabled = !info && st.mode !== "play";
+      recSave.disabled = !info;
+      if (st.mode === "rec") recSay("Enregistrement…");
+      else if (st.mode === "play") recSay("Relecture de la prise");
+      else if (info) recSay("Prise : " + info.seconds.toFixed(1) + " s · "
+        + info.frames + " images · " + info.events + " figures · " + info.terrain);
+    }
+    function recSay(msg) { document.getElementById("sessionsay").textContent = msg; }
+    Y.Record.onChange(recRefresh);
+
+    recBtn.addEventListener("click", function () {
+      if (Y.Record.recording()) { Y.Record.stop(); flash("Prise terminée"); }
+      else {
+        if (Y.Record.replaying()) Y.Record.stop();
+        Y.Record.start();
+        flash("Enregistrement du run — refaites Enregistrer pour arrêter");
+      }
+      recRefresh();
+    });
+    recPlay.addEventListener("click", function () {
+      if (Y.Record.replaying()) { Y.Record.stop(); recRefresh(); return; }
+      if (Y.Record.recording()) Y.Record.stop();
+      if (!Y.Record.play()) flash("Aucune prise à rejouer");
+      recRefresh();
+    });
+    recSave.addEventListener("click", function () {
+      const info = Y.Record.info(); if (!info) return;
+      const json = Y.Record.toJSON();
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "ylo2-run-" + info.terrain + "-"
+        + info.date.slice(0, 19).replace(/[:T]/g, "-") + ".json";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+      /* Et une copie dans le presse-papier. Le téléchargement d'une page
+         embarquée dans un bac à sable est parfois refusé sans rien dire ;
+         là, un coller suffit à récupérer la prise. */
+      let copied = false;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(json); copied = true;
+        }
+      } catch (e) { copied = false; }
+      flash("Prise exportée : " + a.download
+        + (copied ? " — et copiée dans le presse-papier" : ""));
+    });
+    document.getElementById("recLoad").addEventListener("click", function () { recFile.click(); });
+    recFile.addEventListener("change", function () {
+      const f = recFile.files && recFile.files[0]; if (!f) return;
+      const rd = new FileReader();
+      rd.onload = function () {
+        const err = Y.Record.fromJSON(String(rd.result));
+        if (err) { flash("Prise refusée : " + err); return; }
+        flash("Prise chargée — Rejouer pour la voir");
+        recRefresh();
+      };
+      rd.readAsText(f);
+      recFile.value = "";
+    });
+    recRefresh();
     Y.Session.onChange(function (st) {
       const b = document.getElementById("session");
       b.setAttribute("aria-pressed", String(st.running));

@@ -481,6 +481,11 @@ input[type=range]::-moz-range-thumb{
           </div>
           <div class="stylerow" id="sessionrow" hidden>
             <button class="session" id="session" title="Un run complet dans le skatepark : le robot enchaîne les figures là où le relief les appelle, et finit en slide">Session AUTO</button>
+            <button class="session" id="recBtn" title="Enregistrer votre run : la page garde vos consignes image par image, pas une vidéo">Enregistrer</button>
+            <button class="session" id="recPlay" title="Rejouer la prise à l'identique" disabled>Rejouer</button>
+            <button class="session" id="recSave" title="Exporter la prise en fichier .json — c'est ce fichier qui s'envoie" disabled>Exporter</button>
+            <button class="session" id="recLoad" title="Ouvrir une prise .json">Importer</button>
+            <input type="file" id="recFile" accept=".json,application/json" hidden>
             <span class="sessionsay" id="sessionsay"></span>
           </div>
           <div class="flipbar" id="flipbar"><i></i></div>
