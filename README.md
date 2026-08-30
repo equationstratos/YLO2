@@ -453,7 +453,13 @@ vrille sans défaire la tenue ; un appui bref repose le robot.
   pas dix radians par seconde en équilibre sur deux roues.
 - **Le saut sur place** s'ajoute au *sol de référence* et non à la hauteur de
   caisse : tout ce qui en découle — essieux, points d'appui — monte avec lui,
-  et le saut ne coûte donc rien aux articulations (0,0 rad/s).
+  et le saut ne coûte donc rien aux articulations (0,0 rad/s). Il se **charge**
+  comme le saut normal : appuyer arme, le robot se ramasse sur son appui, et
+  lâcher détend. Appui bref, 60 mm ; appui long, 156 mm.
+- **L'enchaînement marche dans les deux sens.** R1+L1 pendant une tenue fait
+  tourner le robot SUR PLACE au lieu de relancer une pirouette : on peut donc
+  partir en vrille puis basculer, ou se dresser d'abord et se mettre à tourner
+  ensuite (357° en 1,6 s, tenue à 79°, pic 7,1 rad/s).
 - **Le fondu d'entrée** était le prix à payer : passer d'une caisse gîtée et de
   pattes en pose de vrille à un appui à plat coûtait **22 rad/s en une image**,
   la moitié de plus que la butée. Une entrée fondue sur 180 ms ramène ce
@@ -497,6 +503,24 @@ partait en arc de cercle : l'avance suivait le cap, qui tournait. Un corps en
 l'air va tout droit quoi que fasse son orientation — le robot emporte donc sa
 vitesse, comme le faisait déjà le McTwist. Mesuré à 1,5 et 2,5 m/s : **0 mm**
 d'écart latéral, contre plusieurs dizaines de centimètres.
+
+**Le sens de la pirouette se lisait mal d'un côté.** `nat.wz` — la vitesse de
+lacet que lit la couche roues pour faire tourner les pneus et régler l'allure —
+restait positive quel que soit le sens : une pirouette à droite faisait rouler
+les roues comme pour un virage à gauche. D'où des transitions propres d'un côté
+et fausses de l'autre. Le signe est maintenant celui du sens réel, et la
+stabilisation repart de la gîte où la vrille s'est arrêtée au lieu d'une valeur
+fixe — deux degrés de saut au raccord.
+
+**Plus de décalage à la réception d'un 180 ou d'un 360.** La correction de cap
+donnée au stick était appliquée pendant la réception mais pas pendant la
+stabilisation : elle s'accumulait sans rien changer, puis tombait d'un coup à
+la dernière image — **vingt-trois degrés en une image**, et un cap qui ne
+répondait plus pendant la moitié de la réception. Elle est désormais appliquée
+dans les deux phases et jusqu'au bout. La vitesse emportée, elle, s'arrête au
+TOUCHER et non à la fin de la figure : la garder faisait glisser la réception
+en travers, la caisse tournant pendant que la trajectoire restait celle du
+décollage. Un slide, qui vit de cette glissade, la conserve.
 
 **La pirouette repart dans l'autre sens à chaque fois.** Tourner toujours du
 même côté finit par dévisser le robot dans un coin du parc, et un skateur

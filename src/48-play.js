@@ -267,6 +267,11 @@
   function pressShoulder(side) {
     if (prev[side === "l" ? "r1" : "l1"]) {        // l'autre est déjà tenue
       waitBoth = null;
+      /* Déjà en tenue ? On ne relance pas une pirouette à sa place : on la
+         fait tourner SUR PLACE, cabrée ou sur le flanc. L'enchaînement marche
+         donc dans les deux sens — partir en vrille puis basculer, ou se
+         dresser d'abord et se mettre à tourner ensuite. */
+      if (Y.Stunt.twirlStart()) { say("Pirouette en position"); return; }
       fire("pirouette", false, true);
       return;
     }
@@ -341,13 +346,17 @@
       const was = !!prev.cross;
       prev.cross = down;
       if (down && !was) {
-        /* En tenue, la croix ne relance pas un saut au sol : elle fait sauter
-           le robot SUR PLACE, dans sa position. Cabré ou sur le flanc, il
-           quitte le sol et y retombe sans rien défaire — c'est le troisième
-           étage de l'enchaînement vrille + tenue + saut. */
-        if (Y.Stunt.hop()) { say("Saut en position"); return; }
+        /* En tenue, la croix ne relance pas un saut au sol : elle arme un saut
+           SUR PLACE, dans la position. Cabré ou sur le flanc, le robot se
+           ramasse tant qu'on tient, puis quitte le sol et y retombe sans rien
+           défaire — le même geste que le saut normal, troisième étage de
+           l'enchaînement vrille + tenue + saut. */
+        if (Y.Stunt.hop()) { say("Saut en position — lâcher pour détendre"); return; }
         fire("wheeljump", true);
-      } else if (!down && was) Y.Stunt.fire();
+      } else if (!down && was) {
+        if (Y.Stunt.hopFire()) return;
+        Y.Stunt.fire();
+      }
       return;
     }
     /* Carré et rond : appui BREF d'un côté, appui LONG de l'autre.

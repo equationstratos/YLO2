@@ -2339,7 +2339,9 @@ window.YLO = window.YLO || {};
   const TWIRL_RAMP = 7.0;           // rad/s² de mise en route et de freinage
   /* Saut sur place depuis une tenue : une détente courte, verticale, qui ne
      change ni l'assiette ni l'appui — le robot saute DANS sa position. */
-  const HOP_VZ = 1.55;
+  const HOP_VZ = 1.75;
+  const HOP_CHARGE = 0.45;          // s d'armement pour une détente pleine
+  const HOP_CROUCH = 0.055;         // m de ramassé pendant l'armement
   /** Pose intermédiaire entre deux poses du catalogue. */
   function poseMid(L, p0, p1, k) {
     const a = poseFor(L, p0), b = poseFor(L, p1);
@@ -3801,7 +3803,7 @@ window.YLO = window.YLO || {};
          C'est une vitesse, pas un angle paramétré : elle se tient tant qu'on
          garde les épaules, et elle se freine proprement quand on lâche. */
       const wantW = run.twirlHold
-        ? Math.sign(run.twirlW || 1) * Math.min(Math.abs(run.twirlW) || TWIRL_MAX, TWIRL_MAX)
+        ? (run.twirlDir || 1) * Math.min(run.twirlCap || TWIRL_MAX, TWIRL_MAX)
         : 0;
       run.twirlW = approach(run.twirlW, wantW, TWIRL_RAMP, dt);
       if (Math.abs(run.twirlW) > 1e-4) state.yaw += run.twirlW * dt;
@@ -3811,7 +3813,14 @@ window.YLO = window.YLO || {};
          cabré ou sur le flanc, et y retombe. On l'ajoute au sol de référence
          plutôt qu'à la hauteur de caisse : tout ce qui en découle — les
          essieux, les traces d'appui — monte alors avec lui. */
-      if (run.hop) {
+      if (run.hopArmed) {
+        /* Armement : le robot se ramasse sur son appui tant qu'on tient la
+           touche, et la détente vaut ce qu'on a chargé. C'est le geste du
+           saut normal, appliqué à la position tenue — appuyer arme, lâcher
+           détend — et non une impulsion fixe. */
+        run.hopCharge = Math.min(run.hopCharge + dt, HOP_CHARGE);
+        run.hopZ = -HOP_CROUCH * smooth(run.hopCharge / HOP_CHARGE);
+      } else if (run.hop) {
         run.hop.t += dt;
         const z = run.hop.v * run.hop.t - 0.5 * G_ACC * run.hop.t * run.hop.t;
         if (z <= 0 && run.hop.t > 0.04) { run.hop = null; run.hopZ = 0; }
@@ -4100,9 +4109,16 @@ window.YLO = window.YLO || {};
         }
         run.spinA += run.spinW * dt;
         state.yaw = run.yaw0 + run.spinA * (run.spinDir || 1);
-        nat.wz = run.spinW;
+        /* Signe compris : `nat.wz` est la vitesse de lacet RÉELLE, celle que
+           lit la couche roues pour faire tourner les pneus et régler
+           l'allure. En la laissant positive quel que soit le sens, une
+           pirouette à droite faisait rouler les roues comme pour un virage à
+           gauche — d'où des transitions propres d'un côté et fausses de
+           l'autre. */
+        nat.wz = run.spinW * (run.spinDir || 1);
         const s = clamp(run.spinW / wMax, 0, 1);
         state.roll = f.lean * s * (run.spinDir || 1);
+        run.exitRoll = state.roll;                  // d'où repart la stabilisation
         state.z = base + ride * (1 - 0.10 * s) + WHEEL_R;
         // le chrono ne franchit la fin de la vrille qu'une fois arrêté
         run.spinHold = run.spinW > 0.02 || run.spinA < 0.2;
@@ -4110,7 +4126,9 @@ window.YLO = window.YLO || {};
         phase = "stabilisation";
         const s = smooth((t - t2) / f.settle);
         state.yaw = run.yaw0 + run.spinA * (run.spinDir || 1);
-        state.roll = lerp(f.lean * 0.2 * (run.spinDir || 1), 0, s);
+        // on repart de la gîte où la vrille s'est arrêtée, pas d'une valeur
+        // fixe : sinon la caisse sautait de deux degrés au raccord
+        state.roll = lerp(run.exitRoll || 0, 0, s);
         state.z = base + ride * (0.90 + 0.10 * s) + WHEEL_R;
         nat.wz = lerp(nat.wz, 0, Math.min(1, dt * 6));
       }
@@ -4511,6 +4529,12 @@ window.YLO = window.YLO || {};
         }
       } else if (t < t4) {
         phase = "réception";
+        /* Les roues touchent : la vitesse emportée n'a plus lieu d'être, le
+           robot suit de nouveau son cap. La garder jusqu'à la fin de la
+           figure faisait glisser la réception en travers — la caisse tournait
+           mais la trajectoire restait celle du décollage. Un slide, lui, vit
+           de cette glissade : on ne la lui retire pas. */
+        if (f.kind !== "slide") run.carry = null;
         /* Dès le contact, le pilote reprend la main sur le cap. Sans ça, le
            robot passait sa réception et sa stabilisation — plus d'un demi-
            quart de seconde — cap figé : on posait un 180, on demandait de
@@ -4586,8 +4610,15 @@ window.YLO = window.YLO || {};
       } else {
         phase = "stabilisation";
         nat.wz = approach(nat.wz, clamp(state.wz, -1.6, 1.6), 3.0, dt);
-        if (f.twist || f.spinTurns) run.freeYaw += nat.wz * dt;
-        else state.yaw += nat.wz * dt;
+        /* Et on l'APPLIQUE ici aussi. La réception le faisait, la
+           stabilisation non : la correction s'accumulait sans rien changer,
+           puis tombait d'un coup à la fin de la figure — cinq degrés de
+           saut, et un cap qui ne répondait plus pendant la moitié de la
+           réception. C'est le décalage qu'on sentait en sortie de 180. */
+        if (f.twist || f.spinTurns) {
+          run.freeYaw += nat.wz * dt;
+          state.yaw = run.yaw0 + 2 * Math.PI * (f.spinTurns || f.twist) + run.freeYaw;
+        } else state.yaw += nat.wz * dt;
         const s = smooth((t - t4) / f.recover);
         state.z = groundRef() + ride * lerp(0.80, 1.0, s) + WHEEL_R;
         // puis on rejoint l'assiette de la pente, pas l'horizontale
@@ -4605,8 +4636,11 @@ window.YLO = window.YLO || {};
       state.pitch = 0; state.roll = 0;
       if (f.kind === "spin") { state.yaw = run.yaw0 + run.spinA * (run.spinDir || 1); nat.wz = 0; }
       if (f.kind === "slide") { state.yaw = run.yaw0 + f.yawSweep * (f.side || 1); nat.vx = 0; }
-      if (f.twist) state.yaw = run.yaw0 + 2 * Math.PI * f.twist;
-      if (f.spinTurns) state.yaw = run.yaw0 + 2 * Math.PI * f.spinTurns;
+      // `freeYaw` compris : c'est la correction de cap donnée par le pilote
+      // pendant la réception. L'oublier ici rendait vingt-trois degrés d'un
+      // coup à la dernière image de la figure.
+      if (f.twist) state.yaw = run.yaw0 + 2 * Math.PI * f.twist + run.freeYaw;
+      if (f.spinTurns) state.yaw = run.yaw0 + 2 * Math.PI * f.spinTurns + run.freeYaw;
       state.z = terrainAt(state.px, state.py) + ride + WHEEL_R;
       nat.zBody = state.z; nat.vz = 0; nat.prevTarget = null; nat.ffz = 0;
       run.carry = null;
@@ -4680,7 +4714,9 @@ window.YLO = window.YLO || {};
       run.tumbleT = 0; run.prevA = {};
       run.tiltSide = 1; run.swapT = null; run.swapDone = false; run.reseat = false;
       run.wantSwap = false; run.freeYaw = 0;
-      run.twirlW = 0; run.twirlHold = false; run.hop = null; run.hopZ = 0;
+      run.twirlW = 0; run.twirlHold = false; run.twirlDir = 1; run.twirlCap = 0;
+      run.hop = null; run.hopZ = 0; run.hopArmed = false; run.hopCharge = 0;
+      run.exitRoll = 0;
       // on amorce le limiteur de débattement sur la position réelle des pieds :
       // sinon la première image saute d'un rayon de roue et coûte 57 rad/s
       Y.LEGS.forEach(function (L) {
@@ -4808,8 +4844,25 @@ window.YLO = window.YLO || {};
       const ok = this.start(id);
       if (!ok || ok === "pente") return ok;
       run.twirlW = w;
+      run.twirlDir = w < 0 ? -1 : 1;
+      run.twirlCap = Math.min(Math.abs(w), TWIRL_MAX);
       run.twirlHold = true;
       return ok;
+    },
+    /**
+     * Lancer la vrille depuis une tenue déjà en cours.
+     *
+     * L'enchaînement marche donc dans les deux sens : on peut partir d'une
+     * pirouette et basculer, ou se dresser d'abord et se mettre à tourner
+     * ensuite. Le sens alterne comme celui d'une pirouette libre.
+     */
+    twirlStart: function () {
+      if (!run.fig || run.fig.kind !== "tilt" || run.twirlHold) return false;
+      if (run.t < run.fig.arm) return false;             // pas avant d'être dressé
+      run.twirlDir = spinTurn; spinTurn = -spinTurn;
+      run.twirlCap = TWIRL_MAX;
+      run.twirlHold = true;
+      return true;
     },
     /** Vrille conservée : en cours ? */
     twirling: function () { return !!run.fig && run.fig.kind === "tilt" && Math.abs(run.twirlW) > 0.15; },
@@ -4824,11 +4877,21 @@ window.YLO = window.YLO || {};
      * saut — et rien n'oblige à les défaire pour les combiner.
      */
     hop: function () {
-      if (!run.fig || run.fig.kind !== "tilt" || run.hop) return false;
+      if (!run.fig || run.fig.kind !== "tilt" || run.hop || run.hopArmed) return false;
       if (run.t < run.fig.arm) return false;             // pas avant d'être dressé
-      run.hop = { t: 0, v: HOP_VZ };
+      run.hopArmed = true; run.hopCharge = 0;
       return true;
     },
+    /** Détendre le saut en position. La hauteur vaut ce qu'on a chargé. */
+    hopFire: function () {
+      if (!run.hopArmed) return false;
+      const k = clamp(run.hopCharge / HOP_CHARGE, 0, 1);
+      run.hopArmed = false;
+      run.hop = { t: 0, v: HOP_VZ * (0.55 + 0.45 * k) };
+      return true;
+    },
+    /** Saut en position armé, en attente de détente ? */
+    hopArming: function () { return !!run.hopArmed; },
     /** Saut sur place en cours ? */
     hopping: function () { return !!run.hop; },
 
@@ -5946,6 +6009,11 @@ window.YLO = window.YLO || {};
   function pressShoulder(side) {
     if (prev[side === "l" ? "r1" : "l1"]) {        // l'autre est déjà tenue
       waitBoth = null;
+      /* Déjà en tenue ? On ne relance pas une pirouette à sa place : on la
+         fait tourner SUR PLACE, cabrée ou sur le flanc. L'enchaînement marche
+         donc dans les deux sens — partir en vrille puis basculer, ou se
+         dresser d'abord et se mettre à tourner ensuite. */
+      if (Y.Stunt.twirlStart()) { say("Pirouette en position"); return; }
       fire("pirouette", false, true);
       return;
     }
@@ -6020,13 +6088,17 @@ window.YLO = window.YLO || {};
       const was = !!prev.cross;
       prev.cross = down;
       if (down && !was) {
-        /* En tenue, la croix ne relance pas un saut au sol : elle fait sauter
-           le robot SUR PLACE, dans sa position. Cabré ou sur le flanc, il
-           quitte le sol et y retombe sans rien défaire — c'est le troisième
-           étage de l'enchaînement vrille + tenue + saut. */
-        if (Y.Stunt.hop()) { say("Saut en position"); return; }
+        /* En tenue, la croix ne relance pas un saut au sol : elle arme un saut
+           SUR PLACE, dans la position. Cabré ou sur le flanc, le robot se
+           ramasse tant qu'on tient, puis quitte le sol et y retombe sans rien
+           défaire — le même geste que le saut normal, troisième étage de
+           l'enchaînement vrille + tenue + saut. */
+        if (Y.Stunt.hop()) { say("Saut en position — lâcher pour détendre"); return; }
         fire("wheeljump", true);
-      } else if (!down && was) Y.Stunt.fire();
+      } else if (!down && was) {
+        if (Y.Stunt.hopFire()) return;
+        Y.Stunt.fire();
+      }
       return;
     }
     /* Carré et rond : appui BREF d'un côté, appui LONG de l'autre.
