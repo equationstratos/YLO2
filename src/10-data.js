@@ -102,7 +102,9 @@ window.YLO = window.YLO || {};
     { id: "rim",     name: "Jantes",        preset: { color: "#fc9000", metal: 0.35, rough: 0.34, pattern: "brushed" } },
     { id: "hub",     name: "Moyeux",        preset: { color: "#0d0e0e", metal: 0.55, rough: 0.40, pattern: "none" } },
     { id: "obstacle", name: "Obstacles",    preset: { color: "#5a6360", metal: 0.05, rough: 0.92, pattern: "print" } },
-    { id: "obstacleEdge", name: "Nez de marche", preset: { color: "#ffc24d", metal: 0.10, rough: 0.65, pattern: "none" } }
+    { id: "obstacleEdge", name: "Nez de marche", preset: { color: "#ffc24d", metal: 0.10, rough: 0.65, pattern: "none" } },
+    { id: "ball",     name: "Boule",         preset: { color: "#e8ecec", metal: 0.05, rough: 0.55, pattern: "none" } },
+    { id: "ballBand", name: "Ceintures",     preset: { color: "#1b1c1c", metal: 0.10, rough: 0.70, pattern: "none" } }
   ];
 
   Y.PATTERNS = [

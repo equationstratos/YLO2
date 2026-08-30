@@ -304,29 +304,53 @@
             wheel.add(lug);
           }
         }
-        /* Jante à cinq branches : une couronne, cinq bras qui s'affinent vers
-           le centre, un moyeu noir. Cinq et non six — c'est ce qui distingue
-           une jante d'un simple disque à rayons —, et pas davantage : on la
-           voit tourner à vingt tours par seconde, le détail s'y perdrait. */
-        const ring = new T.Mesh(new T.TorusGeometry(wheelR * 0.66, wheelR * 0.085, 10, 30),
+        /* Jante de 4x4 : anneau de beadlock boulonné, cinq branches dédoublées
+           en Y, moyeu bombé. C'est la signature d'une roue tout-terrain — la
+           couronne extérieure vissée qui pince le pneu, et des bras assez
+           larges pour qu'on les voie tourner. On s'arrête là : elle tourne à
+           vingt tours par seconde, le détail s'y perdrait. */
+        const bead = new T.Mesh(new T.TorusGeometry(wheelR * 0.70, wheelR * 0.075, 8, 32),
           Y.Mat.get("rim"));
-        ring.rotation.x = Math.PI / 2;
-        const disc = new T.Mesh(new T.CylinderGeometry(wheelR * 0.30, wheelR * 0.30, 0.026, 20),
-          Y.Mat.get("rim"));
+        bead.rotation.x = Math.PI / 2;
+        wheel.add(bead);
+        // boulons de beadlock : dix têtes réparties sur la couronne
+        for (let k = 0; k < 10; k++) {
+          const a = k * Math.PI / 5 + 0.15;
+          const bolt = new T.Mesh(new T.CylinderGeometry(0.0042, 0.0042, 0.030, 6),
+            Y.Mat.get("hub"));
+          bolt.rotation.x = Math.PI / 2;
+          bolt.position.set(Math.cos(a) * wheelR * 0.70, 0, Math.sin(a) * wheelR * 0.70);
+          wheel.add(bolt);
+        }
+        // cinq branches en Y : un pied unique au moyeu, deux bras vers la jante
         for (let k = 0; k < 5; k++) {
           const a = k * Math.PI * 2 / 5;
-          const arm = new T.Mesh(new T.BoxGeometry(wheelR * 0.42, 0.020, 0.026), Y.Mat.get("rim"));
-          arm.position.set(Math.cos(a) * wheelR * 0.44, 0, Math.sin(a) * wheelR * 0.44);
-          arm.rotation.y = -a;
-          wheel.add(arm);
+          const foot2 = new T.Mesh(new T.BoxGeometry(wheelR * 0.26, 0.030, 0.030),
+            Y.Mat.get("rim"));
+          foot2.position.set(Math.cos(a) * wheelR * 0.24, 0, Math.sin(a) * wheelR * 0.24);
+          foot2.rotation.y = -a;
+          wheel.add(foot2);
+          for (let j = -1; j <= 1; j += 2) {
+            const br = a + j * 0.30;
+            const arm = new T.Mesh(new T.BoxGeometry(wheelR * 0.40, 0.024, 0.026),
+              Y.Mat.get("rim"));
+            arm.position.set(Math.cos(br) * wheelR * 0.50, 0, Math.sin(br) * wheelR * 0.50);
+            arm.rotation.y = -br;
+            wheel.add(arm);
+          }
         }
         /* Le moyeu a sa propre matière : la jante prend la couleur du robot,
-           le moyeu reste noir. */
-        const hubCap = new T.Mesh(new T.CylinderGeometry(wheelR * 0.24, wheelR * 0.24, 0.046, 18),
+           le moyeu reste noir. Bombé, comme un cache-moyeu de 4x4. */
+        const hubCap = new T.Mesh(new T.CylinderGeometry(wheelR * 0.30, wheelR * 0.26, 0.040, 20),
           Y.Mat.get("hub"));
-        const boss = new T.Mesh(new T.CylinderGeometry(wheelR * 0.10, wheelR * 0.10, 0.052, 12),
-          Y.Mat.get("hub"));
-        wheel.add(ring, disc, hubCap, boss);
+        const dome = new T.Mesh(new T.SphereGeometry(wheelR * 0.20, 16, 10,
+          0, Math.PI * 2, 0, Math.PI / 2), Y.Mat.get("hub"));
+        dome.rotation.x = -Math.PI / 2;
+        dome.position.y = 0.020;
+        const dome2 = dome.clone();
+        dome2.rotation.x = Math.PI / 2;
+        dome2.position.y = -0.020;
+        wheel.add(hubCap, dome, dome2);
         wheel.visible = false;
         tag(wheel, "wheels", [0, L.m * 0.3, -0.1]);
         foot.add(wheel);

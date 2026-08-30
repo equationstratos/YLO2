@@ -2362,7 +2362,18 @@
       nat.zBody = state.z; nat.vz = 0; nat.prevTarget = null; nat.ffz = 0;
       run.carry = null;
       Y.LEGS.forEach(function (L) { nat.wheelZ[L.id] = null; nat.wstep[L.id] = null; });
+      /* Une tenue qu'on repose alors que les épaules sont toujours tenues rend
+         la main à la PIROUETTE : le robot redescend sur ses quatre roues et
+         continue de tourner. La vrille s'arrêtait avec la tenue, alors que la
+         commande, elle, n'avait pas été relâchée. */
+      const resume = f.kind === "tilt" && run.twirlHold ? run.twirlW : 0;
       Y.Stunt.stop(true);
+      if (Math.abs(resume) > 0.2 && Y.Stunt.start("pirouette", false, true)) {
+        run.spinW = Math.abs(resume);
+        run.spinDir = resume < 0 ? -1 : 1;
+        run.spinA = 0;
+        run.t = FIGURES.pirouette.arm;            // on saute l'appui : il est déjà pris
+      }
     }
   }
 

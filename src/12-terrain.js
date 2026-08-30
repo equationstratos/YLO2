@@ -177,7 +177,10 @@
         quarterPipe(7.80, 0.45, 1.90, +1).forEach(function (b) { out.push(b); });
         quarterPipe(-2.60, 0.45, 1.90, -1).forEach(function (b) { out.push(b); });
         return out;
-      })() },
+      })(),
+      // Une boule à pousser, sur le plat entre le kicker et le funbox : le
+      // seul module du parc qui bouge quand on le touche.
+      ball: [0.60, -1.60] },
 
     // Mini-ramp : deux grandes transitions qui se font face, un flat entre
     // les deux. C'est l'objet de skate le plus simple et le plus riche — on

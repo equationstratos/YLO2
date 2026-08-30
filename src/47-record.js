@@ -65,7 +65,13 @@
       mode: st.mode, gait: st.gait, px: r3(st.px), py: r3(st.py), z: r3(st.z),
       yaw: r3(st.yaw), roll: r3(st.roll), pitch: r3(st.pitch),
       height: r3(st.height), clearance: r3(st.clearance || 0),
-      free: !!(Y.Natural.state && Y.Natural.state.freeRoll)
+      free: !!(Y.Natural.state && Y.Natural.state.freeRoll),
+      /* La boule fait partie de l'état de départ : son mouvement découle de
+         celui du robot, donc la rejouer depuis la même place la rejoue à
+         l'identique — mais seulement depuis la même place. */
+      ball: Y.Ball && Y.Ball.active()
+        ? [r3(Y.Ball.state.x), r3(Y.Ball.state.y),
+           r3(Y.Ball.state.vx), r3(Y.Ball.state.vy)] : null
     };
   }
 
@@ -78,6 +84,10 @@
     Y.Stunt.stop(false);
     Y.Natural.reset();
     if (Y.Natural.setFreeRoll) Y.Natural.setFreeRoll(!!s.free);
+    if (Y.Ball && Y.Ball.active() && s.ball) {
+      Y.Ball.state.x = s.ball[0]; Y.Ball.state.y = s.ball[1];
+      Y.Ball.state.vx = s.ball[2]; Y.Ball.state.vy = s.ball[3];
+    } else if (Y.Ball && Y.Ball.active()) Y.Ball.reset();
     Y.Motion.blendFrom(0.3);
   }
 

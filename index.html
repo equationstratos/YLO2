@@ -655,7 +655,9 @@ window.YLO = window.YLO || {};
     { id: "rim",     name: "Jantes",        preset: { color: "#fc9000", metal: 0.35, rough: 0.34, pattern: "brushed" } },
     { id: "hub",     name: "Moyeux",        preset: { color: "#0d0e0e", metal: 0.55, rough: 0.40, pattern: "none" } },
     { id: "obstacle", name: "Obstacles",    preset: { color: "#5a6360", metal: 0.05, rough: 0.92, pattern: "print" } },
-    { id: "obstacleEdge", name: "Nez de marche", preset: { color: "#ffc24d", metal: 0.10, rough: 0.65, pattern: "none" } }
+    { id: "obstacleEdge", name: "Nez de marche", preset: { color: "#ffc24d", metal: 0.10, rough: 0.65, pattern: "none" } },
+    { id: "ball",     name: "Boule",         preset: { color: "#e8ecec", metal: 0.05, rough: 0.55, pattern: "none" } },
+    { id: "ballBand", name: "Ceintures",     preset: { color: "#1b1c1c", metal: 0.10, rough: 0.70, pattern: "none" } }
   ];
 
   Y.PATTERNS = [
@@ -981,7 +983,10 @@ window.YLO = window.YLO || {};
         quarterPipe(7.80, 0.45, 1.90, +1).forEach(function (b) { out.push(b); });
         quarterPipe(-2.60, 0.45, 1.90, -1).forEach(function (b) { out.push(b); });
         return out;
-      })() },
+      })(),
+      // Une boule à pousser, sur le plat entre le kicker et le funbox : le
+      // seul module du parc qui bouge quand on le touche.
+      ball: [0.60, -1.60] },
 
     // Mini-ramp : deux grandes transitions qui se font face, un flat entre
     // les deux. C'est l'objet de skate le plus simple et le plus riche — on
@@ -1345,6 +1350,169 @@ window.YLO = window.YLO || {};
     extent: extent,
     /** Prévenir la scène : le décor autour doit suivre la taille du terrain. */
     watch: function (fn) { onChange = fn; rebuild(); }
+  };
+})(window.YLO);
+/* =====================================================================
+   YLO-2 — la boule du skatepark
+
+   Un objet qui n'est ni le robot ni le décor : une boule que le robot
+   pousse. Elle a sa propre inertie, elle roule, elle ralentit, elle
+   redescend les pentes et elle rebondit sur ce qu'elle ne peut pas
+   franchir.
+
+   Son rayon — 260 mm — n'est pas décoratif : la caisse du robot roule à
+   300 mm du sol, et une boule plus petite passerait dessous au lieu
+   d'être poussée. À cette taille, elle arrive à hauteur de tronc et il
+   n'y a pas d'autre issue que de la pousser.
+   ===================================================================== */
+(function (Y) {
+  "use strict";
+  const T = window.THREE;
+
+  const R = 0.26;                    // rayon de la boule
+  const ROBOT_R = 0.21;              // empreinte du robot, vue de dessus
+  const ROLL_DRAG = 0.85;            // s⁻¹ : une boule roule loin, pas indéfiniment
+  const G = 9.81;
+  const PUSH = 1.35;                 // ce que la boule prend de la poussée
+
+  const S = {
+    on: false, x: 0, y: 0, z: R, vx: 0, vy: 0,
+    group: null, mesh: null, home: [0, 0]
+  };
+
+  function build(scene) {
+    if (S.group) return;
+    const g = new T.Group();
+    const ball = new T.Mesh(new T.SphereGeometry(R, 28, 20), Y.Mat.get("ball"));
+    ball.castShadow = true; ball.receiveShadow = true;
+    ball.userData.mat = "ball";
+    g.add(ball);
+    /* Trois ceintures sombres, sur les trois axes. Sans repère, une sphère
+       lisse tourne sans qu'on le voie — et tout l'intérêt est justement de la
+       voir rouler. Trois et non deux : deux ceintures posées sur le même axe
+       se confondent, et la boule paraissait unie. */
+    [[0, 0, 0], [Math.PI / 2, 0, 0], [0, Math.PI / 2, 0]].forEach(function (r) {
+      const band = new T.Mesh(new T.TorusGeometry(R * 0.99, R * 0.06, 8, 40),
+        Y.Mat.get("ballBand"));
+      band.rotation.set(r[0], r[1], r[2]);
+      band.userData.mat = "ballBand";
+      g.add(band);
+    });
+    g.visible = false;
+    scene.add(g);
+    S.group = g; S.mesh = g;
+  }
+
+  function groundAt(x, y) {
+    return Y.Terrain && Y.Terrain.heightAt ? Y.Terrain.heightAt(x, y) : 0;
+  }
+
+  /** Poser la boule, ou la retirer. `at` vaut [x, y] ou rien. */
+  function set(at) {
+    S.on = !!at;
+    if (S.group) {
+      S.group.visible = S.on;
+      /* Les matières sont réglées APRÈS la construction de la scène : prises
+         à la construction, elles étaient encore blanches et la boule sortait
+         unie, ceintures comprises. On les relit ici, comme le fait le terrain
+         à chaque reconstruction. */
+      S.group.children.forEach(function (c) {
+        if (c.userData.mat) c.material = Y.Mat.get(c.userData.mat);
+      });
+    }
+    if (!at) return;
+    S.home = [at[0], at[1]];
+    reset();
+  }
+
+  function reset() {
+    S.x = S.home[0]; S.y = S.home[1];
+    S.z = groundAt(S.x, S.y) + R;
+    S.vx = 0; S.vy = 0;
+    if (S.group) {
+      S.group.position.set(S.x, S.y, S.z);
+      S.group.quaternion.identity();
+    }
+  }
+
+  const axis = new T.Vector3();
+
+  function step(dt) {
+    if (!S.on || !S.group) return;
+
+    /* --- poussée du robot ---
+       Le robot est vu de dessus comme un disque : c'est assez pour dire s'il
+       touche la boule et de quel côté. On la chasse hors du recouvrement et
+       on lui donne la part de vitesse du robot dirigée vers elle — une boule
+       ne prend pas ce qui la frôle, elle prend ce qui la pousse. */
+    const st = Y.Motion.state;
+    const dx = S.x - st.px, dy = S.y - st.py;
+    const d = Math.hypot(dx, dy);
+    const reach = R + ROBOT_R;
+    if (d < reach && d > 1e-6 && Math.abs(st.z - S.z) < R + 0.30) {
+      const nx = dx / d, ny = dy / d;
+      S.x += nx * (reach - d); S.y += ny * (reach - d);
+      const rv = Y.Natural.state.vx * (Y.Natural.state.dir || 1);
+      const push = (Math.cos(st.yaw) * nx + Math.sin(st.yaw) * ny) * rv;
+      if (push > 0) {
+        S.vx += nx * push * PUSH * Math.min(1, dt * 30);
+        S.vy += ny * push * PUSH * Math.min(1, dt * 30);
+      }
+    }
+
+    /* --- pente et frottement ---
+       La boule descend ce qui descend : on lit la pente du champ de hauteurs
+       sous elle et on l'accélère dedans. C'est la même gravité de pente que
+       celle du robot en roue libre, sans l'effet de pompage. */
+    const e = 0.12;
+    const gx = (groundAt(S.x + e, S.y) - groundAt(S.x - e, S.y)) / (2 * e);
+    const gy = (groundAt(S.x, S.y + e) - groundAt(S.x, S.y - e)) / (2 * e);
+    S.vx -= G * gx * 0.75 * dt;
+    S.vy -= G * gy * 0.75 * dt;
+    const k = Math.min(1, ROLL_DRAG * dt);
+    S.vx -= S.vx * k; S.vy -= S.vy * k;
+    if (Math.hypot(S.vx, S.vy) < 0.02) { S.vx = 0; S.vy = 0; }
+
+    /* --- avance et rebond ---
+       Ce qu'elle ne peut pas monter la renvoie. Une boule de 260 mm gravit
+       une pente, pas une marche : au-delà d'un quart de son rayon, c'est un
+       mur et elle repart dessus. */
+    const nx2 = S.x + S.vx * dt, ny2 = S.y + S.vy * dt;
+    const here = groundAt(S.x, S.y);
+    if (groundAt(nx2, ny2) - here > R * 0.25) {
+      const hx = groundAt(S.x + e, S.y) - groundAt(S.x - e, S.y);
+      const hy = groundAt(S.x, S.y + e) - groundAt(S.x, S.y - e);
+      const n = Math.hypot(hx, hy) || 1;
+      const ux = -hx / n, uy = -hy / n;               // normale sortante du mur
+      const dot = S.vx * ux + S.vy * uy;
+      S.vx = (S.vx - 2 * dot * ux) * 0.55;
+      S.vy = (S.vy - 2 * dot * uy) * 0.55;
+    } else { S.x = nx2; S.y = ny2; }
+
+    // la boule repose sur le relief, filtrée pour ne pas sauter aux marches
+    const want = groundAt(S.x, S.y) + R;
+    S.z += (want - S.z) * Math.min(1, dt * 10);
+
+    /* --- rotation ---
+       Elle roule sans glisser : un tour par 2πR parcourus, autour de l'axe
+       perpendiculaire au déplacement. C'est ce qui rend le mouvement lisible. */
+    const sp = Math.hypot(S.vx, S.vy);
+    if (sp > 1e-4) {
+      axis.set(-S.vy / sp, S.vx / sp, 0);
+      S.group.rotateOnWorldAxis(axis, sp * dt / R);
+    }
+    S.group.position.set(S.x, S.y, S.z);
+  }
+
+  Y.Ball = {
+    state: S,
+    radius: R,
+    build: build,
+    set: set,
+    reset: reset,
+    step: step,
+    /** Présente sur ce terrain ? */
+    active: function () { return S.on; }
   };
 })(window.YLO);
 /* =====================================================================
@@ -1918,29 +2086,53 @@ window.YLO = window.YLO || {};
             wheel.add(lug);
           }
         }
-        /* Jante à cinq branches : une couronne, cinq bras qui s'affinent vers
-           le centre, un moyeu noir. Cinq et non six — c'est ce qui distingue
-           une jante d'un simple disque à rayons —, et pas davantage : on la
-           voit tourner à vingt tours par seconde, le détail s'y perdrait. */
-        const ring = new T.Mesh(new T.TorusGeometry(wheelR * 0.66, wheelR * 0.085, 10, 30),
+        /* Jante de 4x4 : anneau de beadlock boulonné, cinq branches dédoublées
+           en Y, moyeu bombé. C'est la signature d'une roue tout-terrain — la
+           couronne extérieure vissée qui pince le pneu, et des bras assez
+           larges pour qu'on les voie tourner. On s'arrête là : elle tourne à
+           vingt tours par seconde, le détail s'y perdrait. */
+        const bead = new T.Mesh(new T.TorusGeometry(wheelR * 0.70, wheelR * 0.075, 8, 32),
           Y.Mat.get("rim"));
-        ring.rotation.x = Math.PI / 2;
-        const disc = new T.Mesh(new T.CylinderGeometry(wheelR * 0.30, wheelR * 0.30, 0.026, 20),
-          Y.Mat.get("rim"));
+        bead.rotation.x = Math.PI / 2;
+        wheel.add(bead);
+        // boulons de beadlock : dix têtes réparties sur la couronne
+        for (let k = 0; k < 10; k++) {
+          const a = k * Math.PI / 5 + 0.15;
+          const bolt = new T.Mesh(new T.CylinderGeometry(0.0042, 0.0042, 0.030, 6),
+            Y.Mat.get("hub"));
+          bolt.rotation.x = Math.PI / 2;
+          bolt.position.set(Math.cos(a) * wheelR * 0.70, 0, Math.sin(a) * wheelR * 0.70);
+          wheel.add(bolt);
+        }
+        // cinq branches en Y : un pied unique au moyeu, deux bras vers la jante
         for (let k = 0; k < 5; k++) {
           const a = k * Math.PI * 2 / 5;
-          const arm = new T.Mesh(new T.BoxGeometry(wheelR * 0.42, 0.020, 0.026), Y.Mat.get("rim"));
-          arm.position.set(Math.cos(a) * wheelR * 0.44, 0, Math.sin(a) * wheelR * 0.44);
-          arm.rotation.y = -a;
-          wheel.add(arm);
+          const foot2 = new T.Mesh(new T.BoxGeometry(wheelR * 0.26, 0.030, 0.030),
+            Y.Mat.get("rim"));
+          foot2.position.set(Math.cos(a) * wheelR * 0.24, 0, Math.sin(a) * wheelR * 0.24);
+          foot2.rotation.y = -a;
+          wheel.add(foot2);
+          for (let j = -1; j <= 1; j += 2) {
+            const br = a + j * 0.30;
+            const arm = new T.Mesh(new T.BoxGeometry(wheelR * 0.40, 0.024, 0.026),
+              Y.Mat.get("rim"));
+            arm.position.set(Math.cos(br) * wheelR * 0.50, 0, Math.sin(br) * wheelR * 0.50);
+            arm.rotation.y = -br;
+            wheel.add(arm);
+          }
         }
         /* Le moyeu a sa propre matière : la jante prend la couleur du robot,
-           le moyeu reste noir. */
-        const hubCap = new T.Mesh(new T.CylinderGeometry(wheelR * 0.24, wheelR * 0.24, 0.046, 18),
+           le moyeu reste noir. Bombé, comme un cache-moyeu de 4x4. */
+        const hubCap = new T.Mesh(new T.CylinderGeometry(wheelR * 0.30, wheelR * 0.26, 0.040, 20),
           Y.Mat.get("hub"));
-        const boss = new T.Mesh(new T.CylinderGeometry(wheelR * 0.10, wheelR * 0.10, 0.052, 12),
-          Y.Mat.get("hub"));
-        wheel.add(ring, disc, hubCap, boss);
+        const dome = new T.Mesh(new T.SphereGeometry(wheelR * 0.20, 16, 10,
+          0, Math.PI * 2, 0, Math.PI / 2), Y.Mat.get("hub"));
+        dome.rotation.x = -Math.PI / 2;
+        dome.position.y = 0.020;
+        const dome2 = dome.clone();
+        dome2.rotation.x = Math.PI / 2;
+        dome2.position.y = -0.020;
+        wheel.add(hubCap, dome, dome2);
         wheel.visible = false;
         tag(wheel, "wheels", [0, L.m * 0.3, -0.1]);
         foot.add(wheel);
@@ -4645,7 +4837,18 @@ window.YLO = window.YLO || {};
       nat.zBody = state.z; nat.vz = 0; nat.prevTarget = null; nat.ffz = 0;
       run.carry = null;
       Y.LEGS.forEach(function (L) { nat.wheelZ[L.id] = null; nat.wstep[L.id] = null; });
+      /* Une tenue qu'on repose alors que les épaules sont toujours tenues rend
+         la main à la PIROUETTE : le robot redescend sur ses quatre roues et
+         continue de tourner. La vrille s'arrêtait avec la tenue, alors que la
+         commande, elle, n'avait pas été relâchée. */
+      const resume = f.kind === "tilt" && run.twirlHold ? run.twirlW : 0;
       Y.Stunt.stop(true);
+      if (Math.abs(resume) > 0.2 && Y.Stunt.start("pirouette", false, true)) {
+        run.spinW = Math.abs(resume);
+        run.spinDir = resume < 0 ? -1 : 1;
+        run.spinA = 0;
+        run.t = FIGURES.pirouette.arm;            // on saute l'appui : il est déjà pris
+      }
     }
   }
 
@@ -5618,7 +5821,13 @@ window.YLO = window.YLO || {};
       mode: st.mode, gait: st.gait, px: r3(st.px), py: r3(st.py), z: r3(st.z),
       yaw: r3(st.yaw), roll: r3(st.roll), pitch: r3(st.pitch),
       height: r3(st.height), clearance: r3(st.clearance || 0),
-      free: !!(Y.Natural.state && Y.Natural.state.freeRoll)
+      free: !!(Y.Natural.state && Y.Natural.state.freeRoll),
+      /* La boule fait partie de l'état de départ : son mouvement découle de
+         celui du robot, donc la rejouer depuis la même place la rejoue à
+         l'identique — mais seulement depuis la même place. */
+      ball: Y.Ball && Y.Ball.active()
+        ? [r3(Y.Ball.state.x), r3(Y.Ball.state.y),
+           r3(Y.Ball.state.vx), r3(Y.Ball.state.vy)] : null
     };
   }
 
@@ -5631,6 +5840,10 @@ window.YLO = window.YLO || {};
     Y.Stunt.stop(false);
     Y.Natural.reset();
     if (Y.Natural.setFreeRoll) Y.Natural.setFreeRoll(!!s.free);
+    if (Y.Ball && Y.Ball.active() && s.ball) {
+      Y.Ball.state.x = s.ball[0]; Y.Ball.state.y = s.ball[1];
+      Y.Ball.state.vx = s.ball[2]; Y.Ball.state.vy = s.ball[3];
+    } else if (Y.Ball && Y.Ball.active()) Y.Ball.reset();
     Y.Motion.blendFrom(0.3);
   }
 
@@ -6445,6 +6658,7 @@ window.YLO = window.YLO || {};
   let ground = null, gridFine = null, gridCoarse = null, worldSize = 0;
 
   function fitWorld(cur, ext) {
+    Y.Ball.set(cur.ball);                          // la boule appartient au terrain
     // De quoi couvrir le terrain en entier, avec de la marge autour, et
     // jamais moins que les 40 m d'origine : sur sol plat rien ne change.
     const want = Math.max(40, Math.ceil((2 * ext.radius + 10) / 4) * 4);
@@ -6476,6 +6690,7 @@ window.YLO = window.YLO || {};
   }
 
   Y.Terrain.build(scene);
+  Y.Ball.build(scene);
   Y.Terrain.watch(fitWorld);
 
   /* --- état d'affichage --- */
@@ -7532,6 +7747,7 @@ window.YLO = window.YLO || {};
     else Y.Play.step(dt);
     Y.Record.capture(dt);
     M.step(dt);
+    Y.Ball.step(dt);
     if (Y.Session.state.running) followSession(dt);
 
     const target = view.explodeOn ? 1 : 0;

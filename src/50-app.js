@@ -83,6 +83,7 @@
   let ground = null, gridFine = null, gridCoarse = null, worldSize = 0;
 
   function fitWorld(cur, ext) {
+    Y.Ball.set(cur.ball);                          // la boule appartient au terrain
     // De quoi couvrir le terrain en entier, avec de la marge autour, et
     // jamais moins que les 40 m d'origine : sur sol plat rien ne change.
     const want = Math.max(40, Math.ceil((2 * ext.radius + 10) / 4) * 4);
@@ -114,6 +115,7 @@
   }
 
   Y.Terrain.build(scene);
+  Y.Ball.build(scene);
   Y.Terrain.watch(fitWorld);
 
   /* --- état d'affichage --- */
@@ -1170,6 +1172,7 @@
     else Y.Play.step(dt);
     Y.Record.capture(dt);
     M.step(dt);
+    Y.Ball.step(dt);
     if (Y.Session.state.running) followSession(dt);
 
     const target = view.explodeOn ? 1 : 0;
