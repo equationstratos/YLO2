@@ -369,7 +369,8 @@
        pas arrêter. */
     if (name === "ps") {
       if (!edge(name, down)) return;
-      if (Y.Range.active() && Y.Range.sweep()) say(Y.Range.state.say);
+      // qu'il parte ou qu'il refuse, le stand a toujours quelque chose à dire
+      if (Y.Range.active()) { Y.Range.sweep(); say(Y.Range.state.say); }
       return;
     }
     /* Clic du stick GAUCHE : l'armement.

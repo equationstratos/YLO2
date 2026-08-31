@@ -1953,6 +1953,11 @@ window.YLO = window.YLO || {};
   const AUTO_HALF = 0.26;            // demi-gabarit sondé de part et d'autre
   const AUTO_JAM = 1.1;              // s d'immobilité avant de se dégager
   const AUTO_BACK = 0.9;             // s de marche arrière pour se dégager
+  /* Détente tirée trop tôt : on garde l'intention une seconde. Refuser sans
+     mémoire donne une détente MORTE — on appuie pile pendant que la tourelle
+     tourne, rien ne part, et on croit le bouton cassé. Un poste de tir réel
+     fait la même chose : l'ordre est donné, le coup part à l'alignement. */
+  const WANT = 1.0;
 
   /** L'arme en main. */
   function W() { return WEAPONS[S.wpn]; }
@@ -1968,7 +1973,7 @@ window.YLO = window.YLO || {};
     on: false, targets: [], group: null, gun: null, turret: null, barrel: null,
     flash: null, fpv: null, tracers: [], yaw: 0, pitch: 0, lock: null,
     hold: null, ready: false, wasReady: false, seen: 0, auto: false, autoSay: "",
-    autoJam: 0, autoBack: 0, autoTurn: 0, autoSide: 1, far: 30, mode: 1,
+    autoJam: 0, autoBack: 0, autoTurn: 0, autoSide: 1, far: 30, mode: 1, want: 0,
     ammo: 30, reload: 0, burst: 0, next: 0, rest: 0, wpn: 0, gimbal: null,
     gimbalErr: 0, gimbalUse: 0, gimbalNeed: 0, models: null,
     shells: [], booms: [], scars: null, wrecked: false, breach: 0,
@@ -2256,7 +2261,7 @@ window.YLO = window.YLO || {};
     S.autoJam = 0; S.autoBack = 0; S.autoTurn = 0; S.autoSide = 1;
     S.hits = 0; S.shots = 0; S.t = 0; S.running = false; S.live = 0;
     S.hold = null; S.lock = null; S.ready = false; S.wasReady = false;
-    S.ammo = W().mag; S.reload = 0; S.burst = 0; S.next = 0; S.rest = 0;
+    S.ammo = W().mag; S.reload = 0; S.burst = 0; S.next = 0; S.rest = 0; S.want = 0;
     S.total = S.targets.length;
     S.say = "Entrez sur la ligne de tir";
   }
@@ -2265,12 +2270,17 @@ window.YLO = window.YLO || {};
     /* Nouvelle série, terrain neuf. La réparation se fait ICI et non à la
        remise à zéro : remettre le terrain d'aplomb le fait reconstruire, ce
        qui relance la mise en place du stand — et la mise en place remet à
-       zéro. Réparer depuis la remise à zéro se mordrait la queue. */
+       zéro. Réparer depuis la remise à zéro se mordrait la queue.
+
+       La reconstruction REMPLACE `S.targets` par des silhouettes neuves : on
+       relève donc APRÈS elle, sur la nouvelle liste. Rendre la main ici, en
+       comptant sur la reconstruction pour relever, laissait la série à
+       l'arrêt — plus rien ne se levait, plus rien ne se tirait, et le
+       nettoyage automatique refusait de partir faute de série en cours. */
     if (S.wrecked || S.breach) {
       S.wrecked = false; S.breach = 0;
       if (S.scars) { while (S.scars.children.length) S.scars.remove(S.scars.children[0]); }
       Y.Terrain.restore();
-      return;                         // la reconstruction relève les cibles
     }
     S.targets.forEach(function (t) { t.state = "rising"; });
     S.hits = 0; S.shots = 0; S.t = 0; S.running = true;
@@ -2470,7 +2480,15 @@ window.YLO = window.YLO || {};
 
   /** Lancer ou arrêter le nettoyage automatique. */
   function toggleAuto() {
-    if (!S.on || !S.running) return false;
+    if (!S.on) return false;
+    /* Refuser en silence est le pire des deux mondes : on appuie, rien ne
+       bouge, et on croit la touche cassée. Le refus se dit. */
+    if (!S.running) {
+      S.say = S.hits >= S.total && S.total
+        ? "Série finie — repassez sur la ligne de tir"
+        : "Aucune série en cours — entrez sur la ligne de tir";
+      return false;
+    }
     S.auto = !S.auto;
     if (!S.auto) {
       Y.Motion.state.vx = 0; Y.Motion.state.wz = 0;
@@ -2511,7 +2529,7 @@ window.YLO = window.YLO || {};
     /* Chaque arme a son chargeur : on ne reprend pas un tir de fusil avec
        six grenades. Changer d'arme remet la cadence à zéro — c'est aussi ce
        qui empêche d'enchaîner deux rafales en basculant. */
-    S.ammo = W().mag; S.reload = 0; S.burst = 0; S.next = 0; S.rest = 0.25;
+    S.ammo = W().mag; S.reload = 0; S.burst = 0; S.next = 0; S.rest = 0.25; S.want = 0;
     S.say = W().name;
     Y.Audio.swap();
     return true;
@@ -2541,6 +2559,25 @@ window.YLO = window.YLO || {};
   function fire(hold) {
     if (!S.on || !S.running || S.reload > 0 || S.burst > 0 || S.rest > 0) return false;
     if (hold && MO().once) return false;
+    /* On ne PART pas sur une cible qu'on ne tient pas encore.
+       La rafale durait 170 ms, la tourelle mettait plus longtemps que ça à
+       s'aligner, et les deux premiers coups de chaque rafale partaient donc
+       toujours à côté : la cible restait debout et l'on croyait à un défaut
+       de collision. Le réticule dit déjà tout — rouge, on tire —, il fallait
+       que la détente le respecte aussi. */
+    if (S.lock && !S.ready) { S.want = WANT; return false; }
+    S.want = 0;
+    /* Et SANS cible, le fusil ne part pas du tout.
+       Toute la conduite de tir est automatique : un coup sans verrou ne peut
+       pas toucher, il ne fait que vider le chargeur. Détente tenue depuis la
+       ligne de tir, avant : deux cibles couchées puis dix-sept coups dans le
+       vide — de quoi croire que les cibles ne tombent plus. Le lance-grenades
+       fait exception : tirer sur un mur ou sur une voiture est une intention
+       en soi, et aucune de ces deux choses ne se verrouille. */
+    if (!S.lock && W().id !== "lg") {
+      S.say = "Aucune cible à portée";
+      return false;
+    }
     if (S.ammo <= 0) { S.reload = W().reload; S.say = "Rechargement"; Y.Audio.reload(); return false; }
     S.burst = Math.min(MO().n, S.ammo); S.next = 0;
     return true;
@@ -2999,12 +3036,20 @@ window.YLO = window.YLO || {};
     S.barrel.rotation.y = -S.pitch;
 
     /* --- cadence --- */
+    // l'intention gardée : elle part dès que la tourelle tient enfin la cible
+    if (S.want > 0) {
+      S.want -= dt;
+      if (S.ready) { S.want = 0; fire(false); }
+    }
     if (S.reload > 0) {
       S.reload -= dt;
       if (S.reload <= 0) { S.ammo = W().mag; S.say = S.running ? "Feu !" : S.say; }
     } else if (S.burst > 0) {
       S.next -= dt;
-      if (S.next <= 0) {
+      /* Une cible qui bouge peut sortir de l'axe au milieu de la rafale : on
+         suspend la cadence le temps que la tourelle la retrouve, au lieu de
+         vider le chargeur dans le vide. */
+      if (S.next <= 0 && (!S.lock || S.ready)) {
         shoot(); S.burst--; S.next = W().rate;
         if (S.burst === 0) S.rest = W().id === "lg" ? W().rest : MO().rest;
       }
@@ -8141,7 +8186,8 @@ window.YLO = window.YLO || {};
        pas arrêter. */
     if (name === "ps") {
       if (!edge(name, down)) return;
-      if (Y.Range.active() && Y.Range.sweep()) say(Y.Range.state.say);
+      // qu'il parte ou qu'il refuse, le stand a toujours quelque chose à dire
+      if (Y.Range.active()) { Y.Range.sweep(); say(Y.Range.state.say); }
       return;
     }
     /* Clic du stick GAUCHE : l'armement.

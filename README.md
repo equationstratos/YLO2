@@ -509,16 +509,44 @@ qu'**une fois par appui** — c'est le seul mode où tenir la détente ne sert �
 rien, et c'est justement ce qui le rend précis : on reprend sa visée entre
 deux coups.
 
-| Détente tenue 2 s | Coups partis |
+| Détente tenue 2 s, deux cibles à portée | Coups partis |
 | --- | --- |
-| Tir automatique | **23** |
-| Rafale de 3 | **13** |
+| Tir automatique | **5** |
+| Rafale de 3 | **3** |
 | Coup par coup | **1** |
 
 Une seule chose sépare le coup par coup du reste dans le code : un drapeau qui
 dit que la détente était *déjà* enfoncée. Sans lui, la tenir en coup par coup
 viderait le chargeur au rythme de la reprise — exactement ce qu'on cherchait à
 éviter en le choisissant.
+
+#### Trois raisons pour lesquelles la détente ne part pas
+
+Ces chiffres sont bas, et c'est le but. La conduite de tir est entièrement
+automatique : un coup qui ne peut pas toucher ne doit pas partir. Trois
+verrous, chacun venant d'un défaut observé.
+
+- **Pas de cible, pas de coup.** Détente tenue depuis la ligne de tir, avant
+  correction : deux cibles couchées, puis **dix-sept coups dans le vide** —
+  de quoi croire que les cibles ne tombent plus. Seules deux silhouettes sont
+  à portée de la ligne ; les autres se gagnent en avançant. Le fusil refuse
+  maintenant de partir sans verrou, et le dit. *(Le lance-grenades fait
+  exception : tirer sur un mur ou sur une voiture est une intention en soi, et
+  aucune de ces deux choses ne se verrouille.)*
+- **Pas de coup avant l'alignement.** Une rafale dure 170 ms et la tourelle
+  met plus longtemps que ça à s'aligner : les **deux premiers coups de chaque
+  rafale partaient donc systématiquement à côté**, la cible restait debout, et
+  cela ressemblait à un défaut de collision. Le réticule disait déjà tout —
+  rouge, on tire ; il fallait que la détente le respecte aussi. Une cible qui
+  bouge peut aussi sortir de l'axe *au milieu* de la rafale : la cadence se
+  suspend le temps que la tourelle la retrouve.
+- **Mais l'intention se garde.** Refuser sans mémoire donne une détente
+  **morte** : on appuie pile pendant que la tourelle tourne, rien ne part, et
+  on croit le bouton cassé. L'ordre est gardé une seconde et le coup part à
+  l'alignement — c'est ce que fait un vrai poste de tir.
+
+Effet mesuré, à conditions égales : le nettoyage automatique passait de
+**29 coups à 8** pour les mêmes douze cibles.
 
 Le **lance-grenades ne connaît pas ces modes** : une grenade part seule, et un
 lance-grenades automatique de six coups se vide en une demi-seconde. Il force
@@ -742,6 +770,17 @@ Deux choses ont dû être ajoutées avant que ça marche vraiment :
   reproposera le même cap tant que la situation ne change pas, et la seule
   façon de la changer est de bouger. Après 1,1 s d'immobilité, le robot recule
   neuf dixièmes de seconde en braquant, et l'angle se rouvre.
+
+Le nettoyage refuse de partir s'il n'y a pas de série en cours — et il le
+**dit**. Refuser en silence est le pire des deux mondes : on appuie, rien ne
+bouge, et on croit la touche cassée.
+
+Un piège en a découlé, corrigé : une nouvelle série remet le terrain d'aplomb,
+et remettre le terrain d'aplomb le fait reconstruire, ce qui **remplace les
+silhouettes**. Relever avant la reconstruction ne relevait donc rien — après
+une grenade, plus rien ne se levait, plus rien ne se tirait, et le nettoyage
+refusait de partir faute de série en cours. On relève maintenant *après* la
+réparation, sur la nouvelle liste.
 
 Relevé, départ sur la ligne de tir avec **5 cibles sur 12** repérées :
 **12 sur 12 abattues en 17,2 s pour 25 coups**, pointe à **1,87 m/s** — le
