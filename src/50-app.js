@@ -941,13 +941,19 @@
   }
   function closeRail() { openPanel("rail", false); }
 
+  let padHelp = false;
+
   /** Affiche la correspondance des commandes, et l'état de la manette. */
   function renderPadmap() {
     const P = Y.Play.state;
     const box = document.getElementById("padmap");
     const src = document.querySelector("#playsrc button[aria-pressed=true]");
     const wanted = P.on ? P.source : (src ? src.dataset.src : "clavier");
-    box.hidden = !P.on;
+    /* L'aide ne s'ouvre plus toute seule.
+       Elle occupait le haut de la scène dès qu'on prenait les commandes, et
+       c'est exactement le moment où l'on veut voir le robot. Elle se demande
+       maintenant, à la touche `H`, et se referme pareil. */
+    box.hidden = !(P.on && padHelp);
     document.getElementById("play").setAttribute("aria-pressed", String(P.on));
     document.getElementById("playsay").textContent = P.on ? (P.say || "à vous") : "";
     document.getElementById("padmaptitle").textContent =
@@ -1434,7 +1440,7 @@
     fpvBox.classList.toggle("aim", r.aim && !r.ready);
     fpvBox.classList.toggle("held", r.held);
     fpvBox.classList.toggle("lob", r.lob);
-    fpvTag.textContent = r.wpn + " · " + (r.reload ? "rechargement"
+    fpvTag.textContent = r.wpn + " " + r.mode + " · " + (r.reload ? "rechargement"
       : r.ready ? "verrouillé · " + r.dist.toFixed(1) + " m"
       : r.aim ? "acquisition · " + r.dist.toFixed(1) + " m"
       : "aucune cible")
@@ -1694,6 +1700,12 @@
       if (e.target && e.target.matches && e.target.matches("input, select, textarea")) return;
       // PLAY passe en premier : sinon `C` replierait le bandeau au lieu de
       // cabrer le robot, et les flèches ne piloteraient rien.
+      /* `H` passe avant PLAY : c'est l'aide, et il faut pouvoir la rappeler
+         les deux mains sur les commandes. Hors PLAY, `h` reste la sixième
+         figure du catalogue. */
+      if ((e.key === "h" || e.key === "H") && Y.Play.state.on) {
+        padHelp = !padHelp; renderPadmap(); e.preventDefault(); return;
+      }
       if (Y.Play.key(e.key, true)) { e.preventDefault(); return; }
       const map = { "1": "iso", "2": "side", "3": "front", "4": "top" };
       if (map[e.key]) setView(map[e.key]);
@@ -1717,6 +1729,7 @@
 
     addEventListener("keyup", function (e) {
       if (e.target && e.target.matches && e.target.matches("input, select, textarea")) return;
+      if ((e.key === "h" || e.key === "H") && Y.Play.state.on) { e.preventDefault(); return; }
       if (Y.Play.key(e.key, false)) { e.preventDefault(); return; }
       if ("bdtfgh".indexOf(e.key.toLowerCase()) >= 0) Y.Stunt.fire();
     });

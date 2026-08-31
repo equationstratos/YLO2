@@ -43,7 +43,7 @@
      sol, le côté n'est pas engagé et on peut le désigner directement. Un appui
      long va donc sur l'autre paire d'emblée, sans passer par la première. */
   const LONG_S = 0.22;
-  const PAD_LONG = 0.32;            // pavé tactile : au-delà, c'est un appui long
+  const PAD_LONG = 0.32;            // clic du stick : au-delà, c'est un appui long
   const SOLO_S = 0.40;              // au-delà, une épaule seule tenue part quand même
   const DEAD = 0.15;                // zone morte des sticks
   const TRIG = 0.12;                // seuil des gâchettes analogiques
@@ -77,7 +77,7 @@
       label: "disposition standard",
       button: { cross: 0, circle: 1, square: 2, triangle: 3, l1: 4, r1: 5,
                 share: 8, options: 9, l3: 10,
-                r3: 11, up: 12, down: 13, left: 14, right: 15, ps: 16, pad: 17 },
+                r3: 11, up: 12, down: 13, left: 14, right: 15, ps: 16 },
       trigger: { l2: { btn: 6 }, r2: { btn: 7 } },
       stick: { lx: 0, rx: 2, ry: 3 },
       hat: -1
@@ -85,7 +85,7 @@
     sony: {
       label: "disposition Sony brute",
       button: { square: 0, cross: 1, circle: 2, triangle: 3, l1: 4, r1: 5,
-                share: 8, options: 9, l3: 10, r3: 11, ps: 12, pad: 13 },
+                share: 8, options: 9, l3: 10, r3: 11, ps: 12 },
       // en HID brut, les gâchettes sont analogiques sur des axes, à plat en -1
       trigger: { l2: { axis: 3 }, r2: { axis: 4 } },
       stick: { lx: 0, rx: 2, ry: 5 },
@@ -131,21 +131,21 @@
    */
   const MAP = [
     { pad: "✕", key: "Espace", act: "Saut — tenir arme, lâcher détend ; tourner en armant fait pivoter" },
-    { pad: "△", key: "H", act: "Hauteur de caisse" },
+    { pad: "△", key: "Y", act: "Hauteur de caisse" },
     { pad: "□", key: "C", act: "Cabrage : bref = roues arrière, long = roues avant, bref = repose" },
     { pad: "○", key: "V", act: "Deux roues : bref = flanc droit, long = flanc gauche, bref = repose" },
     { pad: "R2", key: "↑", act: "Accélérer" },
     { pad: "L2", key: "↓", act: "Freiner, puis marche arrière" },
-    { pad: "L1", key: "A", act: "Double salto arrière — au champ de tir : TIR" },
+    { pad: "L1", key: "A", act: "Double salto arrière — au champ de tir : LA DÉTENTE" },
     { pad: "PARTAGE", key: "F", act: "Champ de tir : figer le viseur sur la cible (rappui = libre)" },
     { pad: "OPTIONS", key: "O", act: "Champ de tir : déclarer la cible amie — tir interdit" },
     { pad: "PS", key: "P", act: "Champ de tir : le robot nettoie seul les cibles repérées (85 % de la vitesse)" },
-    { pad: "PAVÉ TACTILE", key: "W", act: "Champ de tir : arme suivante — appui long : retour au fusil" },
+    { pad: "—", key: "H", act: "Afficher ou masquer cette aide" },
     { pad: "R1", key: "E", act: "540 McTwist" },
     { pad: "L1 + R1", key: "A + E", act: "Pirouette / 360 en l'air" },
     { pad: "□ ○ pendant", key: "C V pendant", act: "…passe en tenue SANS cesser de tourner" },
     { pad: "✕ en tenue", key: "Espace en tenue", act: "Saut sur place, dans la position" },
-    { pad: "Clic stick G", key: "T", act: "Salto arrière enchaîné (tenu)" },
+    { pad: "Clic stick G", key: "T", act: "Champ de tir : arme suivante — appui long : mode de tir" },
     { pad: "Clic stick D", key: "R", act: "Saut 180" },
     { pad: "Clic stick D ×2", key: "R ×2", act: "Saut 360" },
     { pad: "↑ ↓ ← →", key: "Z S Q D", act: "Salto dans cette direction" },
@@ -276,7 +276,7 @@
        y porte une arme et la visée est automatique — il n'y a rien à cadrer,
        seulement à choisir le moment. Ailleurs, L1 garde son double salto. */
     if (side === "l" && Y.Range.active()) {
-      if (Y.Range.fire()) say("Rafale");
+      if (Y.Range.fire(false)) say(Y.Range.mode().name);
       return;
     }
     if (prev[side === "l" ? "r1" : "l1"]) {        // l'autre est déjà tenue
@@ -335,8 +335,10 @@
       // ligne, la pirouette était relâchée à l'image suivant son départ —
       // toujours enfoncée, mais déjà arrêtée : elle ne tournait jamais.
       if (down && was && side === "l" && Y.Range.active()) {
-        // gâchette tenue : les rafales s'enchaînent, la cadence les espace
-        if (Y.Range.fire()) say("Rafale");
+        /* Gâchette TENUE. En automatique et en rafale de trois, les tirs
+           s'enchaînent et la cadence les espace ; en coup par coup, rien ne
+           part — c'est le drapeau qui le dit, pas le mode lu ici. */
+        Y.Range.fire(true);
         return;
       }
       if (down || !was) return;
@@ -370,30 +372,23 @@
       if (Y.Range.active() && Y.Range.sweep()) say(Y.Range.state.say);
       return;
     }
-    /* Le pavé tactile change d'arme : c'est le seul bouton que rien d'autre
-       ne réclamait. Clic BREF, arme suivante ; appui LONG, retour à l'arme
-       principale — à deux armes le cycle suffirait, à trois il faudrait déjà
-       deux clics pour retrouver le fusil au moment où l'on en a besoin. */
-    if (name === "pad") {
-      const was = !!prev.pad;
-      prev.pad = down;
-      if (!Y.Range.active()) return;
-      if (down && !was) { held.pad = now(); return; }
-      if (!down && was) {
-        const long = held.pad && now() - held.pad >= PAD_LONG;
-        held.pad = 0;
-        if (long ? Y.Range.primaryWeapon() : Y.Range.nextWeapon()) {
-          say(Y.Range.weapon().name);
-        }
-      }
-      return;
-    }
+    /* Clic du stick GAUCHE : l'armement.
+       Clic bref, arme suivante ; appui long, mode de tir suivant. Le stick
+       gauche tombe sous le pouce qui ne tient pas la détente — on change
+       d'arme sans lâcher L1, ce que le pavé tactile ne permettait pas.
+       (Le salto arrière enchaîné quitte la manette : il reste au catalogue
+       des figures du bandeau.) */
     if (name === "l3") {
-      // Clic du stick gauche : la bascule enchaînée tourne tant qu'on tient.
       const was = !!prev.l3;
       prev.l3 = down;
-      if (down && !was) fire("wheeltumble", false, true);
-      else if (!down && was && Y.Stunt.active === "wheeltumble") Y.Stunt.release();
+      if (down && !was) { held.l3 = now(); return; }
+      if (!down && was) {
+        const long = held.l3 && now() - held.l3 >= PAD_LONG;
+        held.l3 = 0;
+        if (!Y.Range.active()) return;
+        if (long) { if (Y.Range.nextMode()) say(Y.Range.state.say); }
+        else if (Y.Range.nextWeapon()) say(Y.Range.weapon().name);
+      }
       return;
     }
     if (name === "cross") {
@@ -512,7 +507,7 @@
     }
 
     ["cross", "circle", "square", "triangle", "l1", "r1", "l3", "r3",
-     "share", "options", "ps", "pad"]
+     "share", "options", "ps"]
       .forEach(function (name) { actOn(name, on(name)); });
     ["up", "down", "left", "right"].forEach(function (d) { actOn(d, dpad[d]); });
 
@@ -604,9 +599,11 @@
   }
 
   const KEYMAP = {
-    " ": "cross", h: "triangle", c: "square", v: "circle",
+    /* `h` n'est plus la hauteur de caisse : c'est lui qui montre et cache
+       l'aide, et l'application le prend avant nous. La hauteur passe donc
+       sur `y`. */
+    " ": "cross", y: "triangle", c: "square", v: "circle",
     a: "l1", e: "r1", t: "l3", r: "r3", f: "share", o: "options", p: "ps",
-    w: "pad",
     z: "up", s: "down", q: "left", d: "right"
   };
 

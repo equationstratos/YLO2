@@ -1919,6 +1919,23 @@ window.YLO = window.YLO || {};
       muzzleV: 25.0, blast: 3.4 }
   ];
   const G = 9.81;
+
+  /* --- modes de tir ---
+     Le même fusil, trois façons de s'en servir. L'automatique arrose : on
+     tient la détente et ça part, au prix du chargeur et de la précision. La
+     rafale de trois est le compromis, c'est elle qui groupe le mieux à
+     l'arrêt. Le coup par coup ne part qu'une fois par appui — c'est le seul
+     mode où tenir la détente ne sert à rien, et c'est ce qui le rend précis :
+     on reprend sa visée entre deux coups.
+
+     Le lance-grenades ne connaît pas ces modes : une grenade part seule, et
+     un lance-grenades automatique de six coups se vide en une demi-seconde. */
+  const MODES = [
+    { id: "auto",  name: "Tir automatique", short: "AUTO", n: 5, rest: 0.05 },
+    { id: "trois", name: "Rafale de 3",     short: "3 CPS", n: 3, rest: 0.30 },
+    { id: "coup",  name: "Coup par coup",   short: "1 CP",  n: 1, rest: 0.18,
+      once: true }
+  ];
   /* Le lidar tourne : ce que le robot REPÈRE ne dépend pas de l'endroit où
      pointe l'arme, seulement de ce qu'il a devant lui à découvert. La portée
      de détection est donc plus longue que la portée utile de l'arme — on voit
@@ -1940,11 +1957,18 @@ window.YLO = window.YLO || {};
   /** L'arme en main. */
   function W() { return WEAPONS[S.wpn]; }
 
+  /** Le mode de tir effectif : celui choisi, sauf pour le lance-grenades. */
+  function MO() {
+    if (W().id === "lg") return { id: "coup", name: "Coup par coup",
+                                  short: "1 CP", n: 1, rest: W().rest, once: true };
+    return MODES[S.mode];
+  }
+
   const S = {
     on: false, targets: [], group: null, gun: null, turret: null, barrel: null,
     flash: null, fpv: null, tracers: [], yaw: 0, pitch: 0, lock: null,
     hold: null, ready: false, wasReady: false, seen: 0, auto: false, autoSay: "",
-    autoJam: 0, autoBack: 0, autoTurn: 0, autoSide: 1, far: 30,
+    autoJam: 0, autoBack: 0, autoTurn: 0, autoSide: 1, far: 30, mode: 1,
     ammo: 30, reload: 0, burst: 0, next: 0, rest: 0, wpn: 0, gimbal: null,
     gimbalErr: 0, gimbalUse: 0, gimbalNeed: 0, models: null,
     shells: [], booms: [], scars: null, wrecked: false, breach: 0,
@@ -2506,10 +2530,30 @@ window.YLO = window.YLO || {};
   /* --- tir ----------------------------------------------------------- */
 
   /** Demander une rafale. Rendue vraie si le coup part. */
-  function fire() {
+  /**
+   * Demander à tirer. `hold` dit que la détente était DÉJÀ enfoncée.
+   *
+   * C'est la seule chose qui sépare le coup par coup du reste : le coup part
+   * à l'appui et pas tant qu'on tient. Sans ce drapeau, tenir la détente en
+   * coup par coup viderait le chargeur au rythme de la reprise, ce qui est
+   * exactement ce qu'on cherchait à éviter en le choisissant.
+   */
+  function fire(hold) {
     if (!S.on || !S.running || S.reload > 0 || S.burst > 0 || S.rest > 0) return false;
+    if (hold && MO().once) return false;
     if (S.ammo <= 0) { S.reload = W().reload; S.say = "Rechargement"; Y.Audio.reload(); return false; }
-    S.burst = W().burst; S.next = 0;
+    S.burst = Math.min(MO().n, S.ammo); S.next = 0;
+    return true;
+  }
+
+  /** Passer au mode de tir suivant. */
+  function nextMode() {
+    if (!S.on) return false;
+    S.mode = (S.mode + 1) % MODES.length;
+    S.burst = 0; S.rest = 0.2;
+    S.say = W().id === "lg" ? MODES[S.mode].name + " (sans effet au lance-grenades)"
+                            : MODES[S.mode].name;
+    Y.Audio.swap();
     return true;
   }
 
@@ -2960,7 +3004,10 @@ window.YLO = window.YLO || {};
       if (S.reload <= 0) { S.ammo = W().mag; S.say = S.running ? "Feu !" : S.say; }
     } else if (S.burst > 0) {
       S.next -= dt;
-      if (S.next <= 0) { shoot(); S.burst--; S.next = W().rate; if (S.burst === 0) S.rest = W().rest; }
+      if (S.next <= 0) {
+        shoot(); S.burst--; S.next = W().rate;
+        if (S.burst === 0) S.rest = W().id === "lg" ? W().rest : MO().rest;
+      }
     } else if (S.rest > 0) S.rest -= dt;
     if (S.ammo <= 0 && S.reload <= 0) { S.reload = W().reload; S.say = "Rechargement"; Y.Audio.reload(); }
 
@@ -2996,7 +3043,9 @@ window.YLO = window.YLO || {};
     sweep: toggleAuto,
     nextWeapon: nextWeapon,
     primaryWeapon: primaryWeapon,
+    nextMode: nextMode,
     weapon: function () { return W(); },
+    mode: function () { return MO(); },
     /** Le pilote automatique tient-il les commandes ? */
     autopilot: function () { return S.on && S.auto; },
     /** Ce que la carte doit montrer : tout ce qui a été repéré, et rien d'autre. */
@@ -3022,7 +3071,7 @@ window.YLO = window.YLO || {};
      */
     reticle: function () {
       return { aim: !!S.lock, ready: S.ready, held: !!S.hold,
-               wpn: W().short, lob: W().id === "lg",
+               wpn: W().short, mode: MO().short, lob: W().id === "lg",
                stab: S.gimbalUse * 180 / Math.PI, err: S.gimbalErr * 180 / Math.PI,
                dist: S.lock ? Math.hypot(S.lock.x - Y.Motion.state.px,
                                          S.lock.y - Y.Motion.state.py) : 0,
@@ -3032,7 +3081,7 @@ window.YLO = window.YLO || {};
     hud: function () {
       if (!S.on) return "";
       const friends = S.targets.length - S.total;
-      return W().short + " · Cibles " + S.hits + "/" + S.total
+      return W().short + " " + MO().short + " · Cibles " + S.hits + "/" + S.total
         + (friends ? " · " + friends + " amie" + (friends > 1 ? "s" : "") : "")
         + " · " + (S.reload > 0 ? "rechargement" : S.ammo + " coups")
         + (S.running ? " · " + S.t.toFixed(1) + " s" : "")
@@ -7766,7 +7815,7 @@ window.YLO = window.YLO || {};
      sol, le côté n'est pas engagé et on peut le désigner directement. Un appui
      long va donc sur l'autre paire d'emblée, sans passer par la première. */
   const LONG_S = 0.22;
-  const PAD_LONG = 0.32;            // pavé tactile : au-delà, c'est un appui long
+  const PAD_LONG = 0.32;            // clic du stick : au-delà, c'est un appui long
   const SOLO_S = 0.40;              // au-delà, une épaule seule tenue part quand même
   const DEAD = 0.15;                // zone morte des sticks
   const TRIG = 0.12;                // seuil des gâchettes analogiques
@@ -7800,7 +7849,7 @@ window.YLO = window.YLO || {};
       label: "disposition standard",
       button: { cross: 0, circle: 1, square: 2, triangle: 3, l1: 4, r1: 5,
                 share: 8, options: 9, l3: 10,
-                r3: 11, up: 12, down: 13, left: 14, right: 15, ps: 16, pad: 17 },
+                r3: 11, up: 12, down: 13, left: 14, right: 15, ps: 16 },
       trigger: { l2: { btn: 6 }, r2: { btn: 7 } },
       stick: { lx: 0, rx: 2, ry: 3 },
       hat: -1
@@ -7808,7 +7857,7 @@ window.YLO = window.YLO || {};
     sony: {
       label: "disposition Sony brute",
       button: { square: 0, cross: 1, circle: 2, triangle: 3, l1: 4, r1: 5,
-                share: 8, options: 9, l3: 10, r3: 11, ps: 12, pad: 13 },
+                share: 8, options: 9, l3: 10, r3: 11, ps: 12 },
       // en HID brut, les gâchettes sont analogiques sur des axes, à plat en -1
       trigger: { l2: { axis: 3 }, r2: { axis: 4 } },
       stick: { lx: 0, rx: 2, ry: 5 },
@@ -7854,21 +7903,21 @@ window.YLO = window.YLO || {};
    */
   const MAP = [
     { pad: "✕", key: "Espace", act: "Saut — tenir arme, lâcher détend ; tourner en armant fait pivoter" },
-    { pad: "△", key: "H", act: "Hauteur de caisse" },
+    { pad: "△", key: "Y", act: "Hauteur de caisse" },
     { pad: "□", key: "C", act: "Cabrage : bref = roues arrière, long = roues avant, bref = repose" },
     { pad: "○", key: "V", act: "Deux roues : bref = flanc droit, long = flanc gauche, bref = repose" },
     { pad: "R2", key: "↑", act: "Accélérer" },
     { pad: "L2", key: "↓", act: "Freiner, puis marche arrière" },
-    { pad: "L1", key: "A", act: "Double salto arrière — au champ de tir : TIR" },
+    { pad: "L1", key: "A", act: "Double salto arrière — au champ de tir : LA DÉTENTE" },
     { pad: "PARTAGE", key: "F", act: "Champ de tir : figer le viseur sur la cible (rappui = libre)" },
     { pad: "OPTIONS", key: "O", act: "Champ de tir : déclarer la cible amie — tir interdit" },
     { pad: "PS", key: "P", act: "Champ de tir : le robot nettoie seul les cibles repérées (85 % de la vitesse)" },
-    { pad: "PAVÉ TACTILE", key: "W", act: "Champ de tir : arme suivante — appui long : retour au fusil" },
+    { pad: "—", key: "H", act: "Afficher ou masquer cette aide" },
     { pad: "R1", key: "E", act: "540 McTwist" },
     { pad: "L1 + R1", key: "A + E", act: "Pirouette / 360 en l'air" },
     { pad: "□ ○ pendant", key: "C V pendant", act: "…passe en tenue SANS cesser de tourner" },
     { pad: "✕ en tenue", key: "Espace en tenue", act: "Saut sur place, dans la position" },
-    { pad: "Clic stick G", key: "T", act: "Salto arrière enchaîné (tenu)" },
+    { pad: "Clic stick G", key: "T", act: "Champ de tir : arme suivante — appui long : mode de tir" },
     { pad: "Clic stick D", key: "R", act: "Saut 180" },
     { pad: "Clic stick D ×2", key: "R ×2", act: "Saut 360" },
     { pad: "↑ ↓ ← →", key: "Z S Q D", act: "Salto dans cette direction" },
@@ -7999,7 +8048,7 @@ window.YLO = window.YLO || {};
        y porte une arme et la visée est automatique — il n'y a rien à cadrer,
        seulement à choisir le moment. Ailleurs, L1 garde son double salto. */
     if (side === "l" && Y.Range.active()) {
-      if (Y.Range.fire()) say("Rafale");
+      if (Y.Range.fire(false)) say(Y.Range.mode().name);
       return;
     }
     if (prev[side === "l" ? "r1" : "l1"]) {        // l'autre est déjà tenue
@@ -8058,8 +8107,10 @@ window.YLO = window.YLO || {};
       // ligne, la pirouette était relâchée à l'image suivant son départ —
       // toujours enfoncée, mais déjà arrêtée : elle ne tournait jamais.
       if (down && was && side === "l" && Y.Range.active()) {
-        // gâchette tenue : les rafales s'enchaînent, la cadence les espace
-        if (Y.Range.fire()) say("Rafale");
+        /* Gâchette TENUE. En automatique et en rafale de trois, les tirs
+           s'enchaînent et la cadence les espace ; en coup par coup, rien ne
+           part — c'est le drapeau qui le dit, pas le mode lu ici. */
+        Y.Range.fire(true);
         return;
       }
       if (down || !was) return;
@@ -8093,30 +8144,23 @@ window.YLO = window.YLO || {};
       if (Y.Range.active() && Y.Range.sweep()) say(Y.Range.state.say);
       return;
     }
-    /* Le pavé tactile change d'arme : c'est le seul bouton que rien d'autre
-       ne réclamait. Clic BREF, arme suivante ; appui LONG, retour à l'arme
-       principale — à deux armes le cycle suffirait, à trois il faudrait déjà
-       deux clics pour retrouver le fusil au moment où l'on en a besoin. */
-    if (name === "pad") {
-      const was = !!prev.pad;
-      prev.pad = down;
-      if (!Y.Range.active()) return;
-      if (down && !was) { held.pad = now(); return; }
-      if (!down && was) {
-        const long = held.pad && now() - held.pad >= PAD_LONG;
-        held.pad = 0;
-        if (long ? Y.Range.primaryWeapon() : Y.Range.nextWeapon()) {
-          say(Y.Range.weapon().name);
-        }
-      }
-      return;
-    }
+    /* Clic du stick GAUCHE : l'armement.
+       Clic bref, arme suivante ; appui long, mode de tir suivant. Le stick
+       gauche tombe sous le pouce qui ne tient pas la détente — on change
+       d'arme sans lâcher L1, ce que le pavé tactile ne permettait pas.
+       (Le salto arrière enchaîné quitte la manette : il reste au catalogue
+       des figures du bandeau.) */
     if (name === "l3") {
-      // Clic du stick gauche : la bascule enchaînée tourne tant qu'on tient.
       const was = !!prev.l3;
       prev.l3 = down;
-      if (down && !was) fire("wheeltumble", false, true);
-      else if (!down && was && Y.Stunt.active === "wheeltumble") Y.Stunt.release();
+      if (down && !was) { held.l3 = now(); return; }
+      if (!down && was) {
+        const long = held.l3 && now() - held.l3 >= PAD_LONG;
+        held.l3 = 0;
+        if (!Y.Range.active()) return;
+        if (long) { if (Y.Range.nextMode()) say(Y.Range.state.say); }
+        else if (Y.Range.nextWeapon()) say(Y.Range.weapon().name);
+      }
       return;
     }
     if (name === "cross") {
@@ -8235,7 +8279,7 @@ window.YLO = window.YLO || {};
     }
 
     ["cross", "circle", "square", "triangle", "l1", "r1", "l3", "r3",
-     "share", "options", "ps", "pad"]
+     "share", "options", "ps"]
       .forEach(function (name) { actOn(name, on(name)); });
     ["up", "down", "left", "right"].forEach(function (d) { actOn(d, dpad[d]); });
 
@@ -8327,9 +8371,11 @@ window.YLO = window.YLO || {};
   }
 
   const KEYMAP = {
-    " ": "cross", h: "triangle", c: "square", v: "circle",
+    /* `h` n'est plus la hauteur de caisse : c'est lui qui montre et cache
+       l'aide, et l'application le prend avant nous. La hauteur passe donc
+       sur `y`. */
+    " ": "cross", y: "triangle", c: "square", v: "circle",
     a: "l1", e: "r1", t: "l3", r: "r3", f: "share", o: "options", p: "ps",
-    w: "pad",
     z: "up", s: "down", q: "left", d: "right"
   };
 
@@ -9351,13 +9397,19 @@ window.YLO = window.YLO || {};
   }
   function closeRail() { openPanel("rail", false); }
 
+  let padHelp = false;
+
   /** Affiche la correspondance des commandes, et l'état de la manette. */
   function renderPadmap() {
     const P = Y.Play.state;
     const box = document.getElementById("padmap");
     const src = document.querySelector("#playsrc button[aria-pressed=true]");
     const wanted = P.on ? P.source : (src ? src.dataset.src : "clavier");
-    box.hidden = !P.on;
+    /* L'aide ne s'ouvre plus toute seule.
+       Elle occupait le haut de la scène dès qu'on prenait les commandes, et
+       c'est exactement le moment où l'on veut voir le robot. Elle se demande
+       maintenant, à la touche `H`, et se referme pareil. */
+    box.hidden = !(P.on && padHelp);
     document.getElementById("play").setAttribute("aria-pressed", String(P.on));
     document.getElementById("playsay").textContent = P.on ? (P.say || "à vous") : "";
     document.getElementById("padmaptitle").textContent =
@@ -9844,7 +9896,7 @@ window.YLO = window.YLO || {};
     fpvBox.classList.toggle("aim", r.aim && !r.ready);
     fpvBox.classList.toggle("held", r.held);
     fpvBox.classList.toggle("lob", r.lob);
-    fpvTag.textContent = r.wpn + " · " + (r.reload ? "rechargement"
+    fpvTag.textContent = r.wpn + " " + r.mode + " · " + (r.reload ? "rechargement"
       : r.ready ? "verrouillé · " + r.dist.toFixed(1) + " m"
       : r.aim ? "acquisition · " + r.dist.toFixed(1) + " m"
       : "aucune cible")
@@ -10104,6 +10156,12 @@ window.YLO = window.YLO || {};
       if (e.target && e.target.matches && e.target.matches("input, select, textarea")) return;
       // PLAY passe en premier : sinon `C` replierait le bandeau au lieu de
       // cabrer le robot, et les flèches ne piloteraient rien.
+      /* `H` passe avant PLAY : c'est l'aide, et il faut pouvoir la rappeler
+         les deux mains sur les commandes. Hors PLAY, `h` reste la sixième
+         figure du catalogue. */
+      if ((e.key === "h" || e.key === "H") && Y.Play.state.on) {
+        padHelp = !padHelp; renderPadmap(); e.preventDefault(); return;
+      }
       if (Y.Play.key(e.key, true)) { e.preventDefault(); return; }
       const map = { "1": "iso", "2": "side", "3": "front", "4": "top" };
       if (map[e.key]) setView(map[e.key]);
@@ -10127,6 +10185,7 @@ window.YLO = window.YLO || {};
 
     addEventListener("keyup", function (e) {
       if (e.target && e.target.matches && e.target.matches("input, select, textarea")) return;
+      if ((e.key === "h" || e.key === "H") && Y.Play.state.on) { e.preventDefault(); return; }
       if (Y.Play.key(e.key, false)) { e.preventDefault(); return; }
       if ("bdtfgh".indexOf(e.key.toLowerCase()) >= 0) Y.Stunt.fire();
     });

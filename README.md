@@ -485,19 +485,44 @@ traçantes durent 90 ms, la gerbe de bouche autant.
 Le simulateur Python ne porte pas le champ de tir : c'est un terrain et une
 tourelle, rien qui touche à la locomotion qu'il vérifie.
 
-#### Deux armes, et le pavé tactile pour en changer
+#### Deux armes, trois modes de tir, un seul pouce
 
-Le **pavé tactile** change d'arme : c'est le seul bouton de la manette que
-rien d'autre ne réclamait. **Clic bref**, arme suivante ; **appui long**,
-retour direct à l'arme principale. À deux armes le cycle suffirait, mais à
-trois il faudrait déjà deux clics pour retrouver le fusil au moment où l'on en
-a le plus besoin — le retour direct coûte une ligne et se garde. Touche `W` au
-clavier.
+Tout l'armement tient sur **deux touches**, et aucune des deux ne demande de
+lâcher les commandes :
 
-*(Autres pistes envisagées et écartées : une roue d'armes au pavé tenu — elle
-oblige à LIRE l'écran au moment où l'on tire ; la croix directionnelle — déjà
-prise par les saltos ; un choix automatique selon la cible — il décide à la
-place du joueur, ce qui est exactement ce qu'on ne veut pas d'une arme.)*
+| | |
+| --- | --- |
+| **L1** *(`A`)* | **la détente** |
+| **Clic stick gauche**, bref *(`T`)* | arme suivante |
+| **Clic stick gauche**, long *(`T` tenu)* | mode de tir suivant |
+
+Le clic du stick gauche tombe sous le pouce qui **ne tient pas la détente** :
+on change d'arme, ou de mode, sans cesser de tirer. Le pavé tactile a été
+abandonné — il demandait de lever la main. Le **salto arrière enchaîné quitte
+la manette** pour lui laisser la place ; il reste au catalogue des figures du
+bandeau.
+
+**Trois modes, le même fusil.** L'automatique arrose : on tient la détente et
+ça part, au prix du chargeur et de la précision. La rafale de trois est le
+compromis, c'est elle qui groupe le mieux à l'arrêt. Le coup par coup ne part
+qu'**une fois par appui** — c'est le seul mode où tenir la détente ne sert à
+rien, et c'est justement ce qui le rend précis : on reprend sa visée entre
+deux coups.
+
+| Détente tenue 2 s | Coups partis |
+| --- | --- |
+| Tir automatique | **23** |
+| Rafale de 3 | **13** |
+| Coup par coup | **1** |
+
+Une seule chose sépare le coup par coup du reste dans le code : un drapeau qui
+dit que la détente était *déjà* enfoncée. Sans lui, la tenir en coup par coup
+viderait le chargeur au rythme de la reprise — exactement ce qu'on cherchait à
+éviter en le choisissant.
+
+Le **lance-grenades ne connaît pas ces modes** : une grenade part seule, et un
+lance-grenades automatique de six coups se vide en une demi-seconde. Il force
+le coup par coup, quel que soit le mode affiché.
 
 | | Fusil d'assaut | Lance-grenades 40 mm |
 | --- | --- | --- |
@@ -1734,19 +1759,19 @@ mentir sur ce que fait la manette.
 | Manette | Clavier | Action |
 | --- | --- | --- |
 | ✕ | `Espace` | Saut — **maintenir arme, lâcher détend**, direction corrigeable |
-| △ | `H` | Hauteur de caisse : 200, 250, 300 mm |
+| △ | `Y` | Hauteur de caisse : 200, 250, 300 mm |
+| — | `H` | **Afficher ou masquer l'aide des commandes** |
 | □ | `C` | Cabrage — on roule, on tourne, on change de hauteur pendant la tenue |
 | ○ | `V` | Sur deux roues — idem |
 | R2 | `↑` | Accélérer (analogique, 0 à 2,2 m/s) — en roue libre la pente fait le reste |
 | L2 | `↓` | Freiner, **puis marche arrière** une fois arrêté (jusqu'à 1,4 m/s) |
-| L1 | `A` | Double salto arrière — **et le tir**, sur le champ de tir |
+| L1 | `A` | Double salto arrière — **et la détente**, sur le champ de tir |
 | PARTAGE | `F` | Champ de tir : figer le viseur sur la cible (rappui = libre) |
 | OPTIONS | `O` | Champ de tir : déclarer la cible **amie** — tir impossible |
 | PS | `P` | Champ de tir : **nettoyage automatique** des cibles repérées |
-| PAVÉ TACTILE | `W` | Champ de tir : arme suivante — **appui long** : retour au fusil |
 | R1 | `E` | 540 McTwist |
 | L1 + R1 **tenus ensemble** | `A` + `E` | Pirouette, tant que les deux restent enfoncés |
-| Clic stick gauche | `T` | **Salto arrière enchaîné**, tant qu'on tient |
+| Clic stick gauche | `T` | Champ de tir : arme suivante — **appui long** : mode de tir |
 | ↑ ↓ ← → | `Z` `S` `Q` `D` | Salto dans la direction de la flèche |
 | flèche ×2 | touche ×2 | **Salto double** dans cette direction |
 | Stick gauche | `← →` | Tourner |
@@ -1830,6 +1855,18 @@ Trois choses ont demandé un peu de soin :
   restait dressé. Le repos est maintenant mis en attente et part à l'instant
   précis où la tenue commence. Couper une bascule en cours ferait tomber la
   caisse : c'est pour ça qu'on attend plutôt que d'interrompre.
+
+### L'aide ne s'ouvre plus toute seule
+
+Le tableau des commandes s'affichait dès qu'on prenait les commandes, en haut
+de la scène — c'est-à-dire exactement au moment où l'on veut voir le robot, et
+sur la partie de l'image où il se trouve. Il se **demande** maintenant :
+touche `H`, et `H` encore pour le refermer.
+
+`H` a donc quitté la hauteur de caisse, qui passe sur `Y`. C'est la seule
+touche déplacée, et elle l'est parce que l'aide doit pouvoir se rappeler les
+deux mains sur les commandes : elle passe *avant* PLAY dans la chaîne des
+touches, sinon PLAY l'aurait consommée comme le triangle de la manette.
 
 ### Les commandes tenues, et ce qu'on peut faire pendant
 

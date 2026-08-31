@@ -68,6 +68,23 @@
       muzzleV: 25.0, blast: 3.4 }
   ];
   const G = 9.81;
+
+  /* --- modes de tir ---
+     Le même fusil, trois façons de s'en servir. L'automatique arrose : on
+     tient la détente et ça part, au prix du chargeur et de la précision. La
+     rafale de trois est le compromis, c'est elle qui groupe le mieux à
+     l'arrêt. Le coup par coup ne part qu'une fois par appui — c'est le seul
+     mode où tenir la détente ne sert à rien, et c'est ce qui le rend précis :
+     on reprend sa visée entre deux coups.
+
+     Le lance-grenades ne connaît pas ces modes : une grenade part seule, et
+     un lance-grenades automatique de six coups se vide en une demi-seconde. */
+  const MODES = [
+    { id: "auto",  name: "Tir automatique", short: "AUTO", n: 5, rest: 0.05 },
+    { id: "trois", name: "Rafale de 3",     short: "3 CPS", n: 3, rest: 0.30 },
+    { id: "coup",  name: "Coup par coup",   short: "1 CP",  n: 1, rest: 0.18,
+      once: true }
+  ];
   /* Le lidar tourne : ce que le robot REPÈRE ne dépend pas de l'endroit où
      pointe l'arme, seulement de ce qu'il a devant lui à découvert. La portée
      de détection est donc plus longue que la portée utile de l'arme — on voit
@@ -89,11 +106,18 @@
   /** L'arme en main. */
   function W() { return WEAPONS[S.wpn]; }
 
+  /** Le mode de tir effectif : celui choisi, sauf pour le lance-grenades. */
+  function MO() {
+    if (W().id === "lg") return { id: "coup", name: "Coup par coup",
+                                  short: "1 CP", n: 1, rest: W().rest, once: true };
+    return MODES[S.mode];
+  }
+
   const S = {
     on: false, targets: [], group: null, gun: null, turret: null, barrel: null,
     flash: null, fpv: null, tracers: [], yaw: 0, pitch: 0, lock: null,
     hold: null, ready: false, wasReady: false, seen: 0, auto: false, autoSay: "",
-    autoJam: 0, autoBack: 0, autoTurn: 0, autoSide: 1, far: 30,
+    autoJam: 0, autoBack: 0, autoTurn: 0, autoSide: 1, far: 30, mode: 1,
     ammo: 30, reload: 0, burst: 0, next: 0, rest: 0, wpn: 0, gimbal: null,
     gimbalErr: 0, gimbalUse: 0, gimbalNeed: 0, models: null,
     shells: [], booms: [], scars: null, wrecked: false, breach: 0,
@@ -655,10 +679,30 @@
   /* --- tir ----------------------------------------------------------- */
 
   /** Demander une rafale. Rendue vraie si le coup part. */
-  function fire() {
+  /**
+   * Demander à tirer. `hold` dit que la détente était DÉJÀ enfoncée.
+   *
+   * C'est la seule chose qui sépare le coup par coup du reste : le coup part
+   * à l'appui et pas tant qu'on tient. Sans ce drapeau, tenir la détente en
+   * coup par coup viderait le chargeur au rythme de la reprise, ce qui est
+   * exactement ce qu'on cherchait à éviter en le choisissant.
+   */
+  function fire(hold) {
     if (!S.on || !S.running || S.reload > 0 || S.burst > 0 || S.rest > 0) return false;
+    if (hold && MO().once) return false;
     if (S.ammo <= 0) { S.reload = W().reload; S.say = "Rechargement"; Y.Audio.reload(); return false; }
-    S.burst = W().burst; S.next = 0;
+    S.burst = Math.min(MO().n, S.ammo); S.next = 0;
+    return true;
+  }
+
+  /** Passer au mode de tir suivant. */
+  function nextMode() {
+    if (!S.on) return false;
+    S.mode = (S.mode + 1) % MODES.length;
+    S.burst = 0; S.rest = 0.2;
+    S.say = W().id === "lg" ? MODES[S.mode].name + " (sans effet au lance-grenades)"
+                            : MODES[S.mode].name;
+    Y.Audio.swap();
     return true;
   }
 
@@ -1109,7 +1153,10 @@
       if (S.reload <= 0) { S.ammo = W().mag; S.say = S.running ? "Feu !" : S.say; }
     } else if (S.burst > 0) {
       S.next -= dt;
-      if (S.next <= 0) { shoot(); S.burst--; S.next = W().rate; if (S.burst === 0) S.rest = W().rest; }
+      if (S.next <= 0) {
+        shoot(); S.burst--; S.next = W().rate;
+        if (S.burst === 0) S.rest = W().id === "lg" ? W().rest : MO().rest;
+      }
     } else if (S.rest > 0) S.rest -= dt;
     if (S.ammo <= 0 && S.reload <= 0) { S.reload = W().reload; S.say = "Rechargement"; Y.Audio.reload(); }
 
@@ -1145,7 +1192,9 @@
     sweep: toggleAuto,
     nextWeapon: nextWeapon,
     primaryWeapon: primaryWeapon,
+    nextMode: nextMode,
     weapon: function () { return W(); },
+    mode: function () { return MO(); },
     /** Le pilote automatique tient-il les commandes ? */
     autopilot: function () { return S.on && S.auto; },
     /** Ce que la carte doit montrer : tout ce qui a été repéré, et rien d'autre. */
@@ -1171,7 +1220,7 @@
      */
     reticle: function () {
       return { aim: !!S.lock, ready: S.ready, held: !!S.hold,
-               wpn: W().short, lob: W().id === "lg",
+               wpn: W().short, mode: MO().short, lob: W().id === "lg",
                stab: S.gimbalUse * 180 / Math.PI, err: S.gimbalErr * 180 / Math.PI,
                dist: S.lock ? Math.hypot(S.lock.x - Y.Motion.state.px,
                                          S.lock.y - Y.Motion.state.py) : 0,
@@ -1181,7 +1230,7 @@
     hud: function () {
       if (!S.on) return "";
       const friends = S.targets.length - S.total;
-      return W().short + " · Cibles " + S.hits + "/" + S.total
+      return W().short + " " + MO().short + " · Cibles " + S.hits + "/" + S.total
         + (friends ? " · " + friends + " amie" + (friends > 1 ? "s" : "") : "")
         + " · " + (S.reload > 0 ? "rechargement" : S.ammo + " coups")
         + (S.running ? " · " + S.t.toFixed(1) + " s" : "")
