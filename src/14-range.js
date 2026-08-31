@@ -39,9 +39,10 @@
 
   const S = {
     on: false, targets: [], group: null, gun: null, turret: null, barrel: null,
-    flash: null, tracers: [], yaw: 0, pitch: 0, lock: null, ready: false,
+    flash: null, fpv: null, tracers: [], yaw: 0, pitch: 0, lock: null,
+    hold: null, ready: false, wasReady: false,
     ammo: MAG, reload: 0, burst: 0, next: 0, rest: 0,
-    live: 0, hits: 0, shots: 0, t: 0, running: false, best: null, say: ""
+    live: 0, hits: 0, shots: 0, total: 0, t: 0, running: false, best: null, say: ""
   };
 
   /* --- construction ------------------------------------------------- */
@@ -60,6 +61,7 @@
     plate.position.z = TARGET_H / 2;
     plate.castShadow = true; plate.userData.mat = "targetFace";
     pivot.add(plate);
+    g.userData.plate = plate;
     // un disque central : là où l'on compte les points
     const bull = new T.Mesh(new T.CylinderGeometry(0.075, 0.075, 0.012, 20),
       Y.Mat.get("targetRing"));
@@ -111,6 +113,23 @@
     flash.position.set(0.44, 0, 0.004);
     barrel.add(flash);
     turret.add(barrel);
+
+    /* La caméra de l'arme. Elle est fille du CANON et non de la caisse :
+       ce qu'on veut voir dans le petit écran, c'est ce que l'arme vise,
+       pas ce que le robot regarde — la tourelle bouge toute seule, et
+       c'est justement son mouvement qu'on suit.
+
+       Une caméra three.js regarde son propre -Z, le canon tire vers son
+       +X. On lui donne donc une base explicite : son -Z sur le +X du
+       canon, son haut sur le +Z. Un `lookAt` par image ferait le même
+       calcul, en moins lisible et à chaque image. */
+    const fpv = new T.PerspectiveCamera(38, 1, 0.05, 200);
+    fpv.quaternion.setFromRotationMatrix(new T.Matrix4().makeBasis(
+      new T.Vector3(0, -1, 0), new T.Vector3(0, 0, 1), new T.Vector3(-1, 0, 0)));
+    fpv.position.set(0.06, 0, 0.055);       // sur la lunette, pas dans le canon
+    barrel.add(fpv);
+    S.fpv = fpv;
+
     S.turret = turret; S.barrel = barrel; S.flash = flash;
     return turret;
   }
@@ -149,25 +168,99 @@
     while (S.group.children.length) S.group.remove(S.group.children[0]);
     S.targets = cfg.targets.map(function (t) {
       const o = silhouette();
-      o.position.set(t[0], t[1], 0);
+      /* Troisième valeur : la hauteur du PIED. Une cible sur le toit d'une
+         voiture ou sur une passerelle n'est pas une autre sorte de cible,
+         c'est la même, posée plus haut — et c'est à la tourelle de lever
+         le canon pour aller la chercher. */
+      const z = t[2] || 0;
+      o.position.set(t[0], t[1], z);
       o.traverse(function (c) { if (c.userData.mat) c.material = Y.Mat.get(c.userData.mat); });
       S.group.add(o);
-      return { x: t[0], y: t[1], up: 0, state: "down", obj: o };
+      return { x: t[0], y: t[1], z: z, up: 0, state: "down", friend: false, obj: o };
     });
     reset();
   }
 
+  /** Hauteur du point visé sur une cible : le haut de la silhouette. */
+  function aimZ(t) { return t.z + 0.28 + TARGET_H * 0.62; }
+
+  /** Combien de cibles restent à abattre : les amies ne comptent pas. */
+  function hostiles() {
+    return S.targets.filter(function (t) { return !t.friend; }).length;
+  }
+
+  /** Repeindre une silhouette selon son camp. */
+  function paint(t) {
+    const pl = t.obj.userData.plate;
+    pl.userData.mat = t.friend ? "targetSafe" : "targetFace";
+    pl.material = Y.Mat.get(pl.userData.mat);
+  }
+
   function reset() {
-    S.targets.forEach(function (t) { t.up = 0; t.state = "down"; });
+    S.targets.forEach(function (t) {
+      t.up = 0; t.state = "down"; t.friend = false; paint(t);
+    });
     S.hits = 0; S.shots = 0; S.t = 0; S.running = false; S.live = 0;
+    S.hold = null; S.lock = null; S.ready = false; S.wasReady = false;
     S.ammo = MAG; S.reload = 0; S.burst = 0; S.next = 0; S.rest = 0;
+    S.total = S.targets.length;
     S.say = "Entrez sur la ligne de tir";
   }
 
   function raise() {
     S.targets.forEach(function (t) { t.state = "rising"; });
     S.hits = 0; S.shots = 0; S.t = 0; S.running = true;
+    S.total = hostiles();
     S.say = "Feu !";
+    Y.Audio.raise();
+  }
+
+  /**
+   * OPTIONS : la cible tenue en joue n'en est plus une.
+   *
+   * Un stand de tir où tout ce qui se lève est à abattre ne demande qu'un
+   * doigt. Pouvoir DÉCLARER une silhouette amie change la nature de
+   * l'exercice : la tourelle vise toute seule, mais c'est au pilote de dire
+   * ce qui est une cible. Une amie sort du cycle de visée — on ne peut donc
+   * plus lui tirer dessus, même en le voulant — et le compteur baisse
+   * d'autant : la série se termine sans elle.
+   */
+  function spare() {
+    const t = S.lock;
+    if (!S.on || !t || t.friend) return false;
+    t.friend = true; paint(t);
+    S.hold = null; S.lock = null; S.ready = false;
+    S.total = hostiles();
+    S.say = "Cible amie — tir interdit";
+    Y.Audio.friend();
+    if (S.running && S.hits >= S.total) finish();
+    return true;
+  }
+
+  /**
+   * PARTAGE : figer le viseur sur la cible tenue, ou le relâcher.
+   *
+   * La visée automatique prend toujours la plus proche. C'est le bon choix
+   * neuf fois sur dix, et le mauvais la dixième : celle qu'on veut est
+   * derrière une autre, ou plus haut, et la tourelle repart vers l'autre à
+   * chaque image. Figer rend la décision au pilote sans lui rendre le
+   * pointage — l'arme continue de suivre toute seule, mais elle suit CELLE-LÀ.
+   */
+  function toggleHold() {
+    if (!S.on) return false;
+    if (S.hold) { S.hold = null; S.say = "Viseur libre"; Y.Audio.lock(); return true; }
+    if (!S.lock) return false;
+    S.hold = S.lock;
+    S.say = "Viseur figé";
+    Y.Audio.hold();
+    return true;
+  }
+
+  function finish() {
+    S.running = false;
+    if (S.best === null || S.t < S.best) S.best = S.t;
+    S.say = "Tout au sol en " + S.t.toFixed(2) + " s";
+    Y.Audio.done();
   }
 
   /* --- tir ----------------------------------------------------------- */
@@ -175,7 +268,7 @@
   /** Demander une rafale. Rendue vraie si le coup part. */
   function fire() {
     if (!S.on || !S.running || S.reload > 0 || S.burst > 0 || S.rest > 0) return false;
-    if (S.ammo <= 0) { S.reload = RELOAD; S.say = "Rechargement"; return false; }
+    if (S.ammo <= 0) { S.reload = RELOAD; S.say = "Rechargement"; Y.Audio.reload(); return false; }
     S.burst = BURST; S.next = 0;
     return true;
   }
@@ -216,17 +309,16 @@
       const half = Math.atan(TARGET_W * 0.5 / Math.max(d, 0.5));
       hit = Math.abs(randn() * spread) < half;
     }
+    Y.Audio.shot();
     if (hit) {
       t.state = "falling";
       S.hits++;
-      if (S.hits >= S.targets.length) {
-        S.running = false;
-        if (S.best === null || S.t < S.best) S.best = S.t;
-        S.say = "Tout au sol en " + S.t.toFixed(2) + " s";
-      }
-    }
+      if (S.hold === t) S.hold = null;      // elle est tombée : le viseur repart
+      Y.Audio.hit();
+      if (S.hits >= S.total) finish();
+    } else Y.Audio.miss();
     // traceur : du canon au point d'impact, ou droit devant si on a manqué
-    if (t) v1.set(t.x, t.y, TARGET_H * 0.62 + 0.28);
+    if (t) v1.set(t.x, t.y, aimZ(t));
     else {
       const d = new T.Vector3(1, 0, 0).applyQuaternion(S.barrel.getWorldQuaternion(new T.Quaternion()));
       v1.copy(v0).addScaledVector(d, REACH);
@@ -248,7 +340,7 @@
     const z = S.cfg.zone;
     const inZone = st.px > z[0] && st.px < z[1] && st.py > z[2] && st.py < z[3];
     if (inZone && !S.running && S.hits === 0) raise();
-    if (inZone && !S.running && S.hits >= S.targets.length) reset();
+    if (inZone && !S.running && S.hits >= S.total) reset();
     if (S.running) S.t += dt;
 
     // montée, chute et pose des silhouettes
@@ -267,7 +359,13 @@
        qu'on ne peut pas balayer huit cibles en une rafale. */
     let best = null, bd = Infinity;
     const gunW = S.gun.getWorldPosition(v0.clone());
-    S.targets.forEach(function (t) {
+    /* Une cible figée à la main garde la tourelle tant qu'elle est debout ;
+       une cible déclarée amie n'entre jamais dans le cycle — c'est ce qui
+       rend le tir sur elle impossible plutôt que seulement déconseillé. */
+    if (S.hold && S.hold.state !== "up" && S.hold.state !== "rising") S.hold = null;
+    if (S.hold) best = S.hold;
+    else S.targets.forEach(function (t) {
+      if (t.friend) return;
       if (t.state !== "up" && t.state !== "rising") return;
       const dx = t.x - gunW.x, dy = t.y - gunW.y;
       const d = Math.hypot(dx, dy);
@@ -282,13 +380,16 @@
     if (best) {
       const dx = best.x - gunW.x, dy = best.y - gunW.y;
       wantYaw = ((Math.atan2(dy, dx) - st.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-      const dz = TARGET_H * 0.62 + 0.28 - (gunW.z + 0.04);
+      const dz = aimZ(best) - (gunW.z + 0.04);
       wantPitch = Math.atan2(dz, Math.hypot(dx, dy));
     }
     const step2 = SLEW * dt;
     S.yaw += clamp(wantYaw - S.yaw, -step2, step2);
     S.pitch += clamp(wantPitch - S.pitch, -step2, step2);
     S.ready = !!best && Math.abs(wantYaw - S.yaw) < TOL && Math.abs(wantPitch - S.pitch) < TOL;
+    // le bip ne sonne qu'au passage : verrouillé n'est pas un état, c'est un instant
+    if (S.ready && !S.wasReady) Y.Audio.lock();
+    S.wasReady = S.ready;
     S.turret.rotation.z = S.yaw;
     S.barrel.rotation.y = -S.pitch;
 
@@ -300,7 +401,7 @@
       S.next -= dt;
       if (S.next <= 0) { shoot(); S.burst--; S.next = RATE; if (S.burst === 0) S.rest = REST; }
     } else if (S.rest > 0) S.rest -= dt;
-    if (S.ammo <= 0 && S.reload <= 0) { S.reload = RELOAD; S.say = "Rechargement"; }
+    if (S.ammo <= 0 && S.reload <= 0) { S.reload = RELOAD; S.say = "Rechargement"; Y.Audio.reload(); }
 
     // éclair et traceurs s'éteignent vite : c'est ce qui les rend lisibles
     S.flash.material.opacity = Math.max(0, S.flash.material.opacity - dt * 24);
@@ -327,14 +428,32 @@
     reset: reset,
     fire: fire,
     step: step,
+    spare: spare,
+    hold: toggleHold,
     active: function () { return S.on; },
+    /** La caméra de l'arme, pour le quart d'écran en bas à droite. */
+    camera: function () { return S.on ? S.fpv : null; },
+    /**
+     * État du réticule, lu par l'application pour dessiner le viseur :
+     * `aim` = une cible est prise en compte, `ready` = l'axe est bon —
+     * c'est ce qui le fait passer au rouge —, `held` = viseur figé.
+     */
+    reticle: function () {
+      return { aim: !!S.lock, ready: S.ready, held: !!S.hold,
+               dist: S.lock ? Math.hypot(S.lock.x - Y.Motion.state.px,
+                                         S.lock.y - Y.Motion.state.py) : 0,
+               reload: S.reload > 0, ammo: S.ammo };
+    },
     /** Ligne d'état : munitions, cibles, chrono. */
     hud: function () {
       if (!S.on) return "";
-      return "Cibles " + S.hits + "/" + S.targets.length
+      const friends = S.targets.length - S.total;
+      return "Cibles " + S.hits + "/" + S.total
+        + (friends ? " · " + friends + " amie" + (friends > 1 ? "s" : "") : "")
         + " · " + (S.reload > 0 ? "rechargement" : S.ammo + " coups")
         + (S.running ? " · " + S.t.toFixed(1) + " s" : "")
         + (S.best !== null ? " · record " + S.best.toFixed(2) + " s" : "")
+        + (S.hold ? " · FIGÉ" : "")
         + (S.ready ? " · VERROUILLÉ" : "");
     }
   };

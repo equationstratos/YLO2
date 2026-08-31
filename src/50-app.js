@@ -1290,7 +1290,54 @@
     }
 
     renderer.render(scene, camera);
+    renderFpv();
     requestAnimationFrame(tick);
+  }
+
+  /* =====================================================================
+     Le quart d'écran de l'arme
+
+     Un CISEAU DE RENDU, pas un second canevas : deux contextes WebGL sur la
+     même page doubleraient les textures, les maillages et l'environnement —
+     tout, sauf le point de vue. Ici on redessine la même scène, avec la
+     caméra du canon, dans le quart bas-droit du même tampon. Il faut juste
+     désarmer l'effacement automatique, sinon la seconde passe efface la
+     première, et vider la PROFONDEUR entre les deux, sinon la première
+     passe masque la seconde.
+     ===================================================================== */
+  const fpvBox = document.getElementById("fpv");
+  const fpvTag = document.getElementById("fpvtag");
+  let fpvWasLock = false;
+
+  function renderFpv() {
+    const cam = Y.Range.camera();
+    if (!cam) {
+      if (!fpvBox.hidden) { fpvBox.hidden = true; stage.classList.remove("fpvon"); }
+      return;
+    }
+    if (fpvBox.hidden) { fpvBox.hidden = false; stage.classList.add("fpvon"); }
+    const w = Math.floor(stage.clientWidth / 2), h = Math.floor(stage.clientHeight / 2);
+    if (w < 40 || h < 40) return;
+    if (cam.aspect !== w / h) { cam.aspect = w / h; cam.updateProjectionMatrix(); }
+    renderer.autoClear = false;
+    renderer.setViewport(stage.clientWidth - w, 0, w, h);
+    renderer.setScissor(stage.clientWidth - w, 0, w, h);
+    renderer.setScissorTest(true);
+    renderer.clearDepth();
+    renderer.render(scene, cam);
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, stage.clientWidth, stage.clientHeight);
+    renderer.autoClear = true;
+
+    const r = Y.Range.reticle();
+    fpvBox.classList.toggle("lock", r.ready);
+    fpvBox.classList.toggle("aim", r.aim && !r.ready);
+    fpvBox.classList.toggle("held", r.held);
+    fpvTag.textContent = r.reload ? "rechargement"
+      : r.ready ? "verrouillé · " + r.dist.toFixed(1) + " m"
+      : r.aim ? "acquisition · " + r.dist.toFixed(1) + " m"
+      : "aucune cible";
+    if (r.ready !== fpvWasLock) fpvWasLock = r.ready;
   }
 
   /* =====================================================================
@@ -1490,6 +1537,20 @@
       b.textContent = st.running ? "Arrêter la session" : "Session AUTO";
       document.getElementById("sessionsay").textContent = st.running ? st.label : "";
     });
+    /* Le son ne s'ouvre qu'après un geste : c'est la règle du navigateur, et
+       elle est bonne — une page qui parle avant qu'on l'ait touchée est une
+       page qu'on ferme. On réveille donc le contexte au premier clic et à la
+       première touche, une fois, puis on retire les écoutes. */
+    (function () {
+      const wake = function () {
+        Y.Audio.wake();
+        removeEventListener("pointerdown", wake, true);
+        removeEventListener("keydown", wake, true);
+      };
+      addEventListener("pointerdown", wake, true);
+      addEventListener("keydown", wake, true);
+    })();
+
     document.getElementById("btnRail").addEventListener("click", function () { openPanel("rail"); });
     document.getElementById("btnDetail").addEventListener("click", function () { openPanel("detail"); });
     document.getElementById("btnHud").addEventListener("click", function () { toggleHud(); });

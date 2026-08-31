@@ -74,7 +74,8 @@
   const LAYOUTS = {
     standard: {
       label: "disposition standard",
-      button: { cross: 0, circle: 1, square: 2, triangle: 3, l1: 4, r1: 5, l3: 10,
+      button: { cross: 0, circle: 1, square: 2, triangle: 3, l1: 4, r1: 5,
+                share: 8, options: 9, l3: 10,
                 r3: 11, up: 12, down: 13, left: 14, right: 15 },
       trigger: { l2: { btn: 6 }, r2: { btn: 7 } },
       stick: { lx: 0, rx: 2, ry: 3 },
@@ -82,7 +83,8 @@
     },
     sony: {
       label: "disposition Sony brute",
-      button: { square: 0, cross: 1, circle: 2, triangle: 3, l1: 4, r1: 5, l3: 10, r3: 11 },
+      button: { square: 0, cross: 1, circle: 2, triangle: 3, l1: 4, r1: 5,
+                share: 8, options: 9, l3: 10, r3: 11 },
       // en HID brut, les gâchettes sont analogiques sur des axes, à plat en -1
       trigger: { l2: { axis: 3 }, r2: { axis: 4 } },
       stick: { lx: 0, rx: 2, ry: 5 },
@@ -134,6 +136,8 @@
     { pad: "R2", key: "↑", act: "Accélérer" },
     { pad: "L2", key: "↓", act: "Freiner, puis marche arrière" },
     { pad: "L1", key: "A", act: "Double salto arrière — au champ de tir : TIR" },
+    { pad: "PARTAGE", key: "F", act: "Champ de tir : figer le viseur sur la cible (rappui = libre)" },
+    { pad: "OPTIONS", key: "O", act: "Champ de tir : déclarer la cible amie — tir interdit" },
     { pad: "R1", key: "E", act: "540 McTwist" },
     { pad: "L1 + R1", key: "A + E", act: "Pirouette / 360 en l'air" },
     { pad: "□ ○ pendant", key: "C V pendant", act: "…passe en tenue SANS cesser de tourner" },
@@ -342,6 +346,18 @@
       if (waitBoth && waitBoth.side === side) { waitBoth = null; shoulderSolo(side); }
       return;
     }
+    /* Les deux boutons plats de la manette ne servent qu'au champ de tir, et
+       ils y disent la seule chose que la visée automatique ne sait pas :
+       QUOI viser. PARTAGE fige le viseur sur la cible tenue — la tourelle
+       continue de la suivre au lieu de repartir vers la plus proche —,
+       OPTIONS la déclare amie et la sort définitivement du cycle. */
+    if (name === "share" || name === "options") {
+      if (!edge(name, down)) return;
+      if (!Y.Range.active()) return;
+      if (name === "share") { if (Y.Range.hold()) say(Y.Range.state.say); }
+      else if (Y.Range.spare()) say("Cible amie — on ne tire plus dessus");
+      return;
+    }
     if (name === "l3") {
       // Clic du stick gauche : la bascule enchaînée tourne tant qu'on tient.
       const was = !!prev.l3;
@@ -465,7 +481,8 @@
       ["up", "down", "left", "right"].forEach(function (d) { dpad[d] = on(d); });
     }
 
-    ["cross", "circle", "square", "triangle", "l1", "r1", "l3", "r3"]
+    ["cross", "circle", "square", "triangle", "l1", "r1", "l3", "r3",
+     "share", "options"]
       .forEach(function (name) { actOn(name, on(name)); });
     ["up", "down", "left", "right"].forEach(function (d) { actOn(d, dpad[d]); });
 
@@ -551,7 +568,7 @@
 
   const KEYMAP = {
     " ": "cross", h: "triangle", c: "square", v: "circle",
-    a: "l1", e: "r1", t: "l3", r: "r3",
+    a: "l1", e: "r1", t: "l3", r: "r3", f: "share", o: "options",
     z: "up", s: "down", q: "left", d: "right"
   };
 

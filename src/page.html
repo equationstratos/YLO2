@@ -213,6 +213,19 @@ canvas{position:absolute;inset:0;display:block;width:100%;height:100%;touch-acti
   max-height:min(34vh,272px);
 }
 .hud.folded{display:none}
+/* Quand la caméra de l'arme est ouverte, elle prend le quart bas-droit : le
+   bandeau lui laisse la place au lieu de passer par-dessus. Les cartes se
+   replient sur la moitié gauche — c'est de la place perdue pour les
+   réglages, mais un viseur à moitié caché ne sert à rien. */
+.stage.fpvon .hud{
+  right:calc(50% + 12px);
+  /* Sur la moitié de la largeur, trois cartes côte à côte se coupent en
+     morceaux. On rend donc le retour à la ligne que la requête de conteneur
+     avait retiré, et on borne la hauteur : les cartes s'empilent et défilent
+     au lieu d'être tronquées. */
+  flex-wrap:wrap;max-height:min(30vh,240px);overflow-y:auto;pointer-events:auto;
+}
+.stage.fpvon .hud > .card{flex:1 1 100%;max-height:none}
 /* Rangées de boutons : une seule ligne qui défile, plutôt que trois lignes
    empilées qui mangeaient 150 px de scène. */
 .hud .scroller{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;
@@ -339,6 +352,35 @@ input[type=range]::-moz-range-thumb{
   position:absolute;top:14px;left:16px;font-family:var(--mono);font-size:10px;
   letter-spacing:.08em;color:var(--faint);text-transform:uppercase;pointer-events:none;
 }
+.fpv{
+  position:absolute;right:0;bottom:0;width:50%;height:50%;z-index:6;
+  pointer-events:none;border-left:1px solid var(--line);border-top:1px solid var(--line);
+}
+.fpv[hidden]{display:none}
+.fpvret{position:absolute;inset:0;width:100%;height:100%}
+.fpvret .ret{fill:none;stroke:#9fd8c0;stroke-width:1.6;opacity:.85;
+  transition:stroke .12s linear,opacity .12s linear}
+.fpvret .rdot{fill:#9fd8c0;stroke:none}
+.fpvret .rbrk{opacity:0}
+/* Verrouillé : le réticule rougit. C'est le seul changement d'état qu'on
+   lit sans quitter la cible des yeux — un texte demanderait de regarder
+   ailleurs, et regarder ailleurs, c'est manquer. */
+.fpv.lock .ret{stroke:#ff4433;opacity:1;stroke-width:2.1}
+.fpv.lock .rdot{fill:#ff4433}
+.fpv.aim .ret{stroke:#ffc24d}
+.fpv.aim .rdot{fill:#ffc24d}
+.fpv.held .rbrk{opacity:1}
+.fpvtag{
+  position:absolute;left:0;right:0;bottom:26px;text-align:center;
+  font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--faint);
+}
+.fpv.lock .fpvtag{color:#ff6a55}
+.fpvlabel{
+  position:absolute;left:10px;top:8px;font-family:var(--mono);font-size:9px;
+  letter-spacing:.18em;color:var(--faint);opacity:.8;
+}
+
 .readout{
   position:absolute;top:14px;right:16px;text-align:right;font-family:var(--mono);
   font-size:10px;letter-spacing:.08em;color:var(--faint);pointer-events:none;line-height:1.7;
@@ -453,6 +495,22 @@ input[type=range]::-moz-range-thumb{
         <h4><span id="padmaptitle">Manette</span></h4>
         <table id="padmaptable"></table>
         <p class="padnote" id="padnote"></p>
+      </div>
+      <!-- Quart d'écran de l'arme. Le rendu 3D est fait par le moteur dans
+           un ciseau de rendu ; ce calque ne porte QUE le viseur et son
+           cadre — un réticule dessiné en 3D suivrait la perspective, alors
+           qu'un viseur est collé au verre, pas au monde. -->
+      <div class="fpv" id="fpv" hidden>
+        <svg class="fpvret" id="fpvret" viewBox="0 0 200 200" aria-hidden="true">
+          <g class="ret">
+            <circle class="rring" cx="100" cy="100" r="34"/>
+            <path class="rtick" d="M100 48v18M100 134v18M48 100h18M134 100h18"/>
+            <circle class="rdot" cx="100" cy="100" r="2.6"/>
+            <path class="rbrk" d="M64 64h-12v12M136 64h12v12M64 136h-12v-12M136 136h12v-12"/>
+          </g>
+        </svg>
+        <div class="fpvtag" id="fpvtag"></div>
+        <div class="fpvlabel">CAM ARME</div>
       </div>
       <div class="combo" id="combo" hidden>
         <div class="cscore"><b id="comboScore">0</b> <span>pts</span></div>

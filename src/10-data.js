@@ -108,7 +108,10 @@ window.YLO = window.YLO || {};
     { id: "gun",      name: "Arme",          preset: { color: "#2a2d2c", metal: 0.35, rough: 0.55, pattern: "none" } },
     { id: "gunSteel", name: "Canon",         preset: { color: "#7b8280", metal: 0.85, rough: 0.28, pattern: "brushed" } },
     { id: "targetFace", name: "Cibles",      preset: { color: "#d8d2c4", metal: 0.02, rough: 0.85, pattern: "none" } },
-    { id: "targetRing", name: "Mouches",     preset: { color: "#d8341f", metal: 0.05, rough: 0.70, pattern: "none" } }
+    { id: "targetRing", name: "Mouches",     preset: { color: "#d8341f", metal: 0.05, rough: 0.70, pattern: "none" } },
+    { id: "targetSafe", name: "Cibles amies", preset: { color: "#2f9bd8", metal: 0.05, rough: 0.72, pattern: "none" } },
+    { id: "carBody",  name: "Carrosserie",  preset: { color: "#8d2f2a", metal: 0.55, rough: 0.32, pattern: "none" } },
+    { id: "carGlass", name: "Vitrage",      preset: { color: "#232c30", metal: 0.30, rough: 0.14, pattern: "none" } }
   ];
 
   Y.PATTERNS = [

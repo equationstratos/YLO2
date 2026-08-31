@@ -187,11 +187,15 @@
        largeur. Le sol est plat et roulant — ici on ne franchit rien, on se
        place et on tire. */
     { id: "standtir", name: "Champ de tir", maxStep: 0.12,
-      desc: "Couloir de 30 m, merlons latéraux, butte de tir au fond. " +
-            "Huit cibles se relèvent quand on entre sur la ligne de tir ; " +
-            "L1 tire, la visée est automatique.",
+      desc: "Couloir de 30 m semé de gravats, d'une carcasse de voiture et " +
+            "d'un mur percé de deux fenêtres. Douze cibles, dont trois en " +
+            "hauteur, se relèvent quand on entre sur la ligne de tir ; " +
+            "L1 tire, la visée est automatique, PARTAGE la fige, OPTIONS " +
+            "déclare une cible amie.",
       boxes: (function () {
         const out = [];
+        const add = function (list) { list.forEach(function (b) { out.push(b); }); };
+
         // merlons : deux longs bourrelets qui tiennent le couloir
         [-4.2, 4.2].forEach(function (y) {
           for (let i = 0; i < 16; i++) {
@@ -201,20 +205,79 @@
           }
         });
         // butte de tir au fond : ce qui arrête les balles
-        bank(30.0, 33.0, -4.5, 4.5, 0.0, 1.60, 24).forEach(function (b) { out.push(b); });
+        add(bank(30.0, 33.0, -4.5, 4.5, 0.0, 1.60, 24));
         // plate-forme de la ligne de tir, légèrement surélevée
         out.push(box(-1.60, 1.60, -1.80, 1.80, 0.06));
+
+        /* Du terrain cassé, deux nappes. On ne traverse pas un stand de tir
+           sur un parking : les gravats obligent à ralentir, et ralentir est
+           justement ce qui permet de tirer juste. */
+        add(rubble(4.20, 6.20, 1.60, 0.30, 0.10));
+        add(rubble(15.60, 17.80, 2.20, 0.32, 0.12));
+
+        /* Le mur percé, en travers du couloir : une porte au milieu, deux
+           fenêtres à hauteur d'homme de part et d'autre.
+
+           Les fenêtres ne se passent pas — leur allège fait 850 mm, le robot
+           en fait 300 — et c'est le but : on TIRE à travers, on ne passe pas.
+           Le rayon les ignore, l'œil non, et une cible cadrée dans une
+           fenêtre ne se prend que d'un endroit. La porte, elle, se franchit :
+           son linteau est à 800 mm, au-dessus de la caisse quelle que soit la
+           hauteur de conduite. C'est le seul passage, il faut le viser. */
+        (function () {
+          const X0 = 9.60, X1 = 10.10, TOP = 2.20;
+          const door = [-0.70, 0.70];
+          const win = [[-3.00, -1.60], [1.60, 3.00]];
+          out.push(box(X0, X1, -4.20, win[0][0], TOP));
+          out.push(box(X0, X1, win[0][0], win[0][1], 0.85));        // allège
+          out.push(lintel(X0, X1, win[0][0], win[0][1], 1.75, TOP)); // linteau
+          out.push(box(X0, X1, win[0][1], door[0], TOP));
+          out.push(lintel(X0, X1, door[0], door[1], 0.80, TOP));    // la porte
+          out.push(box(X0, X1, door[1], win[1][0], TOP));
+          out.push(box(X0, X1, win[1][0], win[1][1], 0.85));
+          out.push(lintel(X0, X1, win[1][0], win[1][1], 1.75, TOP));
+          out.push(box(X0, X1, win[1][1], 4.20, TOP));
+        })();
+
+        /* Une carcasse de voiture en travers : un obstacle qu'on contourne,
+           et un toit sur lequel se tient une cible. Elle porte ses propres
+           matières — une caisse rouge et un vitrage sombre —, sans quoi elle
+           serait un bloc de béton de plus. */
+        (function () {
+          const cx = 20.60, cy = -1.30;
+          out.push({ x0: cx - 2.10, x1: cx + 2.10, y0: cy - 0.86, y1: cy + 0.86,
+                     h: 0.78, z0: 0.16, mat: "carBody" });        // caisse
+          out.push({ x0: cx - 0.75, x1: cx + 0.72, y0: cy - 0.78, y1: cy + 0.78,
+                     h: 1.32, z0: 0.78, mat: "carGlass" });       // habitacle
+          [-1.42, 1.38].forEach(function (dx) {
+            [-0.86, 0.72].forEach(function (dy) {
+              out.push({ x0: cx + dx - 0.16, x1: cx + dx + 0.16,
+                         y0: cy + dy, y1: cy + dy + 0.14, h: 0.34, mat: "wheel" });
+            });
+          });
+        })();
+
+        /* Une passerelle : c'est elle qui porte les cibles hautes. Sans un
+           appui visible sous elles, une cible en l'air a l'air d'une erreur
+           d'altitude plutôt que d'un tireur en surplomb. */
+        out.push(box(24.60, 27.40, 2.30, 3.60, 1.85));
+        add(bank(23.10, 24.60, 2.30, 3.60, 0, 1.85, 14));
+        out.push(box(12.80, 14.20, -3.90, -2.60, 1.20));
         return out;
       })(),
       start: [-3.2, 0, 0],
       zones: [{ kind: "start", x0: -1.60, x1: 1.60, y0: -1.80, y1: 1.80, z: 0.06 }],
-      /* Les cibles : abscisse, écart latéral. Elles alternent de part et
-         d'autre de l'axe et s'éloignent — on ne les prend pas toutes du même
-         endroit, il faut avancer. */
+      /* Les cibles : abscisse, écart latéral, et hauteur du pied. Elles
+         alternent de part et d'autre de l'axe et s'éloignent — on ne les
+         prend pas toutes du même endroit, il faut avancer. Trois sont en
+         surplomb : sur la voiture, sur le muret, sur la passerelle. Une
+         tourelle qui ne pointerait qu'à l'horizontale ne les aurait jamais. */
       range: {
         zone: [-1.60, 1.60, -1.80, 1.80],
-        targets: [[6.0, -2.4], [8.5, 1.9], [11.5, -1.1], [14.5, 2.6],
-                  [18.0, -2.8], [21.0, 1.0], [24.5, -2.0], [28.0, 2.2]]
+        targets: [[6.0, -2.4], [8.5, 1.9], [11.5, -1.1], [13.5, -3.25, 1.20],
+                  [14.5, 2.6], [18.0, -2.8], [20.6, -1.30, 1.32],
+                  [21.0, 1.0], [24.5, -2.0], [26.0, 2.95, 1.85],
+                  [28.0, 2.2], [28.6, -3.1]]
       } },
 
     // Mini-ramp : deux grandes transitions qui se font face, un flat entre
@@ -524,11 +587,15 @@
       const w = b.x1 - b.x0, d = b.y1 - b.y0;
       const z0 = b.z0 || 0, th = b.h - z0;
       if (th <= 0) return;
-      const mesh = new T.Mesh(new T.BoxGeometry(w, d, th), mat);
+      /* Un bloc peut porter sa propre matière : une carcasse de voiture n'est
+         pas du béton, et la découper en décor à part reviendrait à décrire
+         deux fois la même chose — une pour l'œil, une pour le contact. */
+      const mesh = new T.Mesh(new T.BoxGeometry(w, d, th),
+        b.mat ? Y.Mat.get(b.mat) : mat);
       mesh.position.set((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, z0 + th / 2);
       mesh.castShadow = true; mesh.receiveShadow = true;
       group.add(mesh);
-      if (z0) return;                       // un linteau n'a pas de nez de marche
+      if (z0 || b.mat) return;              // un linteau n'a pas de nez de marche
       // Nez de marche : une arête claire, comme la bande antidérapante d'un
       // escalier. Seulement sur une vraie marche — les rampes et les
       // transitions sont découpées en tranches fines, et les strier toutes

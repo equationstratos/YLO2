@@ -137,7 +137,7 @@ géométrie sont la même chose, il n'y a pas de collision approchée.
 | Rampe 20° | pente continue | assiette qui épouse la pente |
 | Gravats | blocs jusqu'à 90 mm | appuis à des hauteurs différentes |
 | **Skatepark** | mini-plaza : kicker, funbox, ledge, deux quarter pipes | reliefs enchaînés, en pattes comme en roues |
-| **Champ de tir** | plateforme de tir, deux merlons, talus de réception, huit cibles | rouler et tirer en même temps |
+| **Champ de tir** | gravats, mur à fenêtres, carcasse de voiture, passerelle, douze cibles dont trois en hauteur | rouler et tirer en même temps |
 | **Big ramp** | mini-ramp : deux transitions de 1,20 m face à face | un objet qu'on **roule** au lieu de le franchir |
 | **Mega ramp** | roll-in de 2,60 m, tremplin, gap, réception, transition de 2,60 m | un run complet, de la vitesse jusqu'au saut |
 | **Méga-parcours** | tout le catalogue à la suite, **fenêtre comprise** | 46 m d'obstacles enchaînés |
@@ -429,20 +429,43 @@ et la roue entière rendait claire. Le moyeu a désormais sa propre matière,
 Un septième terrain, **Champ de tir** : une plateforme de tir de 3,2 m sur 3,6
 m, deux merlons de terre à ±4,2 m qui ferment le couloir, et un talus de
 réception au fond qui monte à 1,60 m — une ligne de tir a toujours un
-pare-balles derrière les cibles. Huit silhouettes sont plantées entre 6 et 28 m,
-décalées à gauche et à droite pour qu'aucune ne se prenne dans l'axe de la
-précédente.
+pare-balles derrière les cibles.
+
+**Douze silhouettes**, entre 6 et 29 m, décalées à gauche et à droite pour
+qu'aucune ne se prenne dans l'axe de la précédente. **Trois sont en hauteur** :
+sur le toit de la voiture à 1,32 m, sur un muret à 1,20 m, sur la passerelle à
+1,85 m. Une cible haute n'est pas une autre sorte de cible — c'est la même,
+posée plus haut : la troisième valeur de sa description est la hauteur de son
+pied, et c'est à la tourelle de lever le canon pour aller la chercher.
+
+**Ce qu'il y a entre elles.** Un couloir vide se traverse en ligne droite, et
+un stand qui se vide en ligne droite n'est pas un parcours :
+
+- **deux nappes de gravats**, à 4 et à 16 m — on ne roule pas vite dessus, et
+  ralentir est justement ce qui permet de tirer juste ;
+- **un mur en travers**, percé d'une **porte** au milieu et de **deux
+  fenêtres** de part et d'autre. Les fenêtres ne se passent pas : leur allège
+  fait 850 mm et le robot 300. C'est le but — on **tire à travers**, on ne
+  passe pas, et une cible cadrée dans une fenêtre ne se prend que d'un
+  endroit. La porte, elle, se franchit : son linteau est à 800 mm, au-dessus
+  de la caisse à toutes les hauteurs de conduite. C'est le seul passage du
+  mur, il faut le viser ;
+- **une carcasse de voiture** en travers de la voie, caisse rouge et vitrage
+  sombre, qu'on contourne et dont le toit porte une cible. Elle est décrite
+  comme le reste du terrain — des boîtes — mais **porte ses propres
+  matières** : la découper en décor à part reviendrait à décrire deux fois la
+  même chose, une fois pour l'œil et une fois pour le contact ;
+- **une passerelle** et sa rampe d'accès, qui portent la cible haute du fond.
 
 **Les cibles se lèvent toutes seules.** Elles restent couchées tant que le
 robot n'est pas sur la plateforme ; entrer dans la zone les redresse et lance
-le chrono, et la série est finie quand la huitième tombe. Sortir de la zone
+le chrono, et la série est finie quand la dernière tombe. Sortir de la zone
 recouche tout et remet à zéro : on recommence sans toucher à rien.
 
 **On tire avec L1, et la visée est automatique** — la figure qui occupait cette
 touche a été déplacée : sur ce terrain, L1 tire. Le canon cherche la cible
 debout la plus proche dans un cône de ±115° et à moins de 13 m, puis pivote
-vers elle à 3,4 rad/s. Le HUD affiche `VERROUILLÉ` quand l'axe est à moins de
-45 mrad : c'est le moment de tirer, pas avant.
+vers elle à 3,4 rad/s.
 
 L'intérêt n'est pas de viser — c'est de **rouler et tirer en même temps**. La
 dispersion vaut 0,70° à l'arrêt, plus 1,30° par mètre par seconde, plus le
@@ -450,7 +473,9 @@ recul accumulé de la rafale : tirer trois coups à l'arrêt met tout dedans,
 la même rafale à 3 m/s en met un. Le tir est en rafales de trois à 0,085 s
 d'intervalle, chargeur de 30, rechargement de 1,7 s. Le robot est donc obligé
 de faire ce qu'il fait de mieux : rouler jusqu'à la portée, **s'arrêter net**,
-lâcher sa rafale, repartir. Mesuré : **8 cibles sur 8 en 17,4 s pour 87 coups**.
+lâcher sa rafale, repartir. Mesuré, en pilotant vraiment le robot d'une cible à
+l'autre et par la porte du mur : **12 cibles sur 12 en 17,9 s pour 90 coups**,
+sans jamais rester coincé.
 
 Le fusil est monté sur le pont, à l'aplomb du tronc : embase, corps, garde-main,
 tube, frein de bouche, chargeur, optique et crosse. Il ne suit pas la caisse
@@ -459,6 +484,87 @@ traçantes durent 90 ms, la gerbe de bouche autant.
 
 Le simulateur Python ne porte pas le champ de tir : c'est un terrain et une
 tourelle, rien qui touche à la locomotion qu'il vérifie.
+
+#### La caméra de l'arme, et le viseur
+
+Un **quart d'écran en bas à droite** montre ce que l'arme vise. Pas ce que le
+robot regarde : la caméra est fille du **canon**, et c'est le mouvement de la
+tourelle qu'on suit — sans elle, on ne sait jamais sur quoi la visée
+automatique s'est arrêtée.
+
+C'est un **ciseau de rendu**, pas un second canevas. Deux contextes WebGL sur
+la même page doubleraient les textures, les maillages et l'environnement —
+tout, sauf le point de vue. On redessine donc la même scène dans le quart
+bas-droit du même tampon, avec l'autre caméra. Il faut seulement désarmer
+l'effacement automatique, sinon la seconde passe efface la première, et vider
+la profondeur entre les deux, sinon la première masque la seconde. Le bandeau
+de commandes rend la place au lieu de passer par-dessus : ses cartes
+s'empilent sur la moitié gauche et défilent.
+
+Le **réticule est un calque**, dessiné en SVG par-dessus. Un réticule en 3D
+suivrait la perspective, alors qu'un viseur est collé au verre, pas au monde.
+Il dit trois choses, et il les dit par la couleur, parce que c'est la seule
+information qu'on lit sans quitter la cible des yeux :
+
+| Réticule | Ce que ça veut dire |
+| --- | --- |
+| **Vert pâle** | rien en vue |
+| **Ambre** | une cible est prise, la tourelle est en route |
+| **Rouge** | l'axe est bon à moins de 45 mrad — **c'est le moment de tirer** |
+| **+ crochets** | viseur figé à la main sur cette cible |
+
+#### PARTAGE fige, OPTIONS épargne
+
+La visée automatique prend toujours la plus proche. C'est le bon choix neuf
+fois sur dix, et le mauvais la dixième : celle qu'on veut est derrière une
+autre, ou plus haut, et la tourelle repart vers l'autre à chaque image. Les
+deux boutons plats de la manette disent la seule chose que la visée
+automatique ne sait pas : **quoi** viser.
+
+- **PARTAGE** *(touche `F`)* fige le viseur sur la cible tenue en joue, et un
+  second appui le libère. Cela rend la décision au pilote sans lui rendre le
+  pointage : l'arme continue de suivre toute seule, mais elle suit **celle-là**,
+  et jusqu'à ce qu'elle tombe.
+- **OPTIONS** *(touche `O`)* déclare la cible tenue **amie**. Elle vire au
+  bleu, sort du cycle de visée — le tir sur elle devient donc *impossible* et
+  non seulement déconseillé — et le compteur baisse d'autant : la série se
+  termine sans elle.
+
+Un stand où tout ce qui se lève est à abattre ne demande qu'un doigt. Pouvoir
+déclarer une silhouette amie change la nature de l'exercice : la tourelle vise
+toute seule, mais c'est au pilote de dire ce qui est une cible.
+
+### Le son, fabriqué et non joué
+
+Il n'y a **pas un seul fichier audio** dans ce visualiseur. Un échantillon de
+coup de feu pèserait plus lourd que la moitié de la géométrie du robot, il
+sonnerait pareil à chaque fois, et il faudrait le charger avant de pouvoir
+tirer. Tout est donc **synthétisé** : quelques lignes de bruit blanc filtré,
+qui ne se répètent jamais tout à fait et qui suivent la scène.
+
+Un coup de feu n'est pas un « bang ». C'est trois choses superposées dans les
+cent premières millisecondes.
+
+| Couche | Ce que c'est | Réglage |
+| --- | --- | --- |
+| Détonation | le souffle qui claque | bruit, 2600 → 700 Hz en 110 ms |
+| Corps | le volume d'air de la culasse | triangle, 190 → 48 Hz en 140 ms |
+| Culasse | le claquement mécanique | bruit étroit à 5,2 kHz, 35 ms, à +22 ms |
+| Renvoi | les merlons qui rendent le souffle | deux échos sourds, à +55 et +135 ms |
+
+Chaque coup tire son timbre à ±6 % : dans une rafale, trois coups strictement
+identiques s'entendent comme un défaut de boucle et non comme une arme
+automatique. Le reste suit la même recette — le claquement de tôle de
+l'impact, le mat de la silhouette qui bascule, le triple clic du chargeur, le
+bip court du verrouillage (au **passage**, pas tant qu'il dure : verrouillé est
+un instant, pas un état), les deux tons montants du viseur figé, les deux tons
+descendants d'une cible épargnée, le grincement des vérins qui relèvent les
+cibles.
+
+Le navigateur n'autorise le son qu'après un geste de l'utilisateur — et la
+règle est bonne : une page qui parle avant qu'on l'ait touchée est une page
+qu'on ferme. Le contexte naît donc au premier clic ou à la première touche, et
+pas au chargement.
 
 ### Le lidar se pose sur son cercle
 
@@ -1388,6 +1494,8 @@ mentir sur ce que fait la manette.
 | R2 | `↑` | Accélérer (analogique, 0 à 2,2 m/s) — en roue libre la pente fait le reste |
 | L2 | `↓` | Freiner, **puis marche arrière** une fois arrêté (jusqu'à 1,4 m/s) |
 | L1 | `A` | Double salto arrière — **et le tir**, sur le champ de tir |
+| PARTAGE | `F` | Champ de tir : figer le viseur sur la cible (rappui = libre) |
+| OPTIONS | `O` | Champ de tir : déclarer la cible **amie** — tir impossible |
 | R1 | `E` | 540 McTwist |
 | L1 + R1 **tenus ensemble** | `A` + `E` | Pirouette, tant que les deux restent enfoncés |
 | Clic stick gauche | `T` | **Salto arrière enchaîné**, tant qu'on tient |
@@ -1643,6 +1751,7 @@ src/10-data.js        cotes, allures, vitesses, sous-systèmes, groupes de mati�
 src/12-terrain.js     terrains analytiques : hauteur sous le pied et volumes affichés
 src/13-ball.js        la boule poussable : inertie, pentes, rebonds, roulement sans glissement
 src/14-range.js       champ de tir : cibles escamotables, fusil, visée automatique, dispersion
+src/15-audio.js       le son, synthétisé : coups, impacts, chargeur, verrouillage
 src/20-materials.js   matières PBR et motifs procéduraux
 src/30-robot.js       décodage des maillages et montage de l'arbre cinématique
 src/40-motion.js      cinématique inverse, allures, lecture de trajectoire, liaison directe
