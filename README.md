@@ -520,19 +520,11 @@ dit que la détente était *déjà* enfoncée. Sans lui, la tenir en coup par co
 viderait le chargeur au rythme de la reprise — exactement ce qu'on cherchait à
 éviter en le choisissant.
 
-#### Trois raisons pour lesquelles la détente ne part pas
+#### La détente attend l'alignement — mais elle part toujours
 
-Ces chiffres sont bas, et c'est le but. La conduite de tir est entièrement
-automatique : un coup qui ne peut pas toucher ne doit pas partir. Trois
-verrous, chacun venant d'un défaut observé.
+Deux règles, et une seule chose qu'elles ne font pas : **elles n'empêchent
+jamais de tirer**.
 
-- **Pas de cible, pas de coup.** Détente tenue depuis la ligne de tir, avant
-  correction : deux cibles couchées, puis **dix-sept coups dans le vide** —
-  de quoi croire que les cibles ne tombent plus. Seules deux silhouettes sont
-  à portée de la ligne ; les autres se gagnent en avançant. Le fusil refuse
-  maintenant de partir sans verrou, et le dit. *(Le lance-grenades fait
-  exception : tirer sur un mur ou sur une voiture est une intention en soi, et
-  aucune de ces deux choses ne se verrouille.)*
 - **Pas de coup avant l'alignement.** Une rafale dure 170 ms et la tourelle
   met plus longtemps que ça à s'aligner : les **deux premiers coups de chaque
   rafale partaient donc systématiquement à côté**, la cible restait debout, et
@@ -546,7 +538,29 @@ verrous, chacun venant d'un défaut observé.
   l'alignement — c'est ce que fait un vrai poste de tir.
 
 Effet mesuré, à conditions égales : le nettoyage automatique passait de
-**29 coups à 8** pour les mêmes douze cibles.
+**29 coups à 8** pour les mêmes douze cibles — il ne tire, lui, que verrouillé.
+
+#### Le tir libre : sans verrou, le coup part quand même
+
+La visée automatique prend toujours la plus proche à découvert et dans son
+cône. Tout le reste — une silhouette hors du cône, plus loin que les treize
+mètres de portée de recherche, ou simplement celle qu'on veut prendre
+soi-même — lui échappe. Une version a refusé le coup dans ce cas : la détente
+devenait muette, et c'est pire que de gaspiller des cartouches.
+
+Sans verrou, le fusil tire donc **droit devant**, et le coup est un **vrai
+rayon** plutôt qu'une décoration : direction du canon, écartée de la
+dispersion, et la première silhouette debout qui se trouve dessus tombe. On
+tolère sa demi-largeur autour de l'axe et on vérifie qu'on la prend entre ses
+pieds et sa tête. Le mur compte comme toujours.
+
+Vérifié : la cible de 28,6 m — hors du cycle de visée, qui ne cherche qu'à
+treize — se couche au tir libre ; et quinze coups tirés à bout portant sur un
+trumeau laissent debout la silhouette qui est derrière. Le réticule affiche
+**« tir libre »** pour qu'on sache que la détente répond même sans cible.
+
+Le prix est celui qu'on choisit : détente tenue sans rien à portée, le
+chargeur se vide. C'est un tir de couverture, pas une erreur.
 
 Le **lance-grenades ne connaît pas ces modes** : une grenade part seule, et un
 lance-grenades automatique de six coups se vide en une demi-seconde. Il force

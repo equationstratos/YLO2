@@ -2567,17 +2567,6 @@ window.YLO = window.YLO || {};
        que la détente le respecte aussi. */
     if (S.lock && !S.ready) { S.want = WANT; return false; }
     S.want = 0;
-    /* Et SANS cible, le fusil ne part pas du tout.
-       Toute la conduite de tir est automatique : un coup sans verrou ne peut
-       pas toucher, il ne fait que vider le chargeur. Détente tenue depuis la
-       ligne de tir, avant : deux cibles couchées puis dix-sept coups dans le
-       vide — de quoi croire que les cibles ne tombent plus. Le lance-grenades
-       fait exception : tirer sur un mur ou sur une voiture est une intention
-       en soi, et aucune de ces deux choses ne se verrouille. */
-    if (!S.lock && W().id !== "lg") {
-      S.say = "Aucune cible à portée";
-      return false;
-    }
     if (S.ammo <= 0) { S.reload = W().reload; S.say = "Rechargement"; Y.Audio.reload(); return false; }
     S.burst = Math.min(MO().n, S.ammo); S.next = 0;
     return true;
@@ -2627,6 +2616,54 @@ window.YLO = window.YLO || {};
     let x = 0;
     for (let i = 0; i < 6; i++) x += Math.random();
     return (x - 3) / 1.2;
+  }
+
+  /**
+   * Tir LIBRE : sans verrou, le coup part droit devant.
+   *
+   * La visée automatique choisit toujours la plus proche à découvert et dans
+   * son cône ; tout le reste — une silhouette hors cône, plus loin que la
+   * portée de recherche, ou qu'on veut simplement prendre soi-même — n'était
+   * pas atteignable. Refuser le coup rendait la détente muette, tirer sans
+   * rien calculer la rendait décorative.
+   *
+   * On lance donc un vrai rayon : direction du canon, écartée de la
+   * dispersion, et la première silhouette debout qui se trouve dessus tombe.
+   * Le mur compte, comme toujours : ce qu'il arrête n'atteint rien derrière.
+   */
+  const qBar = new T.Quaternion(), vDir = new T.Vector3();
+
+  function freeShot(from, spread) {
+    S.barrel.getWorldQuaternion(qBar);
+    vDir.set(1, 0, 0).applyQuaternion(qBar);
+    // la dispersion écarte le rayon : deux angles, comme pour une vraie arme
+    const ax = randn() * spread, az = randn() * spread;
+    let yaw = Math.atan2(vDir.y, vDir.x) + az;
+    let pit = Math.asin(Math.max(-1, Math.min(1, vDir.z))) + ax;
+    const d = new T.Vector3(Math.cos(pit) * Math.cos(yaw),
+                            Math.cos(pit) * Math.sin(yaw), Math.sin(pit));
+    const reach = W().reach;
+    const wall = Y.Terrain.hitDist(from.x, from.y, from.z,
+      from.x + d.x * reach, from.y + d.y * reach, from.z + d.z * reach, MUZZLE_SKIP);
+    const stop = wall < 0 ? reach : wall;
+    let best = null, bd = Infinity;
+    S.targets.forEach(function (t) {
+      if (t.friend || t.state !== "up") return;
+      /* Distance du CENTRE de la silhouette au rayon, par projection. Une
+         cible n'est un point ni en hauteur ni en largeur : on tolère sa
+         demi-largeur autour de l'axe, et on vérifie qu'on la prend entre ses
+         pieds et sa tête. */
+      const ox = t.x - from.x, oy = t.y - from.y, oz = aimZ(t) - from.z;
+      const along = ox * d.x + oy * d.y + oz * d.z;
+      if (along <= 0.3 || along > stop || along > bd) return;
+      const px = ox - d.x * along, py = oy - d.y * along, pz = oz - d.z * along;
+      if (Math.hypot(px, py) > TARGET_W * 0.5) return;
+      if (Math.abs(pz) > TARGET_H * 0.45) return;
+      bd = along; best = t;
+    });
+    return { t: best, end: new T.Vector3(from.x + d.x * (best ? bd : stop),
+                                         from.y + d.y * (best ? bd : stop),
+                                         from.z + d.z * (best ? bd : stop)) };
   }
 
   function shoot() {
@@ -2679,6 +2716,21 @@ window.YLO = window.YLO || {};
       const half = Math.atan(TARGET_W * 0.5 / Math.max(d, 0.5));
       hit = Math.abs(randn() * spread) < half;
     }
+    /* Pas de verrou : on tire quand même, et le rayon décide. C'est le seul
+       chemin par lequel une cible hors du cycle de visée peut tomber. */
+    let free = null;
+    if (!t) {
+      const speed = Math.abs(Y.Natural.state.vx);
+      const sp = (W().spread0 + speed * W().spreadV
+                  + (W().burst - S.burst) * W().recoil
+                  + S.gimbalErr * 180 / Math.PI * 0.20) * Math.PI / 180;
+      free = freeShot(v0, sp);
+      if (free.t) {
+        free.t.state = "falling"; S.hits++;
+        Y.Audio.hit();
+        if (S.hits >= S.total) finish();
+      }
+    }
     Y.Audio.shot();
     if (hit) {
       t.state = "falling";
@@ -2686,13 +2738,10 @@ window.YLO = window.YLO || {};
       if (S.hold === t) S.hold = null;      // elle est tombée : le viseur repart
       Y.Audio.hit();
       if (S.hits >= S.total) finish();
-    } else Y.Audio.miss();
-    // traceur : du canon au point d'impact, ou droit devant si on a manqué
+    } else if (!free || !free.t) Y.Audio.miss();
+    // traceur : du canon au point d'impact, ou jusqu'où le rayon libre est allé
     if (t) v1.set(t.x, t.y, aimZ(t));
-    else {
-      const d = new T.Vector3(1, 0, 0).applyQuaternion(S.barrel.getWorldQuaternion(new T.Quaternion()));
-      v1.copy(v0).addScaledVector(d, W().reach);
-    }
+    else v1.copy(free.end);
     if (!hit && t && wall < 0) {                    // on tire à côté
       v1.x += (Math.random() - 0.5) * 1.2;
       v1.y += (Math.random() - 0.5) * 1.2;
@@ -9945,7 +9994,7 @@ window.YLO = window.YLO || {};
     fpvTag.textContent = r.wpn + " " + r.mode + " · " + (r.reload ? "rechargement"
       : r.ready ? "verrouillé · " + r.dist.toFixed(1) + " m"
       : r.aim ? "acquisition · " + r.dist.toFixed(1) + " m"
-      : "aucune cible")
+      : "tir libre")
       + " · stab " + r.stab.toFixed(0) + "°";
     if (r.ready !== fpvWasLock) fpvWasLock = r.ready;
   }

@@ -1443,7 +1443,7 @@
     fpvTag.textContent = r.wpn + " " + r.mode + " · " + (r.reload ? "rechargement"
       : r.ready ? "verrouillé · " + r.dist.toFixed(1) + " m"
       : r.aim ? "acquisition · " + r.dist.toFixed(1) + " m"
-      : "aucune cible")
+      : "tir libre")
       + " · stab " + r.stab.toFixed(0) + "°";
     if (r.ready !== fpvWasLock) fpvWasLock = r.ready;
   }
