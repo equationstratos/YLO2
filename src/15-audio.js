@@ -168,6 +168,13 @@
       tone({ at: 0.09, type: "sine", f0: 620, dur: 0.16, gain: 0.16 });
     },
 
+    /** Cible repérée : le pointillé court d'un écho radar. */
+    ping: function () {
+      if (!wake()) return;
+      tone({ type: "sine", f0: 1750, dur: 0.05, gain: 0.07 });
+      tone({ at: 0.05, type: "sine", f0: 2350, dur: 0.07, gain: 0.05 });
+    },
+
     /** Les cibles se relèvent : le grincement des vérins. */
     raise: function () {
       if (!wake()) return;

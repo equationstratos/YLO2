@@ -218,10 +218,12 @@
         /* Le mur percé, en travers du couloir : une porte au milieu, deux
            fenêtres à hauteur d'homme de part et d'autre.
 
-           Les fenêtres ne se passent pas — leur allège fait 850 mm, le robot
-           en fait 300 — et c'est le but : on TIRE à travers, on ne passe pas.
-           Le rayon les ignore, l'œil non, et une cible cadrée dans une
-           fenêtre ne se prend que d'un endroit. La porte, elle, se franchit :
+           Les fenêtres ne se passent pas — leur allège fait 500 mm quand le
+           robot en franchit 450 — mais elles se TIRENT à travers : 500 mm,
+           c'est cinquante de plus que ce qu'une roue peut monter, et juste
+           au-dessous de la ligne de bouche vue d'une trentaine de mètres.
+           Une cible cadrée dans une fenêtre ne se prend donc que d'un
+           endroit, et il faut le trouver. La porte, elle, se franchit :
            son linteau est à 800 mm, au-dessus de la caisse quelle que soit la
            hauteur de conduite. C'est le seul passage, il faut le viser. */
         (function () {
@@ -229,13 +231,13 @@
           const door = [-0.70, 0.70];
           const win = [[-3.00, -1.60], [1.60, 3.00]];
           out.push(box(X0, X1, -4.20, win[0][0], TOP));
-          out.push(box(X0, X1, win[0][0], win[0][1], 0.85));        // allège
-          out.push(lintel(X0, X1, win[0][0], win[0][1], 1.75, TOP)); // linteau
+          out.push(box(X0, X1, win[0][0], win[0][1], 0.50));        // allège
+          out.push(lintel(X0, X1, win[0][0], win[0][1], 1.60, TOP)); // linteau
           out.push(box(X0, X1, win[0][1], door[0], TOP));
           out.push(lintel(X0, X1, door[0], door[1], 0.80, TOP));    // la porte
           out.push(box(X0, X1, door[1], win[1][0], TOP));
-          out.push(box(X0, X1, win[1][0], win[1][1], 0.85));
-          out.push(lintel(X0, X1, win[1][0], win[1][1], 1.75, TOP));
+          out.push(box(X0, X1, win[1][0], win[1][1], 0.50));
+          out.push(lintel(X0, X1, win[1][0], win[1][1], 1.60, TOP));
           out.push(box(X0, X1, win[1][1], 4.20, TOP));
         })();
 
@@ -439,6 +441,69 @@
     return lo;
   }
 
+  /**
+   * Y a-t-il quelque chose ENTRE ces deux points ?
+   *
+   * La méthode des tranches : une boîte alignée sur les axes est
+   * l'intersection de trois bandes, une par axe. Le segment y entre au plus
+   * tard des trois entrées et en sort au plus tôt des trois sorties ; s'il
+   * entre après être sorti, il passe à côté. Trois divisions par boîte, pas
+   * de racine carrée, pas de maillage — et c'est exactement la description
+   * qui sert déjà au contact, donc rien ne peut diverger entre ce qu'on voit
+   * et ce qui arrête une balle.
+   *
+   * `z0` compte ici, contrairement à `heightAt` : un linteau ne porte pas
+   * une roue mais il arrête un regard, et c'est bien le même volume.
+   */
+  function hitDist(ax, ay, az, bx, by, bz, skipNear) {
+    const dx = bx - ax, dy = by - ay, dz = bz - az;
+    const near = skipNear || 0;
+    const len = Math.hypot(dx, dy, dz);
+    if (len < 1e-6) return -1;
+    const t0min = near / len;                 // on ignore ce qu'on a sur le nez
+    let first = -1;
+    const boxes = current.boxes;
+    for (let i = 0; i < boxes.length; i++) {
+      const b = boxes[i];
+      let lo = t0min, hi = 1;
+      // X
+      if (Math.abs(dx) < 1e-9) { if (ax < b.x0 || ax > b.x1) continue; }
+      else {
+        let t1 = (b.x0 - ax) / dx, t2 = (b.x1 - ax) / dx;
+        if (t1 > t2) { const t = t1; t1 = t2; t2 = t; }
+        if (t1 > lo) lo = t1; if (t2 < hi) hi = t2;
+        if (lo > hi) continue;
+      }
+      // Y
+      if (Math.abs(dy) < 1e-9) { if (ay < b.y0 || ay > b.y1) continue; }
+      else {
+        let t1 = (b.y0 - ay) / dy, t2 = (b.y1 - ay) / dy;
+        if (t1 > t2) { const t = t1; t1 = t2; t2 = t; }
+        if (t1 > lo) lo = t1; if (t2 < hi) hi = t2;
+        if (lo > hi) continue;
+      }
+      // Z — le plancher de la boîte est z0, son plafond h
+      const z0 = b.z0 || 0;
+      if (Math.abs(dz) < 1e-9) { if (az < z0 || az > b.h) continue; }
+      else {
+        let t1 = (z0 - az) / dz, t2 = (b.h - az) / dz;
+        if (t1 > t2) { const t = t1; t1 = t2; t2 = t; }
+        if (t1 > lo) lo = t1; if (t2 < hi) hi = t2;
+        if (lo > hi) continue;
+      }
+      /* On garde la PREMIÈRE rencontre et non la première trouvée : c'est
+         elle qui dit où s'arrête le traceur. Un mur derrière un autre mur
+         ne change rien à l'endroit où la balle se plante. */
+      if (first < 0 || lo < first) first = lo;
+    }
+    return first < 0 ? -1 : first * len;
+  }
+
+  /** Y a-t-il quelque chose entre ces deux points ? */
+  function blocked(ax, ay, az, bx, by, bz, skipNear) {
+    return hitDist(ax, ay, az, bx, by, bz, skipNear) >= 0;
+  }
+
   /** Hauteur maximale rencontrée le long d'un segment (dégagement du vol). */
   function maxHeightAlong(x0, y0, x1, y1, samples) {
     const n = samples || 6;
@@ -623,6 +688,8 @@
     build: build,
     heightAt: heightAt,
     ceilingAt: ceilingAt,
+    blocked: blocked,
+    hitDist: hitDist,
     zoneAt: zoneAt,
     support: support,
     jumpAhead: jumpAhead,

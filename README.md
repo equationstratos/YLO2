@@ -445,11 +445,11 @@ un stand qui se vide en ligne droite n'est pas un parcours :
   ralentir est justement ce qui permet de tirer juste ;
 - **un mur en travers**, percé d'une **porte** au milieu et de **deux
   fenêtres** de part et d'autre. Les fenêtres ne se passent pas : leur allège
-  fait 850 mm et le robot 300. C'est le but — on **tire à travers**, on ne
-  passe pas, et une cible cadrée dans une fenêtre ne se prend que d'un
-  endroit. La porte, elle, se franchit : son linteau est à 800 mm, au-dessus
-  de la caisse à toutes les hauteurs de conduite. C'est le seul passage du
-  mur, il faut le viser ;
+  fait 500 mm, cinquante de plus que ce qu'une roue peut monter. Elles se
+  **tirent** à travers, et c'est là tout leur intérêt — une cible cadrée dans
+  une fenêtre ne se prend que d'un endroit, et il faut le trouver. La porte,
+  elle, se franchit : son linteau est à 800 mm, au-dessus de la caisse à
+  toutes les hauteurs de conduite. C'est le seul passage du mur ;
 - **une carcasse de voiture** en travers de la voie, caisse rouge et vitrage
   sombre, qu'on contourne et dont le toit porte une cible. Elle est décrite
   comme le reste du terrain — des boîtes — mais **porte ses propres
@@ -474,7 +474,7 @@ la même rafale à 3 m/s en met un. Le tir est en rafales de trois à 0,085 s
 d'intervalle, chargeur de 30, rechargement de 1,7 s. Le robot est donc obligé
 de faire ce qu'il fait de mieux : rouler jusqu'à la portée, **s'arrêter net**,
 lâcher sa rafale, repartir. Mesuré, en pilotant vraiment le robot d'une cible à
-l'autre et par la porte du mur : **12 cibles sur 12 en 17,9 s pour 90 coups**,
+l'autre et par la porte du mur : **12 cibles sur 12 en 21,9 s pour 104 coups**,
 sans jamais rester coincé.
 
 Le fusil est monté sur le pont, à l'aplomb du tronc : embase, corps, garde-main,
@@ -484,6 +484,108 @@ traçantes durent 90 ms, la gerbe de bouche autant.
 
 Le simulateur Python ne porte pas le champ de tir : c'est un terrain et une
 tourelle, rien qui touche à la locomotion qu'il vérifie.
+
+#### Une balle ne traverse pas un mur
+
+Le tir était un rayon sans obstacle : la tourelle se braquait sur la cible la
+plus proche même quand deux mètres de béton la séparaient d'elle, et la balle
+arrivait quand même. C'est réparé, et par le même volume qui arrête une roue —
+pas par une géométrie de collision à part, sinon ce qu'on voit et ce qui
+arrête une balle finiraient par diverger.
+
+La méthode est celle des **tranches** : une boîte alignée sur les axes est
+l'intersection de trois bandes, une par axe ; le segment y entre au plus tard
+des trois entrées et en sort au plus tôt des trois sorties, et s'il entre après
+être sorti, il passe à côté. Trois divisions par boîte, pas de racine carrée,
+pas de maillage. On garde la **première** rencontre — un mur derrière un autre
+mur ne change rien à l'endroit où la balle se plante.
+
+Ce que ça change, en jeu :
+
+- **la tourelle ne se verrouille plus sur ce qu'elle ne peut pas toucher.** Une
+  cible couverte n'entre pas dans le cycle de visée, et un viseur figé sur une
+  cible qui se couvre se libère tout seul ;
+- **le traceur s'arrête net dans le mur** au lieu de le traverser. C'est ce qui
+  se voit, donc c'est ce qui doit être dessiné ;
+- **plus aucun poste de tir ne vide le stand.** Relevé depuis quatre postes :
+  de l'axe on voit 5 cibles sur 12, de la fenêtre gauche 5 *autres*, de la
+  fenêtre droite 8, et il faut se rapprocher de la porte pour en tenir 9. Le
+  parcours n'est plus une ligne droite, c'est une recherche d'angles.
+
+Le contrôle est direct : **0 coup sur 9 tiré à travers un mur** depuis un poste
+couvert, contre neuf sur neuf avant.
+
+#### La carte de reconnaissance
+
+Un cadre en **bas à gauche** montre ce que le robot a **repéré**. Pas ce qu'il
+voit : ce qu'il a vu. Une cible aperçue une fois y reste, même quand un mur se
+remet devant — c'est toute la différence entre une carte et une vue, la vue
+oublie, la carte garde, et c'est sur cette mémoire-là qu'on décide où aller.
+
+Repérer ne demande ni de viser ni de tirer : le lidar tourne, donc la détection
+est **circulaire**, à découvert et à moins de 22 m. On voit plus loin qu'on ne
+tire — la portée utile de l'arme est de 13 m —, ce qui est le principe même
+d'une reconnaissance.
+
+| Sur la carte | |
+| --- | --- |
+| **Point rouge** | cible debout |
+| **Point bleu** | cible déclarée amie |
+| **Croix grise** | cible au sol |
+| **Cercle ambre** | celle que l'arme tient en ce moment |
+| **Anneau clair** | cible en surplomb |
+| **Chevron** | le robot, orange en manuel, **ambre** en nettoyage automatique |
+
+Le cadrage suit le **terrain**, pas le robot : une carte qui glisse sous les
+yeux ne se lit pas, alors qu'un plan fixe se mémorise en trois passages. Le
+stand étant long et étroit, l'échelle est anisotrope — à l'échelle isotrope le
+couloir se réduirait à un trait. C'est un canevas et non du SVG : on redessine
+douze points soixante fois par seconde, et remplacer douze nœuds du document à
+chaque image coûte plus cher que de repeindre une image.
+
+#### La touche PS : le robot finit le travail
+
+Un appui sur **PS** *(touche `P`)* rend la main au robot. Il prend les cibles
+de **sa carte**, une par une, en se déplaçant quand il le faut. Un second appui
+la lui reprend à l'image près — on ne lance pas un automate qu'on ne peut pas
+arrêter.
+
+Il ne triche pas :
+
+- il ne connaît **que ce qui est sur sa carte**. S'il n'a plus rien de repéré
+  mais qu'il reste des cibles debout, il passe en **reconnaissance** et
+  descend le couloir jusqu'à ce que quelque chose entre dans sa vue ;
+- il doit **voir** une cible pour la tirer, comme le pilote ;
+- il roule à **85 % de la vitesse maximale** — 1,87 m/s sur 2,20. Pas 100 % :
+  un robot qui fonce à fond n'arrive jamais à l'arrêt là où il faut tirer, et
+  le temps gagné en translation est reperdu au freinage ;
+- il **s'arrête et freine** pour tirer. La dispersion s'ouvre avec la vitesse :
+  tirer en roulant, c'est vider le chargeur pour rien.
+
+**La navigation est réactive, pas planifiée.** On vise le but ; si la route est
+barrée à hauteur de caisse, on balaie l'angle de part et d'autre jusqu'à
+trouver un cap libre, et le plus petit écart gagne toujours — le robot ne
+contourne qu'autant qu'il le faut. C'est ce qui lui fait trouver la porte du
+mur sans qu'on lui ait dessiné de chemin ; un plan de route serait à refaire à
+chaque terrain, un cap libre se cherche partout de la même façon.
+
+Deux choses ont dû être ajoutées avant que ça marche vraiment :
+
+- **une voie, pas un rayon.** Un seul rayon parti du centre passe dans une
+  porte de dix centimètres ; le robot en fait quarante-cinq de large et s'y
+  coinçait — bloqué à `x = 9,4` contre le jambage, pour toujours. On sonde
+  donc **trois rayons parallèles** écartés d'un demi-gabarit, ce qui le fait
+  se centrer dans l'ouverture au lieu de venir taper le montant ;
+- **une marche arrière.** Une navigation réactive n'a pas de mémoire : elle
+  reproposera le même cap tant que la situation ne change pas, et la seule
+  façon de la changer est de bouger. Après 1,1 s d'immobilité, le robot recule
+  neuf dixièmes de seconde en braquant, et l'angle se rouvre.
+
+Relevé, départ sur la ligne de tir avec **5 cibles sur 12** repérées :
+**12 sur 12 abattues en 17,2 s pour 25 coups**, pointe à **1,87 m/s** — le
+plafond exact —, les sept autres découvertes en chemin. Vingt-cinq coups pour
+douze cibles, là où le même parcours piloté à la main en demande cent : le
+robot, lui, s'arrête vraiment à chaque fois.
 
 #### La caméra de l'arme, et le viseur
 
@@ -1496,6 +1598,7 @@ mentir sur ce que fait la manette.
 | L1 | `A` | Double salto arrière — **et le tir**, sur le champ de tir |
 | PARTAGE | `F` | Champ de tir : figer le viseur sur la cible (rappui = libre) |
 | OPTIONS | `O` | Champ de tir : déclarer la cible **amie** — tir impossible |
+| PS | `P` | Champ de tir : **nettoyage automatique** des cibles repérées |
 | R1 | `E` | 540 McTwist |
 | L1 + R1 **tenus ensemble** | `A` + `E` | Pirouette, tant que les deux restent enfoncés |
 | Clic stick gauche | `T` | **Salto arrière enchaîné**, tant qu'on tient |
@@ -1748,10 +1851,10 @@ une fois les deux panneaux repliés.
 
 ```
 src/10-data.js        cotes, allures, vitesses, sous-systèmes, groupes de matières
-src/12-terrain.js     terrains analytiques : hauteur sous le pied et volumes affichés
+src/12-terrain.js     terrains analytiques : hauteur sous le pied, volumes affichés, ligne de vue
 src/13-ball.js        la boule poussable : inertie, pentes, rebonds, roulement sans glissement
-src/14-range.js       champ de tir : cibles escamotables, fusil, visée automatique, dispersion
-src/15-audio.js       le son, synthétisé : coups, impacts, chargeur, verrouillage
+src/14-range.js       champ de tir : cibles, fusil, visée auto, carte mémoire, nettoyage automatique
+src/15-audio.js       le son, synthétisé : coups, impacts, chargeur, verrouillage, écho radar
 src/20-materials.js   matières PBR et motifs procéduraux
 src/30-robot.js       décodage des maillages et montage de l'arbre cinématique
 src/40-motion.js      cinématique inverse, allures, lecture de trajectoire, liaison directe

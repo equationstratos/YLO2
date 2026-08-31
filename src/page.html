@@ -218,12 +218,16 @@ canvas{position:absolute;inset:0;display:block;width:100%;height:100%;touch-acti
    replient sur la moitié gauche — c'est de la place perdue pour les
    réglages, mais un viseur à moitié caché ne sert à rien. */
 .stage.fpvon .hud{
-  right:calc(50% + 12px);
+  /* Trois bandeaux se disputent le bas de la scène : la carte à gauche, la
+     caméra de l'arme à droite, les commandes au milieu. Il n'y a pas la place
+     pour trois colonnes — les commandes montent donc AU-DESSUS de la carte,
+     sur la moitié gauche, au lieu de se coincer entre les deux. */
+  right:calc(50% + 12px);left:16px;bottom:230px;
   /* Sur la moitié de la largeur, trois cartes côte à côte se coupent en
      morceaux. On rend donc le retour à la ligne que la requête de conteneur
      avait retiré, et on borne la hauteur : les cartes s'empilent et défilent
      au lieu d'être tronquées. */
-  flex-wrap:wrap;max-height:min(30vh,240px);overflow-y:auto;pointer-events:auto;
+  flex-wrap:wrap;max-height:min(30vh,236px);overflow-y:auto;pointer-events:auto;
 }
 .stage.fpvon .hud > .card{flex:1 1 100%;max-height:none}
 /* Rangées de boutons : une seule ligne qui défile, plutôt que trois lignes
@@ -352,6 +356,24 @@ input[type=range]::-moz-range-thumb{
   position:absolute;top:14px;left:16px;font-family:var(--mono);font-size:10px;
   letter-spacing:.08em;color:var(--faint);text-transform:uppercase;pointer-events:none;
 }
+.mmap{
+  position:absolute;left:12px;bottom:12px;z-index:7;pointer-events:none;
+  background:#0B0E0CE0;border:1px solid var(--line);padding:18px 8px 8px;
+}
+.mmap[hidden]{display:none}
+/* La règle générale `canvas` est écrite pour LA scène : absolue, collée aux
+   quatre bords. Appliquée à la carte, elle la sortait du flux et le cadre se
+   repliait sur rien. Celle-ci reprend sa place normale. */
+.mmap canvas{position:static;inset:auto;display:block;width:252px;height:168px}
+.mmaptitle{
+  position:absolute;left:8px;top:5px;font-family:var(--mono);font-size:9px;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--faint);
+}
+.mmapsay{
+  margin-top:5px;font-family:var(--mono);font-size:10px;letter-spacing:.06em;
+  color:var(--warn);min-height:13px;
+}
+
 .fpv{
   position:absolute;right:0;bottom:0;width:50%;height:50%;z-index:6;
   pointer-events:none;border-left:1px solid var(--line);border-top:1px solid var(--line);
@@ -496,6 +518,16 @@ input[type=range]::-moz-range-thumb{
         <table id="padmaptable"></table>
         <p class="padnote" id="padnote"></p>
       </div>
+      <!-- Carte de reconnaissance : ce que le robot a REPÉRÉ, et qui ne
+           s'efface plus. Un canevas et non du SVG — on redessine douze points
+           soixante fois par seconde, et remplacer douze noeuds du document à
+           chaque image coûte plus cher que de repeindre une image. -->
+      <div class="mmap" id="mmap" hidden>
+        <canvas id="mmapc" width="252" height="168"></canvas>
+        <div class="mmaptitle">Carte · cibles repérées</div>
+        <div class="mmapsay" id="mmapsay"></div>
+      </div>
+
       <!-- Quart d'écran de l'arme. Le rendu 3D est fait par le moteur dans
            un ciseau de rendu ; ce calque ne porte QUE le viseur et son
            cadre — un réticule dessiné en 3D suivrait la perspective, alors

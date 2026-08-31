@@ -76,7 +76,7 @@
       label: "disposition standard",
       button: { cross: 0, circle: 1, square: 2, triangle: 3, l1: 4, r1: 5,
                 share: 8, options: 9, l3: 10,
-                r3: 11, up: 12, down: 13, left: 14, right: 15 },
+                r3: 11, up: 12, down: 13, left: 14, right: 15, ps: 16 },
       trigger: { l2: { btn: 6 }, r2: { btn: 7 } },
       stick: { lx: 0, rx: 2, ry: 3 },
       hat: -1
@@ -84,7 +84,7 @@
     sony: {
       label: "disposition Sony brute",
       button: { square: 0, cross: 1, circle: 2, triangle: 3, l1: 4, r1: 5,
-                share: 8, options: 9, l3: 10, r3: 11 },
+                share: 8, options: 9, l3: 10, r3: 11, ps: 12 },
       // en HID brut, les gâchettes sont analogiques sur des axes, à plat en -1
       trigger: { l2: { axis: 3 }, r2: { axis: 4 } },
       stick: { lx: 0, rx: 2, ry: 5 },
@@ -138,6 +138,7 @@
     { pad: "L1", key: "A", act: "Double salto arrière — au champ de tir : TIR" },
     { pad: "PARTAGE", key: "F", act: "Champ de tir : figer le viseur sur la cible (rappui = libre)" },
     { pad: "OPTIONS", key: "O", act: "Champ de tir : déclarer la cible amie — tir interdit" },
+    { pad: "PS", key: "P", act: "Champ de tir : le robot nettoie seul les cibles repérées (85 % de la vitesse)" },
     { pad: "R1", key: "E", act: "540 McTwist" },
     { pad: "L1 + R1", key: "A + E", act: "Pirouette / 360 en l'air" },
     { pad: "□ ○ pendant", key: "C V pendant", act: "…passe en tenue SANS cesser de tourner" },
@@ -358,6 +359,15 @@
       else if (Y.Range.spare()) say("Cible amie — on ne tire plus dessus");
       return;
     }
+    /* La touche PS rend la main au robot : il prend les cibles de sa carte
+       une par une, en se déplaçant s'il le faut. Un second appui la lui
+       reprend, à l'image près — on ne lance pas un automate qu'on ne peut
+       pas arrêter. */
+    if (name === "ps") {
+      if (!edge(name, down)) return;
+      if (Y.Range.active() && Y.Range.sweep()) say(Y.Range.state.say);
+      return;
+    }
     if (name === "l3") {
       // Clic du stick gauche : la bascule enchaînée tourne tant qu'on tient.
       const was = !!prev.l3;
@@ -482,7 +492,7 @@
     }
 
     ["cross", "circle", "square", "triangle", "l1", "r1", "l3", "r3",
-     "share", "options"]
+     "share", "options", "ps"]
       .forEach(function (name) { actOn(name, on(name)); });
     ["up", "down", "left", "right"].forEach(function (d) { actOn(d, dpad[d]); });
 
@@ -490,7 +500,7 @@
     drive(trig("r2"), trig("l2"));
     const lx = ax[L.stick.lx] || 0;
     const stick = Math.abs(lx) > DEAD ? lx : 0;
-    if (hooks.setWz) hooks.setWz(-stick * WZ_MAX);
+    if (hooks.setWz && !Y.Range.autopilot()) hooks.setWz(-stick * WZ_MAX);
 
     /* Stick droit : la caméra. On envoie une VITESSE de rotation, que
        l'application intègre avec son propre pas de temps — un stick tenu à
@@ -515,6 +525,12 @@
    * marche avant-là que le frein doit retenir.
    */
   function drive(gas, brk) {
+    /* Pendant un nettoyage automatique, les gâchettes ne conduisent plus :
+       c'est le robot qui pilote, et deux consignes de vitesse sur la même
+       image se battraient en duel à soixante images par seconde. Les figures,
+       elles, restent disponibles — arrêter le nettoyage n'est pas la seule
+       chose qu'on doit pouvoir faire pendant qu'il tourne. */
+    if (Y.Range.autopilot()) return;
     const rolling = Y.Natural.state.vx * (Y.Natural.state.dir || 1) > 0.05;
     const braking = brk > TRIG && rolling;
     /* Relâcher les DEUX gâchettes freine. Un skateur roule sur son erre, mais
@@ -562,13 +578,14 @@
 
   function stepKeys() {
     drive(keys.ArrowUp ? 1 : 0, keys.ArrowDown ? 1 : 0);
+    if (Y.Range.autopilot()) return;
     const turn = (keys.ArrowLeft ? 1 : 0) - (keys.ArrowRight ? 1 : 0);
     if (hooks.setWz) hooks.setWz(turn * WZ_MAX);
   }
 
   const KEYMAP = {
     " ": "cross", h: "triangle", c: "square", v: "circle",
-    a: "l1", e: "r1", t: "l3", r: "r3", f: "share", o: "options",
+    a: "l1", e: "r1", t: "l3", r: "r3", f: "share", o: "options", p: "ps",
     z: "up", s: "down", q: "left", d: "right"
   };
 

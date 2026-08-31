@@ -1291,6 +1291,7 @@
 
     renderer.render(scene, camera);
     renderFpv();
+    drawMap();
     requestAnimationFrame(tick);
   }
 
@@ -1305,6 +1306,105 @@
      première, et vider la PROFONDEUR entre les deux, sinon la première
      passe masque la seconde.
      ===================================================================== */
+  /* =====================================================================
+     La carte de reconnaissance
+
+     Elle ne montre PAS le terrain : elle montre ce que le robot a repéré.
+     C'est toute la différence entre une carte et une vue — la vue oublie dès
+     qu'un mur se remet devant, la carte garde. Une cible aperçue une fois y
+     reste, debout tant qu'elle l'est, barrée une fois couchée, et c'est sur
+     cette mémoire-là que le nettoyage automatique décide où aller.
+
+     Le cadrage suit le terrain, pas le robot : une carte qui glisse sous les
+     yeux ne se lit pas, alors qu'un plan fixe se mémorise en trois passages.
+     ===================================================================== */
+  const mmapBox = document.getElementById("mmap");
+  const mmapCv = document.getElementById("mmapc");
+  const mmapSay = document.getElementById("mmapsay");
+  const mmapCtx = mmapCv.getContext("2d");
+  let mmapExt = null;
+
+  function drawMap() {
+    const m = Y.Range.map();
+    if (!m) { if (!mmapBox.hidden) mmapBox.hidden = true; return; }
+    if (mmapBox.hidden) { mmapBox.hidden = false; mmapExt = null; }
+    const W = mmapCv.width, H = mmapCv.height, PAD = 10;
+    if (!mmapExt) {
+      const e = Y.Terrain.extent ? Y.Terrain.extent() : null;
+      const bs = Y.Terrain.current.boxes || [];
+      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+      bs.forEach(function (b) {
+        if (b.x0 < x0) x0 = b.x0; if (b.x1 > x1) x1 = b.x1;
+        if (b.y0 < y0) y0 = b.y0; if (b.y1 > y1) y1 = b.y1;
+      });
+      if (!isFinite(x0)) { x0 = -5; x1 = 35; y0 = -5; y1 = 5; }
+      mmapExt = { x0: x0, x1: x1, y0: y0, y1: y1 };
+      void e;
+    }
+    const E = mmapExt;
+    /* Le stand est long et étroit : on le couche en travers de la carte —
+       l'axe du couloir sur la largeur, l'écart latéral sur la hauteur. Une
+       carte à l'échelle isotrope réduirait le couloir à un trait. */
+    const sx = (W - PAD * 2) / (E.x1 - E.x0);
+    const sy = (H - PAD * 2) / (E.y1 - E.y0);
+    const PX = function (x) { return PAD + (x - E.x0) * sx; };
+    const PY = function (y) { return H - PAD - (y - E.y0) * sy; };
+
+    const c = mmapCtx;
+    c.clearRect(0, 0, W, H);
+    c.fillStyle = "#10140f"; c.fillRect(0, 0, W, H);
+
+    // les volumes du terrain, en sourdine : de quoi reconnaître le couloir
+    c.fillStyle = "#1c2320";
+    (Y.Terrain.current.boxes || []).forEach(function (b) {
+      if (b.h < 0.12) return;                       // les gravats ne font pas un plan
+      c.fillRect(PX(b.x0), PY(b.y1), Math.max(1, (b.x1 - b.x0) * sx),
+                 Math.max(1, (b.y1 - b.y0) * sy));
+    });
+
+    // la ligne de tir
+    if (m.zone) {
+      c.strokeStyle = "#2f6b52"; c.lineWidth = 1;
+      c.strokeRect(PX(m.zone[0]), PY(m.zone[3]),
+                   (m.zone[1] - m.zone[0]) * sx, (m.zone[3] - m.zone[2]) * sy);
+    }
+
+    // les cibles repérées
+    m.seen.forEach(function (t) {
+      const x = PX(t.x), y = PY(t.y);
+      c.beginPath();
+      if (t.down) {
+        c.strokeStyle = "#4a534c"; c.lineWidth = 1.4;
+        c.moveTo(x - 3, y - 3); c.lineTo(x + 3, y + 3);
+        c.moveTo(x + 3, y - 3); c.lineTo(x - 3, y + 3);
+        c.stroke();
+        return;
+      }
+      c.fillStyle = t.friend ? "#2f9bd8" : "#ff4433";
+      c.arc(x, y, t.lock ? 4.4 : 3.2, 0, Math.PI * 2);
+      c.fill();
+      if (t.lock) {                                 // celle que l'arme tient
+        c.beginPath(); c.strokeStyle = "#ffc24d"; c.lineWidth = 1.2;
+        c.arc(x, y, 7, 0, Math.PI * 2); c.stroke();
+      }
+      if (t.z > 0.3) {                              // en surplomb : un liseré
+        c.beginPath(); c.strokeStyle = "#e9ede6"; c.lineWidth = 1;
+        c.arc(x, y, 5.4, 0, Math.PI * 2); c.stroke();
+      }
+    });
+
+    // le robot : un chevron, parce qu'un point ne dit pas où l'on regarde
+    const st = M.state, rx = PX(st.px), ry = PY(st.py);
+    const a = -st.yaw;                              // l'axe Y de la carte descend
+    c.save(); c.translate(rx, ry); c.rotate(a);
+    c.fillStyle = m.auto ? "#ffc24d" : "#fc9000";
+    c.beginPath(); c.moveTo(8, 0); c.lineTo(-5, 4.5); c.lineTo(-2.5, 0);
+    c.lineTo(-5, -4.5); c.closePath(); c.fill();
+    c.restore();
+
+    mmapSay.textContent = m.say || "";
+  }
+
   const fpvBox = document.getElementById("fpv");
   const fpvTag = document.getElementById("fpvtag");
   let fpvWasLock = false;
