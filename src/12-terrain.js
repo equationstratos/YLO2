@@ -665,7 +665,16 @@
 
   let onChange = null;
 
-  function rebuild() {
+  /**
+   * Reconstruire les volumes affichés.
+   *
+   * `silent` saute le crochet de changement. C'est ce qu'il faut quand le
+   * terrain est seulement ABÎMÉ : un panneau de mur qui tombe ne change ni
+   * l'étendue de la scène, ni le brouillard, ni la taille du sol — et le
+   * crochet, lui, remet le stand de tir en place, c'est-à-dire remet la série
+   * à zéro. Une grenade repartait donc chrono, munitions et cibles à neuf.
+   */
+  function rebuild(silent) {
     while (group.children.length) {
       const m = group.children.pop();
       if (m.geometry) m.geometry.dispose();
@@ -709,7 +718,7 @@
       plate.receiveShadow = true;
       group.add(plate);
     });
-    if (onChange) onChange(current, extent());
+    if (onChange && !silent) onChange(current, extent());
   }
 
   /* --- terrain abîmé ---------------------------------------------------
@@ -722,13 +731,13 @@
 
   function mutate(boxes) {
     current.boxes = boxes;
-    rebuild();
+    rebuild(true);
   }
 
   function restore() {
     if (!pristine) return false;
     current.boxes = pristine.slice();
-    rebuild();
+    rebuild(true);
     return true;
   }
 

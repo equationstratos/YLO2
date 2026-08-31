@@ -1577,7 +1577,16 @@ window.YLO = window.YLO || {};
 
   let onChange = null;
 
-  function rebuild() {
+  /**
+   * Reconstruire les volumes affichés.
+   *
+   * `silent` saute le crochet de changement. C'est ce qu'il faut quand le
+   * terrain est seulement ABÎMÉ : un panneau de mur qui tombe ne change ni
+   * l'étendue de la scène, ni le brouillard, ni la taille du sol — et le
+   * crochet, lui, remet le stand de tir en place, c'est-à-dire remet la série
+   * à zéro. Une grenade repartait donc chrono, munitions et cibles à neuf.
+   */
+  function rebuild(silent) {
     while (group.children.length) {
       const m = group.children.pop();
       if (m.geometry) m.geometry.dispose();
@@ -1621,7 +1630,7 @@ window.YLO = window.YLO || {};
       plate.receiveShadow = true;
       group.add(plate);
     });
-    if (onChange) onChange(current, extent());
+    if (onChange && !silent) onChange(current, extent());
   }
 
   /* --- terrain abîmé ---------------------------------------------------
@@ -1634,13 +1643,13 @@ window.YLO = window.YLO || {};
 
   function mutate(boxes) {
     current.boxes = boxes;
-    rebuild();
+    rebuild(true);
   }
 
   function restore() {
     if (!pristine) return false;
     current.boxes = pristine.slice();
-    rebuild();
+    rebuild(true);
     return true;
   }
 
@@ -1919,6 +1928,14 @@ window.YLO = window.YLO || {};
       muzzleV: 25.0, blast: 3.4 }
   ];
   const G = 9.81;
+  /* Rayon antipersonnel du souffle, plus court que le rayon structurel : une
+     silhouette debout à deux mètres de l'impact ne bouge pas. */
+  const BLAST_MEN = 1.8;
+  /* Une carrosserie ne saute pas au premier impact, mais elle finit par
+     sauter : réservoir percé, puis feu. Quarante balles au but — une bonne
+     dizaine de secondes de tir soutenu, ce qui est long quand on tient une
+     détente. */
+  const CAR_HP = 40;
 
   /* --- modes de tir ---
      Le même fusil, trois façons de s'en servir. L'automatique arrose : on
@@ -1974,6 +1991,7 @@ window.YLO = window.YLO || {};
     flash: null, fpv: null, tracers: [], yaw: 0, pitch: 0, lock: null,
     hold: null, ready: false, wasReady: false, seen: 0, auto: false, autoSay: "",
     autoJam: 0, autoBack: 0, autoTurn: 0, autoSide: 1, far: 30, mode: 1, want: 0,
+    wasIn: false, carHP: 0,
     ammo: 30, reload: 0, burst: 0, next: 0, rest: 0, wpn: 0, gimbal: null,
     gimbalErr: 0, gimbalUse: 0, gimbalNeed: 0, models: null,
     shells: [], booms: [], scars: null, wrecked: false, breach: 0,
@@ -2260,6 +2278,11 @@ window.YLO = window.YLO || {};
     S.seen = 0; S.auto = false; S.autoSay = "";
     S.autoJam = 0; S.autoBack = 0; S.autoTurn = 0; S.autoSide = 1;
     S.hits = 0; S.shots = 0; S.t = 0; S.running = false; S.live = 0;
+    S.carHP = CAR_HP;
+    /* On réarme le franchissement : une remise à zéro faite alors qu'on se
+       trouve DÉJÀ sur la ligne doit relancer une série, sinon il faudrait
+       ressortir pour un geste qui vient justement de tout remettre à neuf. */
+    S.wasIn = false;
     S.hold = null; S.lock = null; S.ready = false; S.wasReady = false;
     S.ammo = W().mag; S.reload = 0; S.burst = 0; S.next = 0; S.rest = 0; S.want = 0;
     S.total = S.targets.length;
@@ -2267,16 +2290,10 @@ window.YLO = window.YLO || {};
   }
 
   function raise() {
-    /* Nouvelle série, terrain neuf. La réparation se fait ICI et non à la
-       remise à zéro : remettre le terrain d'aplomb le fait reconstruire, ce
-       qui relance la mise en place du stand — et la mise en place remet à
-       zéro. Réparer depuis la remise à zéro se mordrait la queue.
-
-       La reconstruction REMPLACE `S.targets` par des silhouettes neuves : on
-       relève donc APRÈS elle, sur la nouvelle liste. Rendre la main ici, en
-       comptant sur la reconstruction pour relever, laissait la série à
-       l'arrêt — plus rien ne se levait, plus rien ne se tirait, et le
-       nettoyage automatique refusait de partir faute de série en cours. */
+    /* Nouvelle série, terrain neuf : on remet d'aplomb ce qu'on a démoli, et
+       on relève ensuite. La réparation ne touche que les volumes affichés et
+       la description qui sert au contact — elle ne repasse pas par la mise en
+       place du stand, donc les silhouettes en place restent les mêmes. */
     if (S.wrecked || S.breach) {
       S.wrecked = false; S.breach = 0;
       if (S.scars) { while (S.scars.children.length) S.scars.remove(S.scars.children[0]); }
@@ -2666,6 +2683,42 @@ window.YLO = window.YLO || {};
                                          from.z + d.z * (best ? bd : stop)) };
   }
 
+  /**
+   * Une balle a-t-elle frappé la carcasse — et celle-ci en a-t-elle assez ?
+   *
+   * Le lance-grenades n'est pas la seule façon de faire sauter une voiture :
+   * une rafale soutenue y arrive aussi, plus lentement. On regarde donc où la
+   * balle s'est arrêtée, et si c'est dans la carcasse, on décompte. Le point
+   * d'arrêt est déjà calculé pour le traceur : il n'y a rien à lancer de
+   * plus, c'est la même géométrie qui sert à dessiner et à compter.
+   */
+  function hitsCar(pt) {
+    const boxes = Y.Terrain.current.boxes;
+    for (let i = 0; i < boxes.length; i++) {
+      const b = boxes[i];
+      if (b.part !== "auto") continue;
+      const m = 0.12;                       // on tolère l'épaisseur du traceur
+      if (pt.x >= b.x0 - m && pt.x <= b.x1 + m &&
+          pt.y >= b.y0 - m && pt.y <= b.y1 + m &&
+          pt.z >= (b.z0 || 0) - m && pt.z <= b.h + m) return true;
+    }
+    return false;
+  }
+
+  function damageCar(pt) {
+    if (S.wrecked) return;
+    S.carHP--;
+    if (S.carHP > 0) {
+      // un impact sur tôle, et l'état du véhicule qu'on peut lire au HUD
+      Y.Audio.hit();
+      S.say = "Véhicule touché — " + Math.round(S.carHP / CAR_HP * 100) + " %";
+      return;
+    }
+    /* Le réservoir lâche. L'explosion est la même que celle d'une grenade —
+       c'est le véhicule qui saute, pas ce qui l'a percé. */
+    explode(pt.clone());
+  }
+
   function shoot() {
     S.ammo--; S.shots++;
     S.flash.material.opacity = 0.95;
@@ -2751,6 +2804,8 @@ window.YLO = window.YLO || {};
       v1.sub(v0).setLength(wall).add(v0);
     }
     S.tracers.push({ a: v0.clone(), b: v1.clone(), t: 0 });
+    // et si ce mur-là était une carrosserie, elle vient d'en prendre une
+    if (!hit && (!free || !free.t) && hitsCar(v1)) damageCar(v1);
   }
 
   /* =====================================================================
@@ -2887,10 +2942,17 @@ window.YLO = window.YLO || {};
       }
     }
 
-    // les cibles dans le souffle tombent — une grenade ne vise pas, elle couvre
+    /* Le souffle a DEUX rayons, et c'est ce qui manquait.
+       Une grenade de 40 mm démolit une carrosserie à trois mètres mais ne
+       couche pas une silhouette de contreplaqué à la même distance ; les
+       cibles du stand étant espacées de deux mètres cinquante, un rayon
+       unique de 3,4 m en emportait trois ou quatre d'un coup et l'on voyait
+       tomber des cibles que rien n'avait touchées. Le rayon ANTIPERSONNEL
+       est donc plus court que le rayon structurel : ce qui est vraiment dans
+       le souffle tombe, le reste reste debout. */
     S.targets.forEach(function (t) {
       if (t.friend || t.state !== "up") return;
-      if (Math.hypot(t.x - p.x, t.y - p.y, aimZ(t) - p.z) > R) return;
+      if (Math.hypot(t.x - p.x, t.y - p.y, aimZ(t) - p.z) > BLAST_MEN) return;
       t.state = "falling"; S.hits++;
       if (S.hold === t) S.hold = null;
     });
@@ -2993,8 +3055,19 @@ window.YLO = window.YLO || {};
     // entrée sur la ligne de tir : les cibles se relèvent
     const z = S.cfg.zone;
     const inZone = st.px > z[0] && st.px < z[1] && st.py > z[2] && st.py < z[3];
-    if (inZone && !S.running && S.hits === 0) raise();
-    if (inZone && !S.running && S.hits >= S.total) reset();
+    /* La zone verte relance une série NEUVE, et elle le fait au
+       FRANCHISSEMENT — au moment où l'on entre, pas tant qu'on y est.
+
+       Trois cas se comportaient différemment, et c'est ce qui rendait la
+       reprise imprévisible : une série finie repartait toute seule sans qu'on
+       bouge, une série abandonnée en cours de route ne repartait jamais (ni
+       relève ni remise à zéro : les cibles restaient comme on les avait
+       laissées), et une entrée normale relevait tout. Un seul cas
+       maintenant : on entre, tout se remet debout, le chrono repart de zéro.
+       Rester sur la ligne ne fait plus rien — il faut ressortir et revenir,
+       ce qui est le geste qu'on fait de toute façon. */
+    if (inZone && !S.wasIn) { reset(); raise(); }
+    S.wasIn = inZone;
     if (S.running) S.t += dt;
 
     // montée, chute et pose des silhouettes

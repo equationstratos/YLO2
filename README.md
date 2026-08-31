@@ -457,10 +457,18 @@ un stand qui se vide en ligne droite n'est pas un parcours :
   même chose, une fois pour l'œil et une fois pour le contact ;
 - **une passerelle** et sa rampe d'accès, qui portent la cible haute du fond.
 
-**Les cibles se lèvent toutes seules.** Elles restent couchées tant que le
-robot n'est pas sur la plateforme ; entrer dans la zone les redresse et lance
-le chrono, et la série est finie quand la dernière tombe. Sortir de la zone
-recouche tout et remet à zéro : on recommence sans toucher à rien.
+**Les cibles se lèvent toutes seules.** Entrer sur la plateforme relance une
+série **neuve** : tout se redresse, le chrono repart de zéro, le chargeur est
+plein, et le terrain qu'on a démoli est remis d'aplomb.
+
+C'est le **franchissement** qui compte, pas le fait d'y être. Trois cas se
+comportaient différemment, et c'est ce qui rendait la reprise imprévisible :
+une série finie repartait toute seule sans qu'on bouge, une série abandonnée
+en cours de route ne repartait *jamais* — ni relève ni remise à zéro, les
+cibles restaient comme on les avait laissées —, et une entrée normale relevait
+tout. Un seul cas maintenant : on entre, tout se remet debout. Rester sur la
+ligne ne fait plus rien ; il faut ressortir et revenir, ce qui est le geste
+qu'on fait de toute façon.
 
 **On tire avec L1, et la visée est automatique** — la figure qui occupait cette
 touche a été déplacée : sur ce terrain, L1 tire. Le canon cherche la cible
@@ -631,6 +639,47 @@ depuis la remise à zéro se mord la queue — remettre le terrain d'aplomb le
 fait reconstruire, la reconstruction relance la mise en place du stand, et la
 mise en place remet à zéro. La réparation se fait au **relèvement** des
 cibles, pas à la remise à zéro.)*
+
+#### Deux rayons pour un seul souffle
+
+Une grenade de 40 mm démolit une carrosserie à trois mètres mais ne couche pas
+une silhouette de contreplaqué à la même distance. Les cibles du stand étant
+espacées de deux mètres cinquante, un rayon unique de 3,4 m en emportait trois
+ou quatre d'un coup : on visait une cible, on en voyait tomber quatre, dont
+trois que rien n'avait touchées.
+
+Le souffle a donc **deux rayons** : **1,8 m antipersonnel**, **3,4 m
+structurel**. Ce qui est vraiment dedans tombe, le reste reste debout — et le
+lance-grenades garde tout son pouvoir de destruction sur ce qui est bâti.
+Vérifié : une grenade sur la cible de six mètres la couche et laisse les
+**onze autres debout**.
+
+#### La voiture saute aussi au fusil
+
+Le lance-grenades n'est pas la seule façon de faire sauter une carcasse : une
+rafale soutenue y arrive, plus lentement. La carrosserie encaisse **quarante
+balles au but** — une bonne dizaine de secondes de tir tenu, ce qui est long
+quand on garde une détente —, le HUD affiche l'état du véhicule à chaque
+impact, puis le réservoir lâche et c'est la même explosion qu'une grenade :
+c'est le véhicule qui saute, pas ce qui l'a percé. Relevé : **48 coups**, dont
+40 au but, et l'épave à 420 mm.
+
+Rien de nouveau n'a été lancé pour ça. Le point d'arrêt de la balle est déjà
+calculé pour dessiner le traceur : la même géométrie sert à dessiner et à
+compter.
+
+#### Une grenade ne remet plus la série à zéro
+
+Abîmer le terrain le fait reconstruire, et la reconstruction prévenait
+l'application, qui **remettait le stand en place** — c'est-à-dire chrono,
+munitions, cibles et compteur à neuf. Une seule grenade annulait la série en
+cours.
+
+Un panneau de mur qui tombe ne change pourtant ni l'étendue de la scène, ni le
+brouillard, ni la taille du sol : la reconstruction d'un terrain *abîmé* ne
+prévient donc plus personne. Vérifié : quatre grenades ouvrent la brèche, la
+série continue, le chrono passe de 2,4 à 7,0 s sans repartir de zéro — et le
+retour sur la ligne répare le mur et relance une série neuve.
 
 #### Le stabilisateur, le pan et le tilt
 
