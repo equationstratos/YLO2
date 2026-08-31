@@ -227,18 +227,31 @@
            son linteau est à 800 mm, au-dessus de la caisse quelle que soit la
            hauteur de conduite. C'est le seul passage, il faut le viser. */
         (function () {
-          const X0 = 9.60, X1 = 10.10, TOP = 2.20;
-          const door = [-0.70, 0.70];
-          const win = [[-3.00, -1.60], [1.60, 3.00]];
-          out.push(box(X0, X1, -4.20, win[0][0], TOP));
-          out.push(box(X0, X1, win[0][0], win[0][1], 0.50));        // allège
-          out.push(lintel(X0, X1, win[0][0], win[0][1], 1.60, TOP)); // linteau
-          out.push(box(X0, X1, win[0][1], door[0], TOP));
-          out.push(lintel(X0, X1, door[0], door[1], 0.80, TOP));    // la porte
-          out.push(box(X0, X1, door[1], win[1][0], TOP));
-          out.push(box(X0, X1, win[1][0], win[1][1], 0.50));
-          out.push(lintel(X0, X1, win[1][0], win[1][1], 1.60, TOP));
-          out.push(box(X0, X1, win[1][1], 4.20, TOP));
+          const X0 = 9.60, X1 = 10.10, TOP = 2.20, W = 0.70;
+          /* Le mur est bâti en PANNEAUX ÉTROITS de 70 cm, sur une trame
+             régulière. C'est ce qui rend sa destruction locale : une grenade
+             emporte les trois panneaux qu'elle atteint et ouvre une brèche de
+             deux mètres, là où des pans de huit mètres faisaient tomber le
+             mur entier d'un seul coup. Chaque panneau porte son numéro, et
+             un panneau touché part avec son linteau — un mur ne s'ouvre pas
+             en rond, il tombe entre deux montants. */
+          const kind = function (y0, y1) {
+            const c = (y0 + y1) / 2;
+            if (c > -0.70 && c < 0.70) return "porte";
+            if ((c > -2.80 && c < -1.40) || (c > 1.40 && c < 2.80)) return "fenetre";
+            return "plein";
+          };
+          let n = 0;
+          for (let y = -4.20; y < 4.19; y += W) {
+            const y0 = y, y1 = y + W, k = kind(y0, y1), id = n++;
+            const tag = function (b) { b.part = "mur"; b.panel = id; return b; };
+            if (k === "plein") out.push(tag(box(X0, X1, y0, y1, TOP)));
+            else if (k === "porte") out.push(tag(lintel(X0, X1, y0, y1, 0.80, TOP)));
+            else {
+              out.push(tag(box(X0, X1, y0, y1, 0.50)));            // allège
+              out.push(tag(lintel(X0, X1, y0, y1, 1.60, TOP)));    // linteau
+            }
+          }
         })();
 
         /* Une carcasse de voiture en travers : un obstacle qu'on contourne,
@@ -247,14 +260,20 @@
            serait un bloc de béton de plus. */
         (function () {
           const cx = 20.60, cy = -1.30;
+          /* PLEINE, et pas seulement dessinée. La caisse était décrite comme un
+             volume en l'air — la description d'un linteau — et le robot lui
+             passait dessous comme sous un pont. Elle est maintenant pleine
+             depuis le sol (`z0: 0`) et seulement DESSINÉE à seize centimètres
+             (`base`) : le contact et l'œil ne racontent plus deux histoires. */
           out.push({ x0: cx - 2.10, x1: cx + 2.10, y0: cy - 0.86, y1: cy + 0.86,
-                     h: 0.78, z0: 0.16, mat: "carBody" });        // caisse
+                     h: 0.78, z0: 0, base: 0.16, mat: "carBody", part: "auto" });
           out.push({ x0: cx - 0.75, x1: cx + 0.72, y0: cy - 0.78, y1: cy + 0.78,
-                     h: 1.32, z0: 0.78, mat: "carGlass" });       // habitacle
+                     h: 1.32, z0: 0, base: 0.78, mat: "carGlass", part: "auto" });
           [-1.42, 1.38].forEach(function (dx) {
             [-0.86, 0.72].forEach(function (dy) {
               out.push({ x0: cx + dx - 0.16, x1: cx + dx + 0.16,
-                         y0: cy + dy, y1: cy + dy + 0.14, h: 0.34, mat: "wheel" });
+                         y0: cy + dy, y1: cy + dy + 0.14, h: 0.34,
+                         z0: 0, mat: "wheel", part: "auto" });
             });
           });
         })();
@@ -276,10 +295,16 @@
          tourelle qui ne pointerait qu'à l'horizontale ne les aurait jamais. */
       range: {
         zone: [-1.60, 1.60, -1.80, 1.80],
-        targets: [[6.0, -2.4], [8.5, 1.9], [11.5, -1.1], [13.5, -3.25, 1.20],
-                  [14.5, 2.6], [18.0, -2.8], [20.6, -1.30, 1.32],
-                  [21.0, 1.0], [24.5, -2.0], [26.0, 2.95, 1.85],
-                  [28.0, 2.2], [28.6, -3.1]]
+        /* Quatrième valeur : la course d'un chariot. Une cible qui coulisse
+           en travers du couloir ne se prend pas comme une cible plantée — il
+           faut la devancer, et la tourelle qui la suit ne rattrape jamais
+           tout à fait. Ce sont elles qui obligent à s'arrêter vraiment. */
+        targets: [[6.0, -2.4], [8.5, 1.9, 0, [-1.2, 2.8, 1.25]],
+                  [11.5, -1.1], [13.5, -3.25, 1.20],
+                  [14.5, 2.6], [18.0, -2.8, 0, [-3.2, 1.4, 1.7]],
+                  [20.6, -1.30, 1.32],
+                  [21.0, 1.0], [24.5, -2.0, 0, [-2.6, 2.2, 2.1]],
+                  [26.0, 2.95, 1.85], [28.0, 2.2], [28.6, -3.1]]
       } },
 
     // Mini-ramp : deux grandes transitions qui se font face, un flat entre
@@ -650,7 +675,12 @@
     const edge = Y.Mat.get("obstacleEdge");
     current.boxes.forEach(function (b) {
       const w = b.x1 - b.x0, d = b.y1 - b.y0;
-      const z0 = b.z0 || 0, th = b.h - z0;
+      /* `base` décolle le DESSIN du volume sans décoller le volume : la caisse
+         d'une voiture se voit à seize centimètres du sol, mais elle est pleine
+         jusqu'en bas — sinon le robot lui passe dessous. Un linteau, lui,
+         décolle vraiment : c'est `z0` qui le dit. */
+      const z0 = b.base !== undefined ? b.base : (b.z0 || 0);
+      const th = b.h - z0;
       if (th <= 0) return;
       /* Un bloc peut porter sa propre matière : une carcasse de voiture n'est
          pas du béton, et la découper en décor à part reviendrait à décrire
@@ -682,6 +712,26 @@
     if (onChange) onChange(current, extent());
   }
 
+  /* --- terrain abîmé ---------------------------------------------------
+     Une grenade change le terrain, pas seulement son apparence : un mur
+     éventré ouvre un passage, une voiture soufflée cesse d'être un abri. On
+     garde donc une copie INTACTE de la description au moment où le terrain
+     est choisi, et `restore()` la remet — sinon les dégâts d'une partie se
+     retrouveraient dans la suivante, les presets étant partagés. */
+  let pristine = null;
+
+  function mutate(boxes) {
+    current.boxes = boxes;
+    rebuild();
+  }
+
+  function restore() {
+    if (!pristine) return false;
+    current.boxes = pristine.slice();
+    rebuild();
+    return true;
+  }
+
   Y.Terrain = {
     presets: PRESETS,
     group: group,
@@ -690,6 +740,8 @@
     ceilingAt: ceilingAt,
     blocked: blocked,
     hitDist: hitDist,
+    mutate: mutate,
+    restore: restore,
     zoneAt: zoneAt,
     support: support,
     jumpAhead: jumpAhead,
@@ -706,6 +758,13 @@
       const found = PRESETS.find(function (p) { return p.id === id; });
       if (!found) return false;
       current = found;
+      /* Les presets sont des objets PARTAGÉS : une grenade qui abîme le
+         terrain abîme la description elle-même, et le mur resterait éventré
+         au retour. On garde donc l'original à la première visite, et chaque
+         choix de terrain repart de lui. */
+      if (!found.boxes0) found.boxes0 = found.boxes.slice();
+      found.boxes = found.boxes0.slice();
+      pristine = found.boxes0;
       rebuild();
       return true;
     },

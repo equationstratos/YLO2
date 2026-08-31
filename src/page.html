@@ -392,6 +392,8 @@ input[type=range]::-moz-range-thumb{
 .fpv.aim .ret{stroke:#ffc24d}
 .fpv.aim .rdot{fill:#ffc24d}
 .fpv.held .rbrk{opacity:1}
+.fpvret .rlob{opacity:0}
+.fpv.lob .rlob{opacity:.9}
 .fpvtag{
   position:absolute;left:0;right:0;bottom:26px;text-align:center;
   font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;
@@ -539,6 +541,10 @@ input[type=range]::-moz-range-thumb{
             <path class="rtick" d="M100 48v18M100 134v18M48 100h18M134 100h18"/>
             <circle class="rdot" cx="100" cy="100" r="2.6"/>
             <path class="rbrk" d="M64 64h-12v12M136 64h12v12M64 136h-12v-12M136 136h12v-12"/>
+            <!-- La hausse du lance-grenades : une échelle sous le point de
+                 visée. Un tir courbe ne se pointe pas comme un tir tendu, et
+                 le réticule doit le dire sans qu'on lise le texte. -->
+            <path class="rlob" d="M92 118h16M94 128h12M96 138h8"/>
           </g>
         </svg>
         <div class="fpvtag" id="fpvtag"></div>

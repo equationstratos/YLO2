@@ -137,7 +137,7 @@ géométrie sont la même chose, il n'y a pas de collision approchée.
 | Rampe 20° | pente continue | assiette qui épouse la pente |
 | Gravats | blocs jusqu'à 90 mm | appuis à des hauteurs différentes |
 | **Skatepark** | mini-plaza : kicker, funbox, ledge, deux quarter pipes | reliefs enchaînés, en pattes comme en roues |
-| **Champ de tir** | gravats, mur à fenêtres, carcasse de voiture, passerelle, douze cibles dont trois en hauteur | rouler et tirer en même temps |
+| **Champ de tir** | gravats, mur **destructible** à fenêtres, carcasse de voiture, passerelle, douze cibles dont trois en hauteur et trois **mobiles** | rouler et tirer en même temps |
 | **Big ramp** | mini-ramp : deux transitions de 1,20 m face à face | un objet qu'on **roule** au lieu de le franchir |
 | **Mega ramp** | roll-in de 2,60 m, tremplin, gap, réception, transition de 2,60 m | un run complet, de la vitesse jusqu'au saut |
 | **Méga-parcours** | tout le catalogue à la suite, **fenêtre comprise** | 46 m d'obstacles enchaînés |
@@ -485,6 +485,143 @@ traçantes durent 90 ms, la gerbe de bouche autant.
 Le simulateur Python ne porte pas le champ de tir : c'est un terrain et une
 tourelle, rien qui touche à la locomotion qu'il vérifie.
 
+#### Deux armes, et le pavé tactile pour en changer
+
+Le **pavé tactile** change d'arme : c'est le seul bouton de la manette que
+rien d'autre ne réclamait. **Clic bref**, arme suivante ; **appui long**,
+retour direct à l'arme principale. À deux armes le cycle suffirait, mais à
+trois il faudrait déjà deux clics pour retrouver le fusil au moment où l'on en
+a le plus besoin — le retour direct coûte une ligne et se garde. Touche `W` au
+clavier.
+
+*(Autres pistes envisagées et écartées : une roue d'armes au pavé tenu — elle
+oblige à LIRE l'écran au moment où l'on tire ; la croix directionnelle — déjà
+prise par les saltos ; un choix automatique selon la cible — il décide à la
+place du joueur, ce qui est exactement ce qu'on ne veut pas d'une arme.)*
+
+| | Fusil d'assaut | Lance-grenades 40 mm |
+| --- | --- | --- |
+| Nature | lancer de rayon | **projectile**, vraie parabole |
+| Cadence | rafales de 3, 0,085 s | coup par coup, 0,85 s de reprise |
+| Chargeur | 30 | 6 |
+| Portée utile | 13 m | 26 m |
+| Dispersion à l'arrêt | 0,70° | 0,55° |
+| Effet | une silhouette | souffle de **3,4 m** |
+
+Le fusil reste un rayon parce qu'à trente mètres, une balle arrive dans
+l'image de son départ. La grenade, elle, part à **25 m/s** : on la voit monter
+et retomber, et c'est cette parabole qui fait tout son intérêt — elle passe
+**par-dessus** ce que la balle ne traverse pas. La solution de tir est celle
+du canonnier : pour une portée *d* et une dénivelée *h*,
+
+```
+θ = atan( (v² − √(v⁴ − g·(g·d² + 2·h·v²))) / (g·d) )
+```
+
+Le radical négatif dit que la cible est hors de portée ; on tire alors à 45°,
+l'angle qui porte le plus loin, et on tombe court sans se mentir.
+
+Une chose manquait pour que ça marche : **la grenade ne rencontrait rien**.
+Le terrain sait arrêter une balle, il ne sait rien des silhouettes — ce ne sont
+pas des volumes de terrain. La solution de tir était juste, mais l'obus
+traversait la cible qu'il visait et allait tomber **dix-sept mètres plus
+loin**. On échantillonne donc le déplacement de l'image en six points : à
+25 m/s il fait quarante centimètres, et six points ne peuvent pas enjamber une
+cible large de trente-quatre.
+
+#### Ce que la grenade abîme
+
+Les blocs destructibles portent un nom — `auto` pour la carcasse, `mur` pour
+les panneaux. Une explosion assez proche les **retire de la description du
+terrain**, et comme c'est cette même description qui donne la hauteur du sol,
+la ligne de vue et les collisions, le trou est immédiatement réel : on voit à
+travers, on tire à travers, on **passe** à travers. Rien à synchroniser, il
+n'y a qu'une seule vérité.
+
+- **Le mur s'ouvre.** Il est bâti en panneaux étroits de 70 cm sur une trame
+  régulière : c'est ce qui rend sa destruction *locale*. Avec des pans de huit
+  mètres, la première grenade faisait tomber le mur entier — relevé, avant
+  correction : six panneaux d'un coup, 4,2 m de brèche. En panneaux de 70 cm
+  et avec un rayon structurel de 1,0 m (le béton armé encaisse mieux que la
+  tôle : trois dixièmes du souffle), une grenade ouvre **deux panneaux**, et
+  quatre grenades une brèche de **280 cm**. Le pan tombé laisse ses décombres,
+  un tas de 350 mm — sous les 450 mm de garde du robot, donc **franchissable** :
+  on vient de se créer un passage qui n'existait pas.
+- **La voiture saute.** Elle ne disparaît pas, elle s'écrase : l'épave reste
+  un abri, plus bas (420 mm au lieu de 1320) et franchissable. Le terrain
+  change de forme, il ne se vide pas.
+- **Les cratères restent.** Une pastille sombre au point d'impact et cinq
+  éclats projetés autour, dans leur propre groupe : ils survivent au
+  redressement des cibles et ne s'effacent qu'avec la série.
+
+Les presets de terrain sont des objets **partagés** : une grenade qui abîme le
+terrain abîme la description elle-même, et le mur serait resté éventré au
+retour. L'original est donc gardé à la première visite, chaque choix de
+terrain repart de lui, et une nouvelle série remet tout d'aplomb.
+
+*(Détail de mise en œuvre qui a coûté une boucle infinie : réparer le terrain
+depuis la remise à zéro se mord la queue — remettre le terrain d'aplomb le
+fait reconstruire, la reconstruction relance la mise en place du stand, et la
+mise en place remet à zéro. La réparation se fait au **relèvement** des
+cibles, pas à la remise à zéro.)*
+
+#### Le stabilisateur, le pan et le tilt
+
+**L'affût est stabilisé.** Ce n'est pas un effet : sans plateforme, le
+pointage calculé dans un repère horizontal est appliqué à un repère penché, et
+l'arme rate d'autant que le robot gîte — un degré de roulis à vingt mètres,
+c'est trente-cinq centimètres à côté.
+
+Trois étages, un rôle chacun : la **plateforme** rattrape l'assiette de la
+caisse, la **tourelle** donne le gisement, le **canon** donne le site. À chaque
+image on demande à la plateforme la rotation qui annule celle de la caisse
+sauf le lacet — `q = q_caisse⁻¹ · q_lacet`. Le lacet reste, parce que c'est lui
+qui donne son origine au gisement : un affût qui l'annulerait aussi ne
+tournerait plus jamais avec le robot.
+
+Deux choses la rendent crédible plutôt que parfaite : elle **met du temps**
+(75 ms de constante, donc elle traîne dans les à-coups) et elle a une **butée
+à 26°** — au-delà, elle est au bout de sa course. Ce qui reste d'écart repart
+en dispersion, ce qui veut dire qu'on tire d'un terrain cassé presque comme du
+plat, mais qu'on paie au bout de la course.
+
+Relevé, trois secondes de gravats à 1 m/s : l'assiette de la caisse demande
+jusqu'à **32,5°** à la plateforme ; l'arme, elle, ne dépasse **5,7° de roulis
+et 7,5° de tangage**, avec 8,0° de résidu au pire à-coup.
+
+**Le débattement est large.** Un affût qui ne balaie que l'avant oblige le
+robot à se retourner pour une cible qui le déborde — et une cible qui le
+déborde est justement celle qu'il faut prendre en premier. Le pointage a donc
+son propre débattement : **±150° en gisement**, tout sauf la crosse, et
+**−18° à +58° en site**, de quoi aller chercher une silhouette sur une
+passerelle sans avancer. La consigne est bornée *avant* d'être suivie et non
+après : sinon la tourelle courrait après un angle qu'elle n'atteindra jamais
+et ne se déclarerait jamais alignée. Vérifié : une cible dépassée se prend à
+**−110° de gisement** sans que le robot bouge, et la cible sur le toit de la
+voiture à **+29° de site**.
+
+#### Les cibles mobiles
+
+Trois des douze silhouettes coulissent en travers du couloir, sur leur chariot
+et à leur vitesse : 1,25, 1,7 et 2,1 m/s. Une cible qui glisse ne se prend pas
+comme une cible plantée — la tourelle qui la suit ne la rattrape jamais tout à
+fait, il faut la devancer, et c'est ce qui oblige à s'arrêter *vraiment*.
+
+Chacune a son **rail** : sans lui, elle glisserait en travers du stand sans
+rien pour expliquer comment, et l'on croirait à un défaut plutôt qu'à un
+chariot. Le chariot ne roule que quand la silhouette est levée — une cible
+couchée qui continuerait de glisser n'aurait aucun sens.
+
+#### La voiture était un pont
+
+Le robot lui passait dessous. La caisse était décrite comme un **volume en
+l'air** — la description d'un linteau, celle d'une fenêtre ou d'une poutre —
+et le champ de hauteurs ne pose rien sous un linteau : sol à 0 mm sous la
+voiture, donc passage libre. Elle est maintenant **pleine depuis le sol** et
+seulement *dessinée* à seize centimètres, grâce à un champ `base` qui décolle
+le dessin sans décoller le volume. Le contact et l'œil ne racontent plus deux
+histoires : 1320 mm de sol sous l'habitacle, 780 sous la caisse.
+
 #### Une balle ne traverse pas un mur
 
 Le tir était un rayon sans obstacle : la tourelle se braquait sur la cible la
@@ -654,6 +791,13 @@ cent premières millisecondes.
 | Culasse | le claquement mécanique | bruit étroit à 5,2 kHz, 35 ms, à +22 ms |
 | Renvoi | les merlons qui rendent le souffle | deux échos sourds, à +55 et +135 ms |
 
+Une **explosion** n'est pas un coup de feu en plus fort : elle est plus BASSE
+et plus LONGUE. Le grave porte la pression (110 → 26 Hz sur 550 ms), le bruit
+large porte les gravats, et la queue traîne parce qu'un couloir de trente
+mètres rend ce qu'on lui envoie. Trois quarts de seconde en tout, là où un
+coup de fusil en fait un dixième. Le départ de grenade, lui, est un « pop »
+creux sans détonation — un lance-grenades ne claque pas.
+
 Chaque coup tire son timbre à ±6 % : dans une rafale, trois coups strictement
 identiques s'entendent comme un défaut de boucle et non comme une arme
 automatique. Le reste suit la même recette — le claquement de tôle de
@@ -661,7 +805,7 @@ l'impact, le mat de la silhouette qui bascule, le triple clic du chargeur, le
 bip court du verrouillage (au **passage**, pas tant qu'il dure : verrouillé est
 un instant, pas un état), les deux tons montants du viseur figé, les deux tons
 descendants d'une cible épargnée, le grincement des vérins qui relèvent les
-cibles.
+cibles, et le verrou-glissière-verrou du changement d'arme.
 
 Le navigateur n'autorise le son qu'après un geste de l'utilisateur — et la
 règle est bonne : une page qui parle avant qu'on l'ait touchée est une page
@@ -1599,6 +1743,7 @@ mentir sur ce que fait la manette.
 | PARTAGE | `F` | Champ de tir : figer le viseur sur la cible (rappui = libre) |
 | OPTIONS | `O` | Champ de tir : déclarer la cible **amie** — tir impossible |
 | PS | `P` | Champ de tir : **nettoyage automatique** des cibles repérées |
+| PAVÉ TACTILE | `W` | Champ de tir : arme suivante — **appui long** : retour au fusil |
 | R1 | `E` | 540 McTwist |
 | L1 + R1 **tenus ensemble** | `A` + `E` | Pirouette, tant que les deux restent enfoncés |
 | Clic stick gauche | `T` | **Salto arrière enchaîné**, tant qu'on tient |
@@ -1851,10 +1996,10 @@ une fois les deux panneaux repliés.
 
 ```
 src/10-data.js        cotes, allures, vitesses, sous-systèmes, groupes de matières
-src/12-terrain.js     terrains analytiques : hauteur sous le pied, volumes affichés, ligne de vue
+src/12-terrain.js     terrains analytiques : hauteur, volumes, ligne de vue, terrain abîmé
 src/13-ball.js        la boule poussable : inertie, pentes, rebonds, roulement sans glissement
-src/14-range.js       champ de tir : cibles, fusil, visée auto, carte mémoire, nettoyage automatique
-src/15-audio.js       le son, synthétisé : coups, impacts, chargeur, verrouillage, écho radar
+src/14-range.js       champ de tir : armes, affût stabilisé, carte mémoire, dégâts, nettoyage auto
+src/15-audio.js       le son, synthétisé : coups, explosions, impacts, chargeur, verrouillage
 src/20-materials.js   matières PBR et motifs procéduraux
 src/30-robot.js       décodage des maillages et montage de l'arbre cinématique
 src/40-motion.js      cinématique inverse, allures, lecture de trajectoire, liaison directe

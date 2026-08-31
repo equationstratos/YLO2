@@ -43,6 +43,7 @@
      sol, le côté n'est pas engagé et on peut le désigner directement. Un appui
      long va donc sur l'autre paire d'emblée, sans passer par la première. */
   const LONG_S = 0.22;
+  const PAD_LONG = 0.32;            // pavé tactile : au-delà, c'est un appui long
   const SOLO_S = 0.40;              // au-delà, une épaule seule tenue part quand même
   const DEAD = 0.15;                // zone morte des sticks
   const TRIG = 0.12;                // seuil des gâchettes analogiques
@@ -76,7 +77,7 @@
       label: "disposition standard",
       button: { cross: 0, circle: 1, square: 2, triangle: 3, l1: 4, r1: 5,
                 share: 8, options: 9, l3: 10,
-                r3: 11, up: 12, down: 13, left: 14, right: 15, ps: 16 },
+                r3: 11, up: 12, down: 13, left: 14, right: 15, ps: 16, pad: 17 },
       trigger: { l2: { btn: 6 }, r2: { btn: 7 } },
       stick: { lx: 0, rx: 2, ry: 3 },
       hat: -1
@@ -84,7 +85,7 @@
     sony: {
       label: "disposition Sony brute",
       button: { square: 0, cross: 1, circle: 2, triangle: 3, l1: 4, r1: 5,
-                share: 8, options: 9, l3: 10, r3: 11, ps: 12 },
+                share: 8, options: 9, l3: 10, r3: 11, ps: 12, pad: 13 },
       // en HID brut, les gâchettes sont analogiques sur des axes, à plat en -1
       trigger: { l2: { axis: 3 }, r2: { axis: 4 } },
       stick: { lx: 0, rx: 2, ry: 5 },
@@ -139,6 +140,7 @@
     { pad: "PARTAGE", key: "F", act: "Champ de tir : figer le viseur sur la cible (rappui = libre)" },
     { pad: "OPTIONS", key: "O", act: "Champ de tir : déclarer la cible amie — tir interdit" },
     { pad: "PS", key: "P", act: "Champ de tir : le robot nettoie seul les cibles repérées (85 % de la vitesse)" },
+    { pad: "PAVÉ TACTILE", key: "W", act: "Champ de tir : arme suivante — appui long : retour au fusil" },
     { pad: "R1", key: "E", act: "540 McTwist" },
     { pad: "L1 + R1", key: "A + E", act: "Pirouette / 360 en l'air" },
     { pad: "□ ○ pendant", key: "C V pendant", act: "…passe en tenue SANS cesser de tourner" },
@@ -368,6 +370,24 @@
       if (Y.Range.active() && Y.Range.sweep()) say(Y.Range.state.say);
       return;
     }
+    /* Le pavé tactile change d'arme : c'est le seul bouton que rien d'autre
+       ne réclamait. Clic BREF, arme suivante ; appui LONG, retour à l'arme
+       principale — à deux armes le cycle suffirait, à trois il faudrait déjà
+       deux clics pour retrouver le fusil au moment où l'on en a besoin. */
+    if (name === "pad") {
+      const was = !!prev.pad;
+      prev.pad = down;
+      if (!Y.Range.active()) return;
+      if (down && !was) { held.pad = now(); return; }
+      if (!down && was) {
+        const long = held.pad && now() - held.pad >= PAD_LONG;
+        held.pad = 0;
+        if (long ? Y.Range.primaryWeapon() : Y.Range.nextWeapon()) {
+          say(Y.Range.weapon().name);
+        }
+      }
+      return;
+    }
     if (name === "l3") {
       // Clic du stick gauche : la bascule enchaînée tourne tant qu'on tient.
       const was = !!prev.l3;
@@ -492,7 +512,7 @@
     }
 
     ["cross", "circle", "square", "triangle", "l1", "r1", "l3", "r3",
-     "share", "options", "ps"]
+     "share", "options", "ps", "pad"]
       .forEach(function (name) { actOn(name, on(name)); });
     ["up", "down", "left", "right"].forEach(function (d) { actOn(d, dpad[d]); });
 
@@ -586,6 +606,7 @@
   const KEYMAP = {
     " ": "cross", h: "triangle", c: "square", v: "circle",
     a: "l1", e: "r1", t: "l3", r: "r3", f: "share", o: "options", p: "ps",
+    w: "pad",
     z: "up", s: "down", q: "left", d: "right"
   };
 

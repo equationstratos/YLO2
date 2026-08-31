@@ -1433,10 +1433,12 @@
     fpvBox.classList.toggle("lock", r.ready);
     fpvBox.classList.toggle("aim", r.aim && !r.ready);
     fpvBox.classList.toggle("held", r.held);
-    fpvTag.textContent = r.reload ? "rechargement"
+    fpvBox.classList.toggle("lob", r.lob);
+    fpvTag.textContent = r.wpn + " · " + (r.reload ? "rechargement"
       : r.ready ? "verrouillé · " + r.dist.toFixed(1) + " m"
       : r.aim ? "acquisition · " + r.dist.toFixed(1) + " m"
-      : "aucune cible";
+      : "aucune cible")
+      + " · stab " + r.stab.toFixed(0) + "°";
     if (r.ready !== fpvWasLock) fpvWasLock = r.ready;
   }
 

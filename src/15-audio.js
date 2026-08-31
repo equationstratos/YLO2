@@ -168,6 +168,41 @@
       tone({ at: 0.09, type: "sine", f0: 620, dur: 0.16, gain: 0.16 });
     },
 
+    /**
+     * L'explosion.
+     *
+     * Un souffle n'est pas un coup de feu en plus fort : il est plus BAS et
+     * plus LONG. Le grave porte la pression, le bruit large porte les
+     * gravats, et la queue traîne parce qu'un couloir de trente mètres rend
+     * ce qu'on lui envoie. Trois quarts de seconde en tout, là où un coup de
+     * fusil en fait un dixième.
+     */
+    blast: function () {
+      if (!wake()) return;
+      const k = 0.93 + Math.random() * 0.14;
+      tone({ type: "sine", f0: 110 * k, f1: 26, dur: 0.55, gain: 0.95 });
+      burst({ f0: 1500 * k, f1: 120, dur: 0.42, gain: 0.80, q: 0.4, rate: 0.55 });
+      burst({ at: 0.03, f0: 340, f1: 70, dur: 0.75, gain: 0.42, q: 0.35, rate: 0.35 });
+      // les gravats qui retombent
+      burst({ at: 0.18, f0: 2600, f1: 900, dur: 0.55, gain: 0.13, q: 1.1, rate: 1.3 });
+      burst({ at: 0.30, f0: 520, f1: 180, dur: 0.60, gain: 0.10, q: 0.5, rate: 0.4 });
+    },
+
+    /** Départ de grenade : un « pop » creux, sans détonation. */
+    thump: function () {
+      if (!wake()) return;
+      tone({ type: "sine", f0: 320, f1: 90, dur: 0.13, gain: 0.55 });
+      burst({ f0: 900, f1: 300, dur: 0.10, gain: 0.28, q: 1.3, rate: 0.8 });
+    },
+
+    /** Changement d'arme : verrou, glissière, verrou. */
+    swap: function () {
+      if (!wake()) return;
+      tone({ type: "square", f0: 420, f1: 300, dur: 0.045, gain: 0.14 });
+      burst({ at: 0.06, f0: 2200, f1: 1400, dur: 0.09, gain: 0.09, q: 2.4 });
+      tone({ at: 0.17, type: "square", f0: 640, f1: 420, dur: 0.05, gain: 0.15 });
+    },
+
     /** Cible repérée : le pointillé court d'un écho radar. */
     ping: function () {
       if (!wake()) return;

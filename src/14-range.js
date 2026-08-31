@@ -26,16 +26,48 @@
      et il faut AVANCER pour les suivantes. Une portée qui couvre tout le
      stand se vide depuis la ligne sans bouger, et il n'y a plus de parcours. */
   const REACH = 13;
-  const CONE = 2.0;                  // demi-cône de recherche, rad
-  const SLEW = 3.4;                  // vitesse de rotation de la tourelle, rad/s
-  const TOL = 0.045;                 // écart d'alignement toléré au coup
-  const BURST = 3;                   // coups par rafale
-  const RATE = 0.085;                // s entre deux coups d'une rafale
-  const REST = 0.30;                 // s entre deux rafales
-  const MAG = 30;                    // cartouches par chargeur
-  const RELOAD = 1.7;                // s de rechargement
   const TARGET_H = 0.72;             // hauteur de la silhouette
   const TARGET_W = 0.34;
+
+  /* --- débattement de la tourelle ---
+     Un affût qui ne balaie que l'avant oblige le robot à se retourner pour
+     une cible qui le déborde, et une cible qui le déborde est justement
+     celle qu'il faut prendre en premier. Le pointage a donc son propre
+     débattement, large en site comme en gisement : ±150° de PAN — tout sauf
+     la crosse —, et de −18° à +58° de TILT, de quoi aller chercher une
+     silhouette sur une passerelle sans avancer. */
+  const PAN_MAX = 150 * Math.PI / 180;
+  const TILT_MIN = -18 * Math.PI / 180;
+  const TILT_MAX = 58 * Math.PI / 180;
+  const SLEW = 3.4;                  // vitesse de rotation de la tourelle, rad/s
+  const TOL = 0.045;                 // écart d'alignement toléré au coup
+
+  /* --- stabilisateur ---
+     Un affût stabilisé n'annule pas le mouvement de la caisse, il le
+     RATTRAPE : une constante de temps, et une butée mécanique au-delà de
+     laquelle la plateforme est au bout de sa course. Sans butée, l'arme
+     resterait horizontale même le robot sur le flanc, ce qu'aucun cardan ne
+     fait. */
+  const GIMBAL_TAU = 0.075;          // s — le temps que met la plateforme
+  const GIMBAL_MAX = 26 * Math.PI / 180;
+
+  /* --- les armes ---
+     Deux, et deux logiques. Le fusil est un LANCER DE RAYON : à trente mètres
+     et à la vitesse d'une balle, un projectile simulé arriverait dans l'image
+     de son départ. Le lance-grenades est un vrai PROJECTILE : une grenade de
+     40 mm part à vingt-cinq mètres par seconde, on la voit monter et
+     retomber, et c'est cette parabole qui fait tout son intérêt — elle passe
+     par-dessus ce que la balle ne traverse pas. */
+  const WEAPONS = [
+    { id: "fusil", name: "Fusil d'assaut", short: "FUSIL",
+      burst: 3, rate: 0.085, rest: 0.30, mag: 30, reload: 1.7,
+      spread0: 0.70, spreadV: 1.30, recoil: 0.55, reach: REACH },
+    { id: "lg", name: "Lance-grenades 40 mm", short: "LG 40",
+      burst: 1, rate: 0.10, rest: 0.85, mag: 6, reload: 2.6,
+      spread0: 0.55, spreadV: 0.90, recoil: 0.0, reach: 26,
+      muzzleV: 25.0, blast: 3.4 }
+  ];
+  const G = 9.81;
   /* Le lidar tourne : ce que le robot REPÈRE ne dépend pas de l'endroit où
      pointe l'arme, seulement de ce qu'il a devant lui à découvert. La portée
      de détection est donc plus longue que la portée utile de l'arme — on voit
@@ -54,12 +86,17 @@
   const AUTO_JAM = 1.1;              // s d'immobilité avant de se dégager
   const AUTO_BACK = 0.9;             // s de marche arrière pour se dégager
 
+  /** L'arme en main. */
+  function W() { return WEAPONS[S.wpn]; }
+
   const S = {
     on: false, targets: [], group: null, gun: null, turret: null, barrel: null,
     flash: null, fpv: null, tracers: [], yaw: 0, pitch: 0, lock: null,
     hold: null, ready: false, wasReady: false, seen: 0, auto: false, autoSay: "",
     autoJam: 0, autoBack: 0, autoTurn: 0, autoSide: 1, far: 30,
-    ammo: MAG, reload: 0, burst: 0, next: 0, rest: 0,
+    ammo: 30, reload: 0, burst: 0, next: 0, rest: 0, wpn: 0, gimbal: null,
+    gimbalErr: 0, gimbalUse: 0, gimbalNeed: 0, models: null,
+    shells: [], booms: [], scars: null, wrecked: false, breach: 0,
     live: 0, hits: 0, shots: 0, total: 0, t: 0, running: false, best: null, say: ""
   };
 
@@ -123,7 +160,38 @@
     [[bodyG, "gun"], [hand, "gun"], [tube, "gunSteel"], [brake, "gunSteel"],
      [mag, "gun"], [optic, "gunSteel"], [stock, "gun"], [base, "frame"]]
       .forEach(function (pr) { pr[0].userData.mat = pr[1]; });
-    barrel.add(bodyG, hand, tube, brake, mag, optic, stock);
+    const rifle = new T.Group();
+    rifle.add(bodyG, hand, tube, brake, mag, optic, stock);
+    barrel.add(rifle);
+
+    /* Le lance-grenades : même affût, autre tube. Court, gros, avec son
+       barillet — la silhouette doit dire au premier coup d'œil qu'on n'a
+       plus la même arme en main, parce que c'est la seule chose qui change
+       visiblement quand on bascule. */
+    const gl = new T.Group();
+    const glBody = new T.Mesh(new T.BoxGeometry(0.15, 0.044, 0.056), Y.Mat.get("gun"));
+    glBody.position.x = 0.0;
+    const drum = new T.Mesh(new T.CylinderGeometry(0.052, 0.052, 0.085, 14),
+      Y.Mat.get("gun"));
+    drum.rotation.z = Math.PI / 2; drum.position.set(0.075, 0, -0.004);
+    const glTube = new T.Mesh(new T.CylinderGeometry(0.024, 0.026, 0.20, 12),
+      Y.Mat.get("gunSteel"));
+    glTube.rotation.z = Math.PI / 2; glTube.position.set(0.22, 0, -0.004);
+    const glRing = new T.Mesh(new T.CylinderGeometry(0.030, 0.030, 0.016, 12),
+      Y.Mat.get("gunSteel"));
+    glRing.rotation.z = Math.PI / 2; glRing.position.set(0.315, 0, -0.004);
+    const glSight = new T.Mesh(new T.BoxGeometry(0.055, 0.020, 0.030), Y.Mat.get("gunSteel"));
+    glSight.position.set(-0.02, 0, 0.042);
+    const glStock = new T.Mesh(new T.BoxGeometry(0.11, 0.032, 0.048), Y.Mat.get("gun"));
+    glStock.position.set(-0.12, 0, -0.006);
+    [[glBody, "gun"], [drum, "gun"], [glTube, "gunSteel"], [glRing, "gunSteel"],
+     [glSight, "gunSteel"], [glStock, "gun"]]
+      .forEach(function (pr) { pr[0].userData.mat = pr[1]; });
+    gl.add(glBody, drum, glTube, glRing, glSight, glStock);
+    gl.visible = false;
+    barrel.add(gl);
+    S.models = [rifle, gl];
+
     // éclair de bouche : une pastille lumineuse, allumée trois centièmes
     const flash = new T.Mesh(new T.ConeGeometry(0.045, 0.10, 8),
       new T.MeshBasicMaterial({ color: 0xffd08a, transparent: true, opacity: 0 }));
@@ -158,6 +226,63 @@
     g.visible = false;
     scene.add(g);
     S.group = g;
+    /* Les cratères vivent dans leur propre groupe : ils survivent au
+       redressement des cibles et ne s'effacent qu'avec la série. */
+    S.scars = new T.Group();
+    g.add(S.scars);
+  }
+
+  /* =====================================================================
+     Le stabilisateur
+
+     Un affût stabilisé garde son horizon quand la caisse ne le garde plus.
+     Ce n'est pas un effet : sans lui, le pointage calculé dans un repère
+     horizontal est appliqué à un repère penché, et l'arme rate d'autant que
+     le robot gîte — un degré de roulis à vingt mètres, c'est trente-cinq
+     centimètres à côté.
+
+     La plateforme est un groupe INTERMÉDIAIRE entre la caisse et la
+     tourelle. On lui demande, à chaque image, la rotation qui annule celle
+     de la caisse sauf le lacet : q = q_caisse⁻¹ · q_lacet. Le lacet reste,
+     parce que c'est lui qui donne son origine au gisement — un affût qui
+     annulerait aussi le lacet ne tournerait plus jamais avec le robot.
+
+     Deux choses la rendent crédible plutôt que parfaite : elle MET du temps
+     (une constante de 75 ms, donc elle traîne dans les à-coups) et elle a
+     une BUTÉE à 26° — au-delà, la plateforme est au bout de sa course et
+     l'écart résiduel repart dans la dispersion.
+     ===================================================================== */
+  const qBody = new T.Quaternion(), qYaw = new T.Quaternion();
+  const qWant = new T.Quaternion(), eAxis = new T.Euler();
+  const qNone = new T.Quaternion();
+
+  function stabilise(dt) {
+    if (!S.gimbal) return;
+    const st = Y.Motion.state;
+    S.gun.parent.getWorldQuaternion(qBody);
+    eAxis.set(0, 0, st.yaw, "ZYX");
+    qYaw.setFromEuler(eAxis);
+    qWant.copy(qBody).invert().multiply(qYaw);
+
+    /* Butée : on borne l'ANGLE de la correction, pas ses composantes. Borner
+       chaque axe séparément tordrait la plateforme en diagonale au lieu de
+       l'arrêter proprement. */
+    const need = 2 * Math.acos(Math.min(1, Math.abs(qWant.w)));
+    let over = 0;
+    if (need > GIMBAL_MAX) {
+      qWant.slerp(qNone, 1 - GIMBAL_MAX / need);   // on garde la direction
+      over = need - GIMBAL_MAX;                    // et ce qui dépasse est perdu
+    }
+    const k = 1 - Math.exp(-dt / GIMBAL_TAU);
+    S.gimbal.quaternion.slerp(qWant, k);
+
+    /* L'écart qui compte pour le tir, c'est celui qui RESTE : ce que la butée
+       n'a pas pu prendre, plus le retard de la plateforme sur sa consigne. */
+    const q = S.gimbal.quaternion;
+    const dot = Math.abs(qWant.w * q.w + qWant.x * q.x + qWant.y * q.y + qWant.z * q.z);
+    S.gimbalErr = over + 2 * Math.acos(Math.min(1, dot));
+    S.gimbalUse = Math.min(need, GIMBAL_MAX);
+    S.gimbalNeed = need;
   }
 
   /* L'arme se monte sur le robot, pas dans la scène : elle doit suivre la
@@ -165,9 +290,15 @@
      construction — le robot n'existe pas encore à ce moment-là. */
   function mountGun() {
     if (S.gun || !Y.Robot || !Y.Robot.body) return;
-    S.gun = buildGun();
-    S.gun.position.set(-0.09, 0, K.trunkTop);
-    Y.Robot.body.add(S.gun);
+    /* Trois étages, et un rôle chacun : la PLATEFORME rattrape l'assiette de
+       la caisse, la TOURELLE donne le gisement, le CANON donne le site. Les
+       empiler dans cet ordre est ce qui rend le pointage indépendant de ce
+       que fait le robot sous l'affût. */
+    const gimbal = new T.Group();
+    gimbal.add(buildGun());
+    gimbal.position.set(-0.09, 0, K.trunkTop);
+    Y.Robot.body.add(gimbal);
+    S.gun = gimbal; S.gimbal = gimbal;
   }
 
   /* --- mise en place ------------------------------------------------ */
@@ -191,7 +322,9 @@
     if (S.gun) S.gun.traverse(function (c) {
       if (c.userData.mat) c.material = Y.Mat.get(c.userData.mat);
     });
-    while (S.group.children.length) S.group.remove(S.group.children[0]);
+    for (let i = S.group.children.length - 1; i >= 0; i--) {
+      if (S.group.children[i] !== S.scars) S.group.remove(S.group.children[i]);
+    }
     S.targets = cfg.targets.map(function (t) {
       const o = silhouette();
       /* Troisième valeur : la hauteur du PIED. Une cible sur le toit d'une
@@ -202,8 +335,20 @@
       o.position.set(t[0], t[1], z);
       o.traverse(function (c) { if (c.userData.mat) c.material = Y.Mat.get(c.userData.mat); });
       S.group.add(o);
+      /* Une cible mobile a besoin de son RAIL : sans lui, elle glisse en
+         travers du couloir sans rien pour expliquer comment, et le joueur
+         croit à un défaut plutôt qu'à un chariot. */
+      const mv = t[3] || null;
+      if (mv) {
+        const rail = new T.Mesh(new T.BoxGeometry(0.10, mv[1] - mv[0] + 0.4, 0.05),
+          Y.Mat.get("rail"));
+        rail.position.set(t[0], (mv[0] + mv[1]) / 2, z + 0.025);
+        rail.receiveShadow = true; rail.userData.mat = "rail";
+        rail.material = Y.Mat.get("rail");
+        S.group.add(rail);
+      }
       return { x: t[0], y: t[1], z: z, up: 0, state: "down", friend: false,
-               seen: false, obj: o };
+               seen: false, obj: o, mv: mv, dir: 1, home: t[1] };
     });
     reset();
   }
@@ -225,18 +370,33 @@
 
   function reset() {
     S.targets.forEach(function (t) {
-      t.up = 0; t.state = "down"; t.friend = false; t.seen = false; paint(t);
+      t.up = 0; t.state = "down"; t.friend = false; t.seen = false;
+      if (t.mv) { t.y = t.home; t.dir = 1; t.obj.position.y = t.y; }
+      paint(t);
     });
+    S.shells.length = 0;
+    S.booms.forEach(function (b) { S.group.remove(b.obj); });
+    S.booms.length = 0;
     S.seen = 0; S.auto = false; S.autoSay = "";
     S.autoJam = 0; S.autoBack = 0; S.autoTurn = 0; S.autoSide = 1;
     S.hits = 0; S.shots = 0; S.t = 0; S.running = false; S.live = 0;
     S.hold = null; S.lock = null; S.ready = false; S.wasReady = false;
-    S.ammo = MAG; S.reload = 0; S.burst = 0; S.next = 0; S.rest = 0;
+    S.ammo = W().mag; S.reload = 0; S.burst = 0; S.next = 0; S.rest = 0;
     S.total = S.targets.length;
     S.say = "Entrez sur la ligne de tir";
   }
 
   function raise() {
+    /* Nouvelle série, terrain neuf. La réparation se fait ICI et non à la
+       remise à zéro : remettre le terrain d'aplomb le fait reconstruire, ce
+       qui relance la mise en place du stand — et la mise en place remet à
+       zéro. Réparer depuis la remise à zéro se mordrait la queue. */
+    if (S.wrecked || S.breach) {
+      S.wrecked = false; S.breach = 0;
+      if (S.scars) { while (S.scars.children.length) S.scars.remove(S.scars.children[0]); }
+      Y.Terrain.restore();
+      return;                         // la reconstruction relève les cibles
+    }
     S.targets.forEach(function (t) { t.state = "rising"; });
     S.hits = 0; S.shots = 0; S.t = 0; S.running = true;
     S.total = hostiles();
@@ -385,7 +545,7 @@
     const see = t.recon ? true : clear(gunW, t);
     /* On s'arrête pour tirer : la dispersion s'ouvre avec la vitesse, et un
        robot qui tire en roulant vide son chargeur pour rien. */
-    const shootNow = !t.recon && see && d < REACH - 0.6;
+    const shootNow = !t.recon && see && d < W().reach - 0.6;
     if (shootNow) {
       st.vx = 0;
       st.wz = 0;
@@ -451,6 +611,40 @@
     return true;
   }
 
+  /* =====================================================================
+     Changer d'arme
+
+     Le pavé tactile, parce qu'il est le seul bouton que rien ne réclamait :
+     un CLIC BREF passe à l'arme suivante, un APPUI LONG revient à l'arme
+     principale. Un cycle seul suffit tant qu'il n'y a que deux armes ; à
+     trois, il faudrait déjà deux clics pour revenir au fusil au moment où
+     l'on en a le plus besoin. Le retour direct coûte une ligne et se garde.
+
+     (Autres pistes envisagées et écartées : une roue d'armes au pavé tenu —
+     elle demande de LIRE l'écran au moment où l'on tire ; la croix
+     directionnelle — déjà prise par les saltos ; un choix automatique selon
+     la cible — il décide à la place du joueur, ce qui est exactement ce
+     qu'on ne veut pas d'une arme.)
+     ===================================================================== */
+
+  function useWeapon(i) {
+    if (!S.on) return false;
+    const n = ((i % WEAPONS.length) + WEAPONS.length) % WEAPONS.length;
+    if (n === S.wpn) return false;
+    S.wpn = n;
+    if (S.models) S.models.forEach(function (m, k) { m.visible = k === n; });
+    /* Chaque arme a son chargeur : on ne reprend pas un tir de fusil avec
+       six grenades. Changer d'arme remet la cadence à zéro — c'est aussi ce
+       qui empêche d'enchaîner deux rafales en basculant. */
+    S.ammo = W().mag; S.reload = 0; S.burst = 0; S.next = 0; S.rest = 0.25;
+    S.say = W().name;
+    Y.Audio.swap();
+    return true;
+  }
+
+  function nextWeapon() { return useWeapon(S.wpn + 1); }
+  function primaryWeapon() { return useWeapon(0); }
+
   function finish() {
     S.running = false;
     if (S.best === null || S.t < S.best) S.best = S.t;
@@ -463,8 +657,8 @@
   /** Demander une rafale. Rendue vraie si le coup part. */
   function fire() {
     if (!S.on || !S.running || S.reload > 0 || S.burst > 0 || S.rest > 0) return false;
-    if (S.ammo <= 0) { S.reload = RELOAD; S.say = "Rechargement"; Y.Audio.reload(); return false; }
-    S.burst = BURST; S.next = 0;
+    if (S.ammo <= 0) { S.reload = W().reload; S.say = "Rechargement"; Y.Audio.reload(); return false; }
+    S.burst = W().burst; S.next = 0;
     return true;
   }
 
@@ -508,6 +702,26 @@
     S.flash.material.opacity = 0.95;
     muzzle(v0);
     const t = S.lock;
+
+    /* Le lance-grenades ne tire pas un rayon : il LÂCHE un objet. La solution
+       de tir lui donne son angle, la dispersion son écart de départ — et
+       ensuite plus personne ne décide de rien, c'est la parabole qui dit où
+       ça tombe. Un coup court, c'est un coup court : la grenade explose là où
+       elle arrive, pas là où on visait. */
+    if (W().id === "lg") {
+      Y.Audio.thump();
+      const yaw0 = Math.atan2(t ? t.y - v0.y : Math.sin(Y.Motion.state.yaw + S.yaw),
+                              t ? t.x - v0.x : Math.cos(Y.Motion.state.yaw + S.yaw));
+      const d = t ? Math.hypot(t.x - v0.x, t.y - v0.y) : W().reach;
+      const h = t ? aimZ(t) - v0.z : 0;
+      const speed = Math.abs(Y.Natural.state.vx);
+      const err = (W().spread0 + speed * W().spreadV
+                   + S.gimbalErr * 180 / Math.PI * 0.20) * Math.PI / 180;
+      launch(v0, yaw0 + randn() * err, lobAngle(d, h, W().muzzleV) + randn() * err,
+             W().muzzleV);
+      return;
+    }
+
     let hit = false;
     /* Le mur passe avant la dispersion : inutile de tirer aux dés si la balle
        se plante à mi-chemin. La cible a pu s'abriter entre le verrouillage et
@@ -522,8 +736,14 @@
          fait qu'on s'arrête pour les cibles lointaines. */
       const d = Math.hypot(t.x - v0.x, t.y - v0.y);
       const speed = Math.abs(Y.Natural.state.vx);
-      const recoil = (BURST - S.burst) * 0.55;
-      const spread = (0.70 + speed * 1.30 + recoil) * Math.PI / 180;
+      const recoil = (W().burst - S.burst) * W().recoil;
+      /* Ce que le stabilisateur ne rattrape pas s'ajoute à la dispersion :
+         c'est l'écart RÉSIDUEL entre l'assiette de la caisse et la plateforme
+         qui compte, pas l'assiette elle-même. Bien stabilisé, on tire d'un
+         terrain cassé presque comme du plat ; au bout de la course, on paie. */
+      const resid = S.gimbalErr * 180 / Math.PI * 0.20;
+      const spread = (W().spread0 + speed * W().spreadV + recoil + resid)
+                     * Math.PI / 180;
       const half = Math.atan(TARGET_W * 0.5 / Math.max(d, 0.5));
       hit = Math.abs(randn() * spread) < half;
     }
@@ -539,7 +759,7 @@
     if (t) v1.set(t.x, t.y, aimZ(t));
     else {
       const d = new T.Vector3(1, 0, 0).applyQuaternion(S.barrel.getWorldQuaternion(new T.Quaternion()));
-      v1.copy(v0).addScaledVector(d, REACH);
+      v1.copy(v0).addScaledVector(d, W().reach);
     }
     if (!hit && t && wall < 0) {                    // on tire à côté
       v1.x += (Math.random() - 0.5) * 1.2;
@@ -552,11 +772,242 @@
     S.tracers.push({ a: v0.clone(), b: v1.clone(), t: 0 });
   }
 
+  /* =====================================================================
+     Le lance-grenades : une parabole, un souffle, et des dégâts
+
+     La grenade est le seul objet de ce visualiseur qui vole vraiment. Elle
+     part à vingt-cinq mètres par seconde et retombe : à trente mètres, la
+     hausse dépasse le mètre, ce qui la fait passer PAR-DESSUS un mur que la
+     balle ne traverse pas. C'est toute la raison d'avoir deux armes.
+
+     La solution de tir est celle du canonnier : pour une portée d et une
+     dénivelée h, l'angle bas de la parabole vaut
+
+         θ = atan( (v² − √(v⁴ − g·(g·d² + 2·h·v²)) ) / (g·d) )
+
+     Le radical négatif dit que la cible est hors de portée — on tire alors
+     à quarante-cinq degrés, l'angle qui porte le plus loin, et on tombe
+     court sans se mentir.
+     ===================================================================== */
+
+  function lobAngle(d, h, v) {
+    const disc = v * v * v * v - G * (G * d * d + 2 * h * v * v);
+    if (disc < 0) return Math.PI / 4;
+    return Math.atan((v * v - Math.sqrt(disc)) / (G * d));
+  }
+
+  function launch(from, dirYaw, pitch, v) {
+    const geo = new T.SphereGeometry(0.032, 10, 8);
+    const obj = new T.Mesh(geo, Y.Mat.get("gunSteel"));
+    obj.userData.mat = "gunSteel";
+    obj.material = Y.Mat.get("gunSteel");
+    obj.position.copy(from);
+    S.group.add(obj);
+    S.shells.push({
+      obj: obj,
+      p: from.clone(),
+      v: new T.Vector3(Math.cos(pitch) * Math.cos(dirYaw) * v,
+                       Math.cos(pitch) * Math.sin(dirYaw) * v,
+                       Math.sin(pitch) * v),
+      t: 0
+    });
+  }
+
+  /**
+   * La grenade rencontre-t-elle une silhouette ?
+   *
+   * Le terrain sait s'arrêter une balle, il ne sait rien des cibles — ce ne
+   * sont pas des volumes de terrain. Sans ce test, la grenade traversait la
+   * silhouette qu'elle visait et allait tomber dix-sept mètres plus loin :
+   * la solution de tir était bonne, il ne manquait qu'à quoi s'arrêter.
+   *
+   * On échantillonne le déplacement de l'image : à vingt-cinq mètres par
+   * seconde, il fait quarante centimètres, et six points suffisent à ne pas
+   * enjamber une cible large de trente-quatre.
+   */
+  function shellHit(p0, p1) {
+    for (let i = 1; i <= 6; i++) {
+      const k = i / 6;
+      const x = p0.x + (p1.x - p0.x) * k;
+      const y = p0.y + (p1.y - p0.y) * k;
+      const z = p0.z + (p1.z - p0.z) * k;
+      for (let j = 0; j < S.targets.length; j++) {
+        const t = S.targets[j];
+        if (t.state !== "up" && t.state !== "rising") continue;
+        if (z < t.z + 0.10 || z > t.z + 1.05) continue;
+        if (Math.hypot(t.x - x, t.y - y) > 0.28) continue;
+        return new T.Vector3(x, y, z);
+      }
+    }
+    return null;
+  }
+
+  function stepShells(dt) {
+    for (let i = S.shells.length - 1; i >= 0; i--) {
+      const sh = S.shells[i];
+      const p0 = sh.p.clone();
+      sh.v.z -= G * dt;
+      sh.p.addScaledVector(sh.v, dt);
+      sh.t += dt;
+      /* On teste le SEGMENT parcouru et non le point d'arrivée : à vingt-cinq
+         mètres par seconde et soixante images, la grenade avance de quarante
+         centimètres par image et traverserait un mur de cinquante sans
+         jamais s'y trouver. */
+      const d = Y.Terrain.hitDist(p0.x, p0.y, p0.z, sh.p.x, sh.p.y, sh.p.z, 0);
+      const ground = Y.Terrain.heightAt(sh.p.x, sh.p.y);
+      let boom = shellHit(p0, sh.p);
+      if (boom) { /* une silhouette d'abord : c'est elle qu'on visait */ }
+      else if (d >= 0) {
+        boom = p0.clone().add(sh.p.clone().sub(p0).setLength(Math.max(0.01, d - 0.02)));
+      } else if (sh.p.z <= ground + 0.03) {
+        boom = sh.p.clone(); boom.z = ground + 0.02;
+      } else if (sh.t > 6) {
+        boom = sh.p.clone();
+      }
+      if (boom) {
+        explode(boom);
+        S.group.remove(sh.obj); sh.obj.geometry.dispose();
+        S.shells.splice(i, 1);
+      } else {
+        sh.obj.position.copy(sh.p);
+      }
+    }
+  }
+
+  /* --- le souffle, et ce qu'il abîme -------------------------------- */
+
+  function explode(p) {
+    Y.Audio.blast();
+    const R = WEAPONS[1].blast;
+
+    // la boule de feu : deux sphères qui grossissent et s'effacent
+    const ball = new T.Mesh(new T.SphereGeometry(1, 14, 10),
+      new T.MeshBasicMaterial({ color: 0xffb14a, transparent: true, opacity: 0.95 }));
+    ball.position.copy(p); ball.scale.setScalar(0.25);
+    S.group.add(ball);
+    S.booms.push({ obj: ball, t: 0, R: R });
+
+    // le cratère : une pastille sombre au sol, qui reste
+    if (S.scars) {
+      const scar = new T.Mesh(new T.CircleGeometry(0.55 + Math.random() * 0.25, 16),
+        new T.MeshStandardMaterial({ color: 0x14100d, roughness: 0.98,
+          transparent: true, opacity: 0.85, depthWrite: false }));
+      scar.position.set(p.x, p.y, Y.Terrain.heightAt(p.x, p.y) + 0.012);
+      S.scars.add(scar);
+      // et quelques éclats projetés autour
+      for (let i = 0; i < 5; i++) {
+        const a = Math.random() * Math.PI * 2, r = 0.5 + Math.random() * 1.1;
+        const chip = new T.Mesh(new T.CircleGeometry(0.10 + Math.random() * 0.14, 8),
+          new T.MeshStandardMaterial({ color: 0x1c1712, roughness: 1,
+            transparent: true, opacity: 0.55, depthWrite: false }));
+        chip.position.set(p.x + Math.cos(a) * r, p.y + Math.sin(a) * r,
+          Y.Terrain.heightAt(p.x + Math.cos(a) * r, p.y + Math.sin(a) * r) + 0.011);
+        S.scars.add(chip);
+      }
+    }
+
+    // les cibles dans le souffle tombent — une grenade ne vise pas, elle couvre
+    S.targets.forEach(function (t) {
+      if (t.friend || t.state !== "up") return;
+      if (Math.hypot(t.x - p.x, t.y - p.y, aimZ(t) - p.z) > R) return;
+      t.state = "falling"; S.hits++;
+      if (S.hold === t) S.hold = null;
+    });
+    if (S.hits >= S.total && S.running) finish();
+
+    damage(p, R);
+  }
+
+  /**
+   * Ce que le souffle emporte du TERRAIN.
+   *
+   * Les blocs destructibles portent un nom : `auto` pour la carcasse, `mur`
+   * pour les panneaux du mur. Une explosion assez proche les retire de la
+   * description — et comme c'est cette même description qui donne la hauteur
+   * du sol, la ligne de vue et les collisions, le trou est immédiatement
+   * réel : on voit à travers, on tire à travers, on passe à travers. Rien à
+   * synchroniser, il n'y a qu'une seule vérité.
+   */
+  function damage(p, R) {
+    const boxes = Y.Terrain.current.boxes;
+    const keep = [], add = [];
+    let hitCar = false; const panels = {};
+    boxes.forEach(function (b) {
+      if (!b.part) { keep.push(b); return; }
+      /* Distance au BLOC et non à son centre : un panneau de mur fait huit
+         mètres de long, et le mesurer depuis son milieu le rendrait
+         indestructible par les bouts. La distance à une boîte alignée est la
+         norme de l'écart aux bornes, composante par composante — deux
+         maximums et une racine. */
+      const dx = Math.max(b.x0 - p.x, 0, p.x - b.x1);
+      const dy = Math.max(b.y0 - p.y, 0, p.y - b.y1);
+      const dz = Math.max((b.z0 || 0) - p.z, 0, p.z - b.h);
+      /* Le béton armé résiste mieux que de la tôle : le rayon STRUCTUREL
+         d'un panneau de mur vaut six dixièmes du souffle, celui d'une
+         carrosserie le souffle entier. Une grenade ouvre donc une brèche de
+         deux mètres et souffle une voiture à trois. */
+      const near = Math.hypot(dx, dy, dz) < R * (b.part === "mur" ? 0.30 : 1);
+      if (!near) { keep.push(b); return; }
+      if (b.part === "auto") { hitCar = true; return; }
+      if (b.part === "mur") { panels[b.panel] = true; return; }
+      keep.push(b);
+    });
+    if (!hitCar && !Object.keys(panels).length) return;
+
+    /* Un panneau touché emporte TOUT le panneau, linteau compris : un mur ne
+       s'ouvre pas en rond, il tombe entre deux trumeaux. */
+    const out = keep.filter(function (b) {
+      return !(b.part === "mur" && panels[b.panel]);
+    });
+
+    if (hitCar) {
+      /* La carcasse ne disparaît pas : elle s'écrase. Une épave reste un
+         abri, plus bas et franchissable — le terrain change de forme, il ne
+         se vide pas. */
+      const cx = 20.60, cy = -1.30;
+      out.push({ x0: cx - 2.10, x1: cx + 2.10, y0: cy - 0.86, y1: cy + 0.86,
+                 h: 0.42, z0: 0, mat: "wreck", part: "epave" });
+      S.wrecked = true;
+      S.say = "Véhicule détruit";
+    }
+    Object.keys(panels).forEach(function (id) {
+      // le pan tombé laisse ses décombres : un tas de 35 cm, qui se franchit
+      const b = boxes.find(function (x) { return x.part === "mur" && String(x.panel) === id && !x.z0; });
+      if (b) {
+        out.push({ x0: b.x0 - 0.15, x1: b.x1 + 0.15, y0: b.y0, y1: b.y1,
+                   h: 0.35, z0: 0, mat: "debris", part: "gravats" });
+      } else {
+        // un panneau de porte n'a que son linteau : il ne laisse rien au sol
+        const l = boxes.find(function (x) { return x.part === "mur" && String(x.panel) === id; });
+        if (l) out.push({ x0: l.x0 - 0.10, x1: l.x1 + 0.10, y0: l.y0, y1: l.y1,
+                          h: 0.14, z0: 0, mat: "debris", part: "gravats" });
+      }
+      S.breach++;
+    });
+    if (S.breach) S.say = "Brèche dans le mur";
+    Y.Terrain.mutate(out);
+  }
+
+  function stepBooms(dt) {
+    for (let i = S.booms.length - 1; i >= 0; i--) {
+      const b = S.booms[i];
+      b.t += dt;
+      const k = b.t / 0.45;
+      if (k >= 1) { S.group.remove(b.obj); b.obj.geometry.dispose(); S.booms.splice(i, 1); continue; }
+      b.obj.scale.setScalar(0.25 + k * b.R);
+      b.obj.material.opacity = 0.95 * (1 - k) * (1 - k);
+      b.obj.material.color.setHSL(0.08 - 0.08 * k, 1, 0.5 - 0.25 * k);
+    }
+  }
+
   /* --- pas de temps --------------------------------------------------- */
 
   function step(dt) {
     if (!S.on || !S.group) return;
     const st = Y.Motion.state;
+    stabilise(dt);
+    stepShells(dt);
+    stepBooms(dt);
 
     // entrée sur la ligne de tir : les cibles se relèvent
     const z = S.cfg.zone;
@@ -571,6 +1022,15 @@
       if (t.state === "rising") { t.up = Math.min(1, t.up + dt * 2.6); if (t.up >= 1) t.state = "up"; }
       else if (t.state === "falling") { t.up = Math.max(0, t.up - dt * 4.5); if (t.up <= 0) t.state = "down"; }
       if (t.state === "up" || t.state === "rising") S.live++;
+      /* Le chariot ne roule que quand la silhouette est levée : une cible
+         couchée qui continue de glisser sur son rail se verrait, et n'aurait
+         aucun sens — le chariot rentre avec elle. */
+      if (t.mv && (t.state === "up" || t.state === "rising")) {
+        t.y += t.dir * t.mv[2] * dt;
+        if (t.y > t.mv[1]) { t.y = t.mv[1]; t.dir = -1; }
+        if (t.y < t.mv[0]) { t.y = t.mv[0]; t.dir = 1; }
+        t.obj.position.y = t.y;
+      }
       // 0 = couchée vers l'arrière, 1 = debout
       t.obj.userData.pivot.rotation.y = (1 - t.up) * Math.PI / 2;
     });
@@ -611,10 +1071,10 @@
       if (t.state !== "up" && t.state !== "rising") return;
       const dx = t.x - gunW.x, dy = t.y - gunW.y;
       const d = Math.hypot(dx, dy);
-      if (d > REACH) return;
+      if (d > W().reach) return;
       let a = Math.atan2(dy, dx) - st.yaw;
       a = ((a + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-      if (Math.abs(a) > CONE) return;
+      if (Math.abs(a) > PAN_MAX) return;
       if (d >= bd) return;
       if (!clear(gunW, t)) return;
       bd = d; best = t;
@@ -628,6 +1088,12 @@
       wantPitch = Math.atan2(dz, Math.hypot(dx, dy));
     }
     const step2 = SLEW * dt;
+    /* Le pointage est BORNÉ, comme celui d'un vrai affût : ±150° en gisement,
+       −18° à +58° en site. La consigne est bornée avant d'être suivie, et non
+       après : sinon la tourelle passerait son temps à courir après un angle
+       qu'elle n'atteindra jamais et ne se déclarerait jamais alignée. */
+    wantYaw = clamp(wantYaw, -PAN_MAX, PAN_MAX);
+    wantPitch = clamp(wantPitch, TILT_MIN, TILT_MAX);
     S.yaw += clamp(wantYaw - S.yaw, -step2, step2);
     S.pitch += clamp(wantPitch - S.pitch, -step2, step2);
     S.ready = !!best && Math.abs(wantYaw - S.yaw) < TOL && Math.abs(wantPitch - S.pitch) < TOL;
@@ -640,12 +1106,12 @@
     /* --- cadence --- */
     if (S.reload > 0) {
       S.reload -= dt;
-      if (S.reload <= 0) { S.ammo = MAG; S.say = S.running ? "Feu !" : S.say; }
+      if (S.reload <= 0) { S.ammo = W().mag; S.say = S.running ? "Feu !" : S.say; }
     } else if (S.burst > 0) {
       S.next -= dt;
-      if (S.next <= 0) { shoot(); S.burst--; S.next = RATE; if (S.burst === 0) S.rest = REST; }
+      if (S.next <= 0) { shoot(); S.burst--; S.next = W().rate; if (S.burst === 0) S.rest = W().rest; }
     } else if (S.rest > 0) S.rest -= dt;
-    if (S.ammo <= 0 && S.reload <= 0) { S.reload = RELOAD; S.say = "Rechargement"; Y.Audio.reload(); }
+    if (S.ammo <= 0 && S.reload <= 0) { S.reload = W().reload; S.say = "Rechargement"; Y.Audio.reload(); }
 
     if (S.auto) autoStep(dt);
 
@@ -677,6 +1143,9 @@
     spare: spare,
     hold: toggleHold,
     sweep: toggleAuto,
+    nextWeapon: nextWeapon,
+    primaryWeapon: primaryWeapon,
+    weapon: function () { return W(); },
     /** Le pilote automatique tient-il les commandes ? */
     autopilot: function () { return S.on && S.auto; },
     /** Ce que la carte doit montrer : tout ce qui a été repéré, et rien d'autre. */
@@ -702,6 +1171,8 @@
      */
     reticle: function () {
       return { aim: !!S.lock, ready: S.ready, held: !!S.hold,
+               wpn: W().short, lob: W().id === "lg",
+               stab: S.gimbalUse * 180 / Math.PI, err: S.gimbalErr * 180 / Math.PI,
                dist: S.lock ? Math.hypot(S.lock.x - Y.Motion.state.px,
                                          S.lock.y - Y.Motion.state.py) : 0,
                reload: S.reload > 0, ammo: S.ammo };
@@ -710,7 +1181,7 @@
     hud: function () {
       if (!S.on) return "";
       const friends = S.targets.length - S.total;
-      return "Cibles " + S.hits + "/" + S.total
+      return W().short + " · Cibles " + S.hits + "/" + S.total
         + (friends ? " · " + friends + " amie" + (friends > 1 ? "s" : "") : "")
         + " · " + (S.reload > 0 ? "rechargement" : S.ammo + " coups")
         + (S.running ? " · " + S.t.toFixed(1) + " s" : "")
