@@ -3594,32 +3594,30 @@ window.YLO = window.YLO || {};
    YLO-2 — le Shuffle
 
    Le pas de danse sur place des quadrupèdes de Boston Dynamics, relevé
-   IMAGE PAR IMAGE sur une séquence de référence plutôt que deviné.
+   IMAGE PAR IMAGE sur une séquence de référence plutôt que deviné. Trois
+   versions ont été nécessaires, et chacune ratait pour une raison qu'on ne
+   voit qu'en mesurant.
 
-   Trois mesures ont tout décidé, et deux d'entre elles ont contredit ce que
-   je croyais :
+   Ce que la séquence dit, une fois les pieds isolés du fond :
 
-     · le REBOND bat toutes les 480 ms — 125 à la minute. Deux fois plus
-       lent que ce que j'avais écrit : à trois cents tapotements minute, le
-       pas n'était plus lisible, juste nerveux.
-     · son AMPLITUDE vaut 28 % de la hauteur au garrot (171 mm sur un robot
-       qui se tient à 610). Ramenée à YLO-2, qui roule à 235 mm de garde,
-       cela fait 66 mm de battement : quatre fois ce que j'avais mis. Ce
-       rebond-là est l'essentiel du mouvement, pas un ornement.
-     · les pattes s'ÉCARTENT QUAND LA CAISSE DESCEND et se rassemblent quand
-       elle monte. C'est l'inverse de ce que j'avais fait, et c'est
-       simplement de la géométrie : une patte de longueur donnée porte moins
-       haut quand elle est oblique. Le robot se détend en rassemblant ses
-       appuis sous lui et s'écrase en les ouvrant — ressort, pas ciseaux.
+     · le PIED DÉCOLLE, et haut. Les deux pieds d'une diagonale montent à
+       près de 200 mm — un tiers de la hauteur au garrot — pendant que
+       l'autre diagonale reste plantée. Une version précédente gardait les
+       quatre pieds collés au sol « pour ne pas rompre le contact » : le
+       robot avait l'air de piétiner, pas de danser. C'est le décollage
+       franc qui fait tout, et il ne rompt rien puisque l'autre diagonale
+       porte.
+     · le REBOND bat toutes les 480 ms — 125 à la minute —, et son amplitude
+       vaut 28 % de la hauteur au garrot. Ramenée aux 235 mm de garde
+       d'YLO-2, cela fait 66 mm de battement.
+     · l'ASSIETTE bascule de 16° d'un bord à l'autre, à la moitié de la
+       fréquence du rebond : un pas nez haut, le suivant nez bas.
 
-   S'y ajoute une ASSIETTE qui bascule de 16° d'un bord à l'autre, à la
-   moitié de la fréquence du rebond : un rebond nez haut, le suivant nez bas.
-   C'est elle qui donne son insolence au pas.
-
-   Le contact ne se rompt jamais : les quatre pieds raclent le sol pendant
-   toute la danse. Un léger décalage gauche/droite empêche le pas d'être
-   parfaitement symétrique — sans lui, on voit une machine qui pompe et non
-   un robot qui danse.
+   C'est donc un TROT SUR PLACE, très haut sur pattes et très rebondi : la
+   diagonale d'appui racle vers l'arrière pendant que l'autre est jetée vers
+   l'avant, genoux hauts. Il ne reste du « shuffle » que le raclement des
+   pieds portants — et c'est très bien ainsi, c'est lui qui distingue le pas
+   d'un simple trot.
 
    Le tout se danse dans le train où l'on est : sur pattes le pied racle, sur
    roues le pneu dérape. C'est même plus juste sur roues — une roue qui
@@ -3630,21 +3628,30 @@ window.YLO = window.YLO || {};
 
   const K = Y.K;
 
-  /* Un rebond. Mesuré à 480 ms sur la séquence de référence. */
-  const BEAT = 0.48;
-  const BEATS = 14;                  // un peu moins de sept secondes de pas
+  /* Un pas. Mesuré à 480 ms sur la séquence de référence. */
+  const STEP = 0.48;
+  const STEPS = 14;                  // un peu moins de sept secondes de pas
 
-  /* Amplitudes, en mètres et en radians. Le rebond et l'écartement sont
-     relevés ; le reste les accompagne. */
-  const RIDE = 0.235;                // garde moyenne
+  /* Amplitudes, en mètres et en radians. Le rebond, le décollage et
+     l'assiette sont relevés ; le reste les accompagne. */
+  /* Le robot danse HAUT sur pattes. Sur la séquence, il se tient nettement
+     plus haut qu'au repos : c'est ce qui laisse la place au pied de monter et
+     ce qui donne au pas son air ressort. 260 mm sur les 420 de portée. */
+  const RIDE = 0.260;                // garde moyenne pendant la danse
   const BOUNCE = 0.033;              // demi-battement : 66 mm bout à bout
-  const OPEN = 0.075;                // ouverture des appuis, caisse basse
-  const GATHER = 0.028;              // rassemblement des appuis, caisse haute
+  const LIFT = 0.088;                // décollage du pied — un tiers de la garde
+  const SWING = 0.070;               // demi-course avant/arrière du pied jeté
+  const SCUFF = 0.045;               // recul du pied portant : le raclement
   const PITCH = 0.14;                // assiette : 16° bout à bout
-  const ROLL = 0.030;                // roulis du décalage gauche/droite
-  const WAG = 0.040;                 // lacet de caisse
-  const SKEW = 0.13;                 // décalage de phase gauche/droite
-  const SCUFF = 0.012;               // raclement latéral des pieds
+  const ROLL = 0.035;                // roulis du report de poids
+  const WAG = 0.045;                 // lacet de caisse
+  /* Le vol occupe un peu plus de la moitié du pas : c'est ce recouvrement
+     qui garantit qu'au moins deux pieds portent en permanence. */
+  const FLY0 = 0.06, FLY1 = 0.62;
+
+  /* Les deux diagonales, avec les identifiants du dépôt : `lf` avant-gauche,
+     `rh` arrière-droit, et l'autre paire. */
+  const DIAG = [["lf", "rh"], ["rf", "lh"]];
 
   const S = {
     on: false, t: 0, say: "", beat: 0, cyc: 0,
@@ -3667,7 +3674,7 @@ window.YLO = window.YLO || {};
    */
   Y.Dance = {
     state: S,
-    duration: BEAT * BEATS,
+    duration: STEP * STEPS,
 
     start: function (modeFn) {
       if (S.on) return false;
@@ -3716,58 +3723,68 @@ window.YLO = window.YLO || {};
      */
     pose: function (dt, st) {
       const T = Math.min(S.t, Y.Dance.duration);
-      const n = T / BEAT;                        // rebonds écoulés, en continu
-      const beat = Math.floor(n);
-      S.cyc = beat; S.beat = (beat % 2) + 1;
+      const n = T / STEP;                        // pas écoulés, en continu
+      const k = Math.floor(n);                   // le pas en cours
+      const u = n - k;                           // 0 → 1 dans le pas
+      const fly = k % 2;                         // la diagonale qui est en l'air
+      S.cyc = k; S.beat = fly + 1;
 
       /* Fondu d'entrée et de sortie : le pas ne commence ni ne finit sur une
          amplitude pleine, sinon la première image est un à-coup. */
       const fade = Math.min(1, T / 0.35, (Y.Dance.duration - T) / 0.40);
 
-      /* Le cycle du rebond, en radians. `-cos` place le CREUX au début de
-         chaque rebond : la caisse touche son point bas au temps, remonte au
-         milieu, et redescend. C'est ce phasage qui fait tomber le point bas
-         sur la pulsation plutôt qu'entre deux. */
-      const w = n * Math.PI * 2;
-      const up = -Math.cos(w);                   // −1 en bas, +1 en haut
-
       /* Sur place, strictement : le cap et la position ne bougent pas. */
       st.px = S.x0; st.py = S.y0; st.yaw = S.yaw0;
       const ground = Y.Terrain ? Y.Terrain.heightAt(st.px, st.py) : 0;
       const WR = S.wheels ? 0.075 : 0;
+
+      /* Le rebond : la caisse est BASSE au poser — quand les quatre pieds
+         sont au sol et que le poids arrive — et haute au milieu du vol. Un
+         rebond par pas, comme mesuré. */
+      const up = -Math.cos(u * Math.PI * 2);
       const ride = RIDE + up * BOUNCE * fade;
       st.z = ground + ride + WR;
 
-      /* L'assiette bascule à la MOITIÉ de la fréquence du rebond : un rebond
-         nez haut, le suivant nez bas. Le roulis, lui, suit le décalage
-         gauche/droite des appuis. */
+      /* L'assiette bascule à la MOITIÉ de la fréquence du pas : un pas nez
+         haut, le suivant nez bas. Le roulis suit la diagonale portante. */
+      const w = n * Math.PI * 2;
       st.pitch = lerp(st.pitch, Math.sin(w / 2) * PITCH * fade, Math.min(1, dt * 20));
-      st.roll = lerp(st.roll, Math.sin(w - Math.PI / 2) * ROLL * fade, Math.min(1, dt * 20));
+      st.roll = lerp(st.roll, (fly === 0 ? 1 : -1) * ROLL * fade, Math.min(1, dt * 12));
       st.yawWag = Math.sin(w / 2 + 0.8) * WAG * fade;
       st.sway = 0;
 
       /* --- les appuis ---
-         Ils s'OUVRENT quand la caisse descend et se rassemblent quand elle
-         monte : les pattes avant partent devant et les arrière derrière au
-         creux du rebond, tout revient sous la caisse au sommet. Le décalage
-         gauche/droite désynchronise légèrement les deux flancs. */
+         La diagonale en vol part vers l'arrière, monte haut, et se pose
+         devant. Celle qui porte fait l'inverse au sol, lentement : c'est le
+         RACLEMENT, et c'est lui qui reste du shuffle. */
       const feet = {};
       Y.LEGS.forEach(function (L) {
         const id = L.id;
         const nx = L.x, ny = L.y + L.m * K.abadPlane;
+        const airborne = DIAG[fly][0] === id || DIAG[fly][1] === id;
 
-        // phase propre à ce flanc : la gauche mène, la droite suit
-        const ph = w + (L.m > 0 ? -SKEW : SKEW) * Math.PI;
-        const open = (1 - Math.cos(ph)) / 2;      // 0 rassemblé, 1 ouvert
-        const spread = lerp(-GATHER, OPEN, open) * L.f;
+        let x, z = -ride, contact = 1;
+        if (airborne && u > FLY0 && u < FLY1) {
+          /* EN VOL. Le pied quitte le sol vers l'arrière, passe haut sous la
+             caisse — genou relevé —, et se repose devant. La trajectoire est
+             une arche : montée et descente en sinus, avance en fondu. */
+          const v = (u - FLY0) / (FLY1 - FLY0);
+          x = nx + lerp(-SWING, SWING, ease(v));
+          z = -ride + Math.sin(v * Math.PI) * LIFT;
+          contact = 0;
+        } else if (airborne) {
+          /* Au sol, mais brièvement : juste avant de partir et juste après
+             s'être posé. On tient la position d'extrémité. */
+          x = nx + (u <= FLY0 ? -SWING : SWING);
+        } else {
+          /* PORTANTE : elle racle vers l'arrière sur toute la durée du pas.
+             Elle part de là où elle s'est posée et recule sous la caisse. */
+          x = nx + lerp(SWING * 0.55, SWING * 0.55 - SCUFF, ease(u));
+        }
 
-        const x = nx + spread * fade;
-        // les pieds raclent aussi vers l'extérieur en s'ouvrant : c'est ce
-        // frottement latéral qui fait crisser le pas plutôt que le sautiller
-        const y = ny + L.m * open * SCUFF * fade;
-        const z = -ride;
-
-        feet[id] = [x, y, z, 1, n % 1, z - WR];
+        const xf = nx + (x - nx) * fade;
+        const zf = -ride + (z + ride) * fade;
+        feet[id] = [xf, ny, zf, contact, u, zf - WR];
       });
 
       Y.Natural.placeFeet(st, feet);
@@ -3785,7 +3802,7 @@ window.YLO = window.YLO || {};
         });
       }
 
-      S.say = up > 0 ? "Shuffle · détente" : "Shuffle · appui";
+      S.say = fly === 0 ? "Shuffle · diagonale gauche" : "Shuffle · diagonale droite";
     }
   };
 })(window.YLO);

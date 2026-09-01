@@ -919,21 +919,20 @@ est — sur pattes le pied racle, sur roues le pneu dérape. C'est même plus
 juste sur roues : une roue qui glisse ne triche pas.
 
 Le pas n'a pas été deviné, il a été **relevé image par image** sur une
-séquence de référence. Trois mesures ont tout décidé, et deux d'entre elles
-ont contredit ce que j'avais écrit :
+séquence de référence. Trois versions ont été nécessaires, et chacune ratait
+pour une raison qu'on ne voit qu'en mesurant.
 
-| Mesuré | Ce que ça a changé |
+| Mesuré | Ce que ça a corrigé |
 | --- | --- |
-| **Rebond toutes les 480 ms** — 125 à la minute | Deux fois plus lent que ma version. À trois cents tapotements minute le pas n'était plus lisible, juste nerveux. |
-| **Amplitude : 28 % de la hauteur au garrot** (171 mm sur un robot qui se tient à 610) | Ramené aux 235 mm de garde d'YLO-2 : **66 mm** de battement, quatre fois ce que j'avais mis. Ce rebond est l'essentiel du mouvement, pas un ornement. |
-| **Les pattes s'écartent quand la caisse DESCEND** | L'inverse de ce que j'avais fait. C'est de la géométrie : une patte de longueur donnée porte moins haut quand elle est oblique. Le robot se détend en rassemblant ses appuis sous lui et s'écrase en les ouvrant — un ressort, pas des ciseaux. |
+| **Le pied décolle, et haut** : près de 200 mm, un tiers de la hauteur au garrot | Une version gardait les quatre pieds collés au sol « pour ne pas rompre le contact ». Le robot avait l'air de **piétiner**, pas de danser. C'est le décollage franc qui fait tout — et il ne rompt rien, puisque l'autre diagonale porte. |
+| **Rebond toutes les 480 ms**, amplitude 28 % de la hauteur au garrot | Ma première version battait deux fois trop vite et quatre fois trop peu : à trois cents tapotements minute le pas n'était plus lisible, juste nerveux. Ramené aux 260 mm de garde de danse d'YLO-2 : **66 mm** de battement. |
+| **Assiette qui bascule de 16°**, à la moitié de la fréquence du pas | Un pas nez haut, le suivant nez bas. C'est elle qui donne son insolence au pas. |
 
-S'y ajoute une **assiette qui bascule de 16°** d'un bord à l'autre, à la
-moitié de la fréquence du rebond : un rebond nez haut, le suivant nez bas.
-C'est elle qui donne son insolence au pas. Le **contact ne se rompt jamais** —
-les quatre pieds raclent le sol pendant toute la danse —, et un léger décalage
-gauche/droite désynchronise les deux flancs : sans lui, on voit une machine
-qui pompe et non un robot qui danse.
+C'est donc un **trot sur place**, haut sur pattes et très rebondi : la
+diagonale d'appui racle vers l'arrière pendant que l'autre est jetée vers
+l'avant, genoux hauts. Il ne reste du « shuffle » que le raclement des pieds
+portants — et c'est très bien ainsi, c'est lui qui distingue le pas d'un
+simple trot.
 
 C'est un **générateur de trajectoires de pieds**, pas une suite de consignes
 de marche. Le générateur d'allure sait faire avancer un robot ; il ne sait pas
@@ -951,11 +950,13 @@ la marche**. Relevé, sur pattes comme sur roues :
 
 | | Le robot | La référence |
 | --- | --- | --- |
-| Rebond de caisse | **66 mm** (202 → 268) | 66 mm ramenés à l'échelle |
-| Assiette | **15,4°** bout à bout | 16° |
 | Période | **480 ms** | 480 ms |
+| Rebond de caisse | **66 mm** (227 → 293) | 66 mm ramenés à l'échelle |
+| Décollage du pied | **88 mm**, un tiers de la garde | un tiers de la hauteur au garrot |
+| Assiette | **15,4°** bout à bout | 16° |
+| Appuis au sol | **2 pendant 56 %, 4 pendant 44 %** | trot avec recouvrement |
+| Temps sans aucun appui | **0 %** | jamais les quatre en l'air |
 | Déplacement | **0 mm** | sur place |
-| Appuis au sol | **4, tout le temps** | contact permanent |
 | Butées articulaires franchies | **0** | — |
 
 Sur roues, la cinématique vise l'**essieu** et non le contact, un rayon plus
