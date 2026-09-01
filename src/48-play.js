@@ -148,9 +148,13 @@
     { pad: "□ ○ pendant", key: "C V pendant", act: "…passe en tenue SANS cesser de tourner" },
     { pad: "✕ en tenue", key: "Espace en tenue", act: "Saut sur place, dans la position" },
     { pad: "Clic stick G", key: "T", act: "Champ de tir : arme suivante — appui long : mode de tir" },
-    { pad: "Clic stick D", key: "R", act: "Saut 180" },
+    { pad: "Clic stick D", key: "R", act: "Saut 180 — au champ de tir : ouvrir ou fermer la vue drone" },
     { pad: "Clic stick D ×2", key: "R ×2", act: "Saut 360" },
     { pad: "↑ ↓ ← →", key: "Z S Q D", act: "Salto dans cette direction" },
+    { pad: "↑", key: "Z", act: "Champ de tir : lancer le drone — rappui : rappel et pose" },
+    { pad: "↓", key: "S", act: "Champ de tir : drone en reconnaissance ⇄ en garde au-dessus du robot" },
+    { pad: "→", key: "D", act: "Champ de tir : assigner au drone la cible que tient la tourelle" },
+    { pad: "←", key: "Q", act: "Champ de tir : lancer l'assaut du robot sur ce que le drone a repéré" },
     { pad: "flèche ×2", key: "touche ×2", act: "Salto double" },
     { pad: "— en l'air —", key: "— en l'air —", act: "les mêmes touches font tourner le vol" },
     { pad: "Stick gauche", key: "← →", act: "Tourner" },
@@ -249,7 +253,39 @@
    * si la même flèche revient dans la fenêtre, c'est le double qui part et
    * l'attente est annulée.
    */
+  /**
+   * Les commandes du drone.
+   *
+   * Elles prennent la place des SALTOS, et seulement au champ de tir : le
+   * robot y porte une arme et un drone sur le dos, et un salto arrière avec
+   * un quadrirotor sur le pont n'a aucun sens. Partout ailleurs — skatepark,
+   * rampes, parcours — les flèches gardent leurs figures, entières.
+   *
+   * Cinq gestes, un par touche, et ils racontent le mode dans les deux sens :
+   * on décolle, on balaie, on assigne ce que la tourelle tient, et on lance
+   * l'assaut sur ce que le drone a trouvé.
+   */
+  const DRONE = {
+    up:    function () { return Y.Drone.launch(); },
+    down:  function () { return Y.Drone.task(); },
+    right: function () { return Y.Drone.assign(); },
+    left:  function () { return Y.Drone.assault(); },
+    r3:    function () {
+      const v = Y.Drone.view();
+      Y.Drone.state.say = v ? "Vue drone ouverte" : "Vue drone fermée";
+      return true;
+    }
+  };
+
   function pressDir(dir) {
+    /* Au champ de tir, la flèche ne lance plus de figure : elle commande le
+       drone. Le refus se dit lui aussi — une touche muette passe pour une
+       touche cassée. */
+    if (Y.Range.active() && DRONE[dir]) {
+      DRONE[dir]();
+      say(Y.Drone.state.say);
+      return;
+    }
     if (waitDir && waitDir.dir === dir) {
       waitDir = null;
       fire(DIR[dir].two);

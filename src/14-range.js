@@ -1508,6 +1508,37 @@
     },
     spawn: spawn,
     despawn: despawn,
+    /* --- ce que le drone demande au stand ---------------------------
+       Le drone n'a ni cibles ni mémoire à lui : il REGARDE avec les yeux
+       du stand et il MARQUE dans la carte du stand. Trois fonctions
+       suffisent — voir depuis un point, frapper un point, et lire la
+       liste. Rien de tout cela n'est propre au drone : un observateur
+       avancé se servirait des mêmes. */
+    /** Repérer depuis un point quelconque : rendu le nombre de NOUVELLES. */
+    spot: function (x, y, z, reach) {
+      if (!S.on) return 0;
+      let n = 0;
+      const from = { x: x, y: y, z: z };
+      S.targets.forEach(function (t) {
+        if (t.seen || t.state === "down") return;
+        if (Math.hypot(t.x - x, t.y - y) > reach) return;
+        if (!clear(from, t)) return;
+        t.seen = true; S.seen++; n++;
+      });
+      if (n) Y.Audio.ping();
+      return n;
+    },
+    /** Une charge lâchée d'en haut : le même souffle qu'une grenade. */
+    strike: function (x, y, z) {
+      if (!S.on) return false;
+      explode(new T.Vector3(x, y, z));
+      return true;
+    },
+    /** La liste vivante des cibles — le drone y désigne et y lit. */
+    list: function () { return S.targets; },
+    /** Celle que la tourelle tient : c'est elle qu'on assigne au drone. */
+    aimed: function () { return S.hold || S.lock; },
+    aimZ: aimZ,
     moveTarget: moveTarget,
     marked: marked,
     defending: function () { return S.on && S.def; },

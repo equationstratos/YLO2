@@ -355,6 +355,74 @@
          fait apparaître les ennemis, et la zone se place au clic. */
       range: { defense: true, zone: null, targets: [] } },
 
+    /* Terrain de RECONNAISSANCE. Il est bâti autour d'une seule idée : le
+       robot ne peut pas voir ce qu'il doit détruire. Vingt-deux mètres de
+       portée de détection, cinquante mètres de terrain, une crête au
+       milieu et un plateau derrière — depuis la ligne de départ on ne voit
+       littéralement rien de ce qu'il y a à faire.
+
+       Le drone, lui, monte à trois mètres et le masque disparaît. C'est
+       tout le mode : on repère d'en haut, puis on envoie le robot, qui
+       devra franchir la crête par la rampe et grimper au plateau. */
+    { id: "recon", name: "Reconnaissance drone", maxStep: 0.16,
+      desc: "Vallée de 50 m barrée par une crête : depuis le départ, les " +
+            "cibles du fond sont invisibles. ↑ lance le drone, ↓ le met en " +
+            "reconnaissance, ← lance l'assaut du robot, → assigne au drone " +
+            "la cible que tient la tourelle.",
+      boxes: (function () {
+        const out = [];
+        const add = function (list) { list.forEach(function (b) { out.push(b); }); };
+        // plateau de départ
+        out.push(box(-2.4, 1.6, -2.2, 2.2, 0.06));
+        // flancs de la vallée : ils ferment les côtés sans fermer le fond
+        [-8.5, 8.5].forEach(function (y) {
+          for (let i = 0; i < 26; i++) {
+            const h = 1.5 + 0.5 * Math.sin(i * 0.9);
+            out.push(box(-3 + i * 2.1, -3 + i * 2.1 + 2.05, y - 1.4, y + 1.4, h));
+          }
+        });
+        /* La crête. Un mur de 2,6 m en travers, percé d'un seul passage
+           décalé sur la gauche : c'est ce qui rend la reconnaissance utile
+           — on ne voit pas au travers, et la route n'est pas droite. */
+        for (let y = -7.2; y < 7.19; y += 0.8) {
+          const c = y + 0.4;
+          if (c > -5.4 && c < -3.4) continue;         // le passage
+          out.push({ x0: 14.0, x1: 14.7, y0: y, y1: y + 0.8, h: 2.60, z0: 0,
+                     part: "crete", panel: Math.round((y + 8) * 10) });
+        }
+        // la rampe qui mène au passage, et les gravats qui le gardent
+        add(bank(11.0, 14.0, -5.6, -3.2, 0, 0.30, 10));
+        add(rubble(15.2, 17.4, 2.4, 0.34, 0.13));
+        // deux abris derrière la crête : des angles morts, pas des murs
+        out.push(box(19.0, 21.4, -3.2, -1.0, 1.10));
+        out.push(box(24.0, 26.6, 1.4, 4.0, 1.30));
+        /* Le plateau du fond, à 1,9 m : deux cibles y sont postées, et on
+           n'y monte que par sa rampe. C'est la « montée » du programme —
+           le robot doit vraiment aller la chercher. */
+        out.push(box(33.0, 40.0, -6.0, 1.0, 1.90));
+        add(bank(29.6, 33.0, -5.0, -1.4, 0, 1.90, 18));
+        // une passerelle latérale, plus haut encore
+        out.push(box(30.0, 33.4, 4.2, 6.4, 2.40));
+        add(bank(27.2, 30.0, 4.2, 6.4, 0, 2.40, 16));
+        // butte de fond
+        add(bank(44.0, 48.0, -8.0, 8.0, 0, 2.20, 26));
+        return out;
+      })(),
+      start: [-1.0, 0, 0],
+      zones: [{ kind: "start", x0: -2.40, x1: 1.60, y0: -2.20, y1: 2.20, z: 0.06 }],
+      /* Douze cibles, et l'essentiel est DERRIÈRE la crête : depuis la
+         ligne de départ, le robot n'en repère que trois. Les neuf autres
+         n'existent qu'une fois que le drone est passé. */
+      range: {
+        recon: true,
+        zone: [-2.40, 1.60, -2.20, 2.20],
+        targets: [[7.5, 2.2], [10.5, -3.4], [12.5, 4.6],
+                  [17.5, -1.8], [19.5, 3.4], [21.2, -2.1, 1.10],
+                  [24.0, -4.6], [26.0, 2.7, 1.30],
+                  [31.5, 5.3, 2.40], [35.0, -2.0, 1.90], [38.5, -4.4, 1.90],
+                  [42.0, 1.6]]
+      } },
+
     // Mini-ramp : deux grandes transitions qui se font face, un flat entre
     // les deux. C'est l'objet de skate le plus simple et le plus riche — on
     // n'y franchit rien, on y roule : la pente rend l'élan qu'on lui a donné,

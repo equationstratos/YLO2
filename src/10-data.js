@@ -117,7 +117,10 @@ window.YLO = window.YLO || {};
     { id: "rail",     name: "Rails de cible", preset: { color: "#3a4144", metal: 0.60, rough: 0.45, pattern: "brushed" } },
     { id: "foe",      name: "Ennemis",       preset: { color: "#3d2a2a", metal: 0.30, rough: 0.70, pattern: "none" } },
     { id: "foeMark",  name: "Marques ennemies", preset: { color: "#ff4433", metal: 0.05, rough: 0.60, pattern: "none" } },
-    { id: "zone",     name: "Zone à tenir",  preset: { color: "#2f9bd8", metal: 0.10, rough: 0.55, pattern: "none" } }
+    { id: "zone",     name: "Zone à tenir",  preset: { color: "#2f9bd8", metal: 0.10, rough: 0.55, pattern: "none" } },
+    { id: "drone",    name: "Drone",         preset: { color: "#26302f", metal: 0.40, rough: 0.42, pattern: "none" } },
+    { id: "droneArm", name: "Bras du drone", preset: { color: "#fc9000", metal: 0.20, rough: 0.50, pattern: "none" } },
+    { id: "rotor",    name: "Hélices",       preset: { color: "#8f9895", metal: 0.15, rough: 0.60, pattern: "none" } }
   ];
 
   Y.PATTERNS = [

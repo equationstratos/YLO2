@@ -450,9 +450,43 @@ input[type=range]::-moz-range-thumb{
   letter-spacing:.18em;color:var(--faint);opacity:.8;
 }
 
+/* Vue du drone : la même vignette que celle de l'arme, posée dessus. Sa
+   taille et sa position viennent du rendu — c'est le ciseau qui décide, et
+   le calque le suit, sinon les deux se décalent au redimensionnement. */
+.dfpv{
+  position:absolute;right:0;z-index:6;pointer-events:none;
+  border-left:1px solid var(--line);border-top:1px solid var(--line);
+}
+.dfpv[hidden]{display:none}
+.dfpvmarks{position:absolute;inset:0;overflow:hidden}
+.dfpvmarks i{
+  position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;
+  border:1.4px solid #ff4433;opacity:.75;
+}
+/* Une cible que le drone vient de découvrir clignote : c'est le moment
+   utile du mode, il ne doit pas passer inaperçu. */
+.dfpvmarks i.new{border-color:#ffc24d;animation:dblink .6s linear infinite}
+.dfpvmarks i.friend{border-color:#2f9bd8}
+.dfpvmarks i.on{width:34px;height:34px;margin:-17px 0 0 -17px;
+  border-color:#ff4433;border-width:2px;opacity:1;
+  box-shadow:0 0 0 1px #ff443355}
+@keyframes dblink{0%,100%{opacity:1}50%{opacity:.25}}
+.dfpvtag{
+  position:absolute;left:0;right:0;bottom:14px;text-align:center;
+  font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--faint);
+}
+.dfpvbatt{position:absolute;left:10px;right:10px;bottom:7px;height:3px;
+  background:var(--line-soft)}
+.dfpvbatt b{display:block;height:100%;width:100%;background:var(--data);
+  transition:width .2s linear,background .3s linear}
+
 .readout{
   position:absolute;top:14px;right:16px;text-align:right;font-family:var(--mono);
   font-size:10px;letter-spacing:.08em;color:var(--faint);pointer-events:none;line-height:1.7;
+  /* Au-dessus des vignettes : la ligne d'état doit rester lisible même si une
+     caméra vient se ranger sous elle. */
+  z-index:9;text-shadow:0 0 6px #0B0E0C,0 0 3px #0B0E0C;
 }
 .readout b{color:var(--data);font-weight:500}
 .readout .src{color:var(--accent)}
@@ -616,6 +650,16 @@ input[type=range]::-moz-range-thumb{
         <div class="fpvmarks" id="fpvmarks"></div>
         <div class="fpvtag" id="fpvtag"></div>
         <div class="fpvlabel">CAM ARME</div>
+      </div>
+      <!-- Vue du drone. Elle ne porte pas de réticule : le drone ne tire
+           pas, il DÉSIGNE et il largue à l'aplomb. Ce qu'on veut y lire,
+           c'est ce qu'il découvre — d'où les repères qui clignotent à la
+           découverte, et rien d'autre au milieu de l'image. -->
+      <div class="dfpv" id="dfpv" hidden>
+        <div class="dfpvmarks" id="dfpvmarks"></div>
+        <div class="fpvlabel">CAM DRONE</div>
+        <div class="dfpvtag" id="dfpvtag"></div>
+        <div class="dfpvbatt"><b id="dfpvbatt"></b></div>
       </div>
       <div class="combo" id="combo" hidden>
         <div class="cscore"><b id="comboScore">0</b> <span>pts</span></div>

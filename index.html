@@ -455,9 +455,43 @@ input[type=range]::-moz-range-thumb{
   letter-spacing:.18em;color:var(--faint);opacity:.8;
 }
 
+/* Vue du drone : la même vignette que celle de l'arme, posée dessus. Sa
+   taille et sa position viennent du rendu — c'est le ciseau qui décide, et
+   le calque le suit, sinon les deux se décalent au redimensionnement. */
+.dfpv{
+  position:absolute;right:0;z-index:6;pointer-events:none;
+  border-left:1px solid var(--line);border-top:1px solid var(--line);
+}
+.dfpv[hidden]{display:none}
+.dfpvmarks{position:absolute;inset:0;overflow:hidden}
+.dfpvmarks i{
+  position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;
+  border:1.4px solid #ff4433;opacity:.75;
+}
+/* Une cible que le drone vient de découvrir clignote : c'est le moment
+   utile du mode, il ne doit pas passer inaperçu. */
+.dfpvmarks i.new{border-color:#ffc24d;animation:dblink .6s linear infinite}
+.dfpvmarks i.friend{border-color:#2f9bd8}
+.dfpvmarks i.on{width:34px;height:34px;margin:-17px 0 0 -17px;
+  border-color:#ff4433;border-width:2px;opacity:1;
+  box-shadow:0 0 0 1px #ff443355}
+@keyframes dblink{0%,100%{opacity:1}50%{opacity:.25}}
+.dfpvtag{
+  position:absolute;left:0;right:0;bottom:14px;text-align:center;
+  font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--faint);
+}
+.dfpvbatt{position:absolute;left:10px;right:10px;bottom:7px;height:3px;
+  background:var(--line-soft)}
+.dfpvbatt b{display:block;height:100%;width:100%;background:var(--data);
+  transition:width .2s linear,background .3s linear}
+
 .readout{
   position:absolute;top:14px;right:16px;text-align:right;font-family:var(--mono);
   font-size:10px;letter-spacing:.08em;color:var(--faint);pointer-events:none;line-height:1.7;
+  /* Au-dessus des vignettes : la ligne d'état doit rester lisible même si une
+     caméra vient se ranger sous elle. */
+  z-index:9;text-shadow:0 0 6px #0B0E0C,0 0 3px #0B0E0C;
 }
 .readout b{color:var(--data);font-weight:500}
 .readout .src{color:var(--accent)}
@@ -623,6 +657,16 @@ input[type=range]::-moz-range-thumb{
         <div class="fpvmarks" id="fpvmarks"></div>
         <div class="fpvtag" id="fpvtag"></div>
         <div class="fpvlabel">CAM ARME</div>
+      </div>
+      <!-- Vue du drone. Elle ne porte pas de réticule : le drone ne tire
+           pas, il DÉSIGNE et il largue à l'aplomb. Ce qu'on veut y lire,
+           c'est ce qu'il découvre — d'où les repères qui clignotent à la
+           découverte, et rien d'autre au milieu de l'image. -->
+      <div class="dfpv" id="dfpv" hidden>
+        <div class="dfpvmarks" id="dfpvmarks"></div>
+        <div class="fpvlabel">CAM DRONE</div>
+        <div class="dfpvtag" id="dfpvtag"></div>
+        <div class="dfpvbatt"><b id="dfpvbatt"></b></div>
       </div>
       <div class="combo" id="combo" hidden>
         <div class="cscore"><b id="comboScore">0</b> <span>pts</span></div>
@@ -833,7 +877,10 @@ window.YLO = window.YLO || {};
     { id: "rail",     name: "Rails de cible", preset: { color: "#3a4144", metal: 0.60, rough: 0.45, pattern: "brushed" } },
     { id: "foe",      name: "Ennemis",       preset: { color: "#3d2a2a", metal: 0.30, rough: 0.70, pattern: "none" } },
     { id: "foeMark",  name: "Marques ennemies", preset: { color: "#ff4433", metal: 0.05, rough: 0.60, pattern: "none" } },
-    { id: "zone",     name: "Zone à tenir",  preset: { color: "#2f9bd8", metal: 0.10, rough: 0.55, pattern: "none" } }
+    { id: "zone",     name: "Zone à tenir",  preset: { color: "#2f9bd8", metal: 0.10, rough: 0.55, pattern: "none" } },
+    { id: "drone",    name: "Drone",         preset: { color: "#26302f", metal: 0.40, rough: 0.42, pattern: "none" } },
+    { id: "droneArm", name: "Bras du drone", preset: { color: "#fc9000", metal: 0.20, rough: 0.50, pattern: "none" } },
+    { id: "rotor",    name: "Hélices",       preset: { color: "#8f9895", metal: 0.15, rough: 0.60, pattern: "none" } }
   ];
 
   Y.PATTERNS = [
@@ -1336,6 +1383,74 @@ window.YLO = window.YLO || {};
       /* Pas de ligne de tir ni de cibles écrites : c'est le mode défense qui
          fait apparaître les ennemis, et la zone se place au clic. */
       range: { defense: true, zone: null, targets: [] } },
+
+    /* Terrain de RECONNAISSANCE. Il est bâti autour d'une seule idée : le
+       robot ne peut pas voir ce qu'il doit détruire. Vingt-deux mètres de
+       portée de détection, cinquante mètres de terrain, une crête au
+       milieu et un plateau derrière — depuis la ligne de départ on ne voit
+       littéralement rien de ce qu'il y a à faire.
+
+       Le drone, lui, monte à trois mètres et le masque disparaît. C'est
+       tout le mode : on repère d'en haut, puis on envoie le robot, qui
+       devra franchir la crête par la rampe et grimper au plateau. */
+    { id: "recon", name: "Reconnaissance drone", maxStep: 0.16,
+      desc: "Vallée de 50 m barrée par une crête : depuis le départ, les " +
+            "cibles du fond sont invisibles. ↑ lance le drone, ↓ le met en " +
+            "reconnaissance, ← lance l'assaut du robot, → assigne au drone " +
+            "la cible que tient la tourelle.",
+      boxes: (function () {
+        const out = [];
+        const add = function (list) { list.forEach(function (b) { out.push(b); }); };
+        // plateau de départ
+        out.push(box(-2.4, 1.6, -2.2, 2.2, 0.06));
+        // flancs de la vallée : ils ferment les côtés sans fermer le fond
+        [-8.5, 8.5].forEach(function (y) {
+          for (let i = 0; i < 26; i++) {
+            const h = 1.5 + 0.5 * Math.sin(i * 0.9);
+            out.push(box(-3 + i * 2.1, -3 + i * 2.1 + 2.05, y - 1.4, y + 1.4, h));
+          }
+        });
+        /* La crête. Un mur de 2,6 m en travers, percé d'un seul passage
+           décalé sur la gauche : c'est ce qui rend la reconnaissance utile
+           — on ne voit pas au travers, et la route n'est pas droite. */
+        for (let y = -7.2; y < 7.19; y += 0.8) {
+          const c = y + 0.4;
+          if (c > -5.4 && c < -3.4) continue;         // le passage
+          out.push({ x0: 14.0, x1: 14.7, y0: y, y1: y + 0.8, h: 2.60, z0: 0,
+                     part: "crete", panel: Math.round((y + 8) * 10) });
+        }
+        // la rampe qui mène au passage, et les gravats qui le gardent
+        add(bank(11.0, 14.0, -5.6, -3.2, 0, 0.30, 10));
+        add(rubble(15.2, 17.4, 2.4, 0.34, 0.13));
+        // deux abris derrière la crête : des angles morts, pas des murs
+        out.push(box(19.0, 21.4, -3.2, -1.0, 1.10));
+        out.push(box(24.0, 26.6, 1.4, 4.0, 1.30));
+        /* Le plateau du fond, à 1,9 m : deux cibles y sont postées, et on
+           n'y monte que par sa rampe. C'est la « montée » du programme —
+           le robot doit vraiment aller la chercher. */
+        out.push(box(33.0, 40.0, -6.0, 1.0, 1.90));
+        add(bank(29.6, 33.0, -5.0, -1.4, 0, 1.90, 18));
+        // une passerelle latérale, plus haut encore
+        out.push(box(30.0, 33.4, 4.2, 6.4, 2.40));
+        add(bank(27.2, 30.0, 4.2, 6.4, 0, 2.40, 16));
+        // butte de fond
+        add(bank(44.0, 48.0, -8.0, 8.0, 0, 2.20, 26));
+        return out;
+      })(),
+      start: [-1.0, 0, 0],
+      zones: [{ kind: "start", x0: -2.40, x1: 1.60, y0: -2.20, y1: 2.20, z: 0.06 }],
+      /* Douze cibles, et l'essentiel est DERRIÈRE la crête : depuis la
+         ligne de départ, le robot n'en repère que trois. Les neuf autres
+         n'existent qu'une fois que le drone est passé. */
+      range: {
+        recon: true,
+        zone: [-2.40, 1.60, -2.20, 2.20],
+        targets: [[7.5, 2.2], [10.5, -3.4], [12.5, 4.6],
+                  [17.5, -1.8], [19.5, 3.4], [21.2, -2.1, 1.10],
+                  [24.0, -4.6], [26.0, 2.7, 1.30],
+                  [31.5, 5.3, 2.40], [35.0, -2.0, 1.90], [38.5, -4.4, 1.90],
+                  [42.0, 1.6]]
+      } },
 
     // Mini-ramp : deux grandes transitions qui se font face, un flat entre
     // les deux. C'est l'objet de skate le plus simple et le plus riche — on
@@ -3486,6 +3601,37 @@ window.YLO = window.YLO || {};
     },
     spawn: spawn,
     despawn: despawn,
+    /* --- ce que le drone demande au stand ---------------------------
+       Le drone n'a ni cibles ni mémoire à lui : il REGARDE avec les yeux
+       du stand et il MARQUE dans la carte du stand. Trois fonctions
+       suffisent — voir depuis un point, frapper un point, et lire la
+       liste. Rien de tout cela n'est propre au drone : un observateur
+       avancé se servirait des mêmes. */
+    /** Repérer depuis un point quelconque : rendu le nombre de NOUVELLES. */
+    spot: function (x, y, z, reach) {
+      if (!S.on) return 0;
+      let n = 0;
+      const from = { x: x, y: y, z: z };
+      S.targets.forEach(function (t) {
+        if (t.seen || t.state === "down") return;
+        if (Math.hypot(t.x - x, t.y - y) > reach) return;
+        if (!clear(from, t)) return;
+        t.seen = true; S.seen++; n++;
+      });
+      if (n) Y.Audio.ping();
+      return n;
+    },
+    /** Une charge lâchée d'en haut : le même souffle qu'une grenade. */
+    strike: function (x, y, z) {
+      if (!S.on) return false;
+      explode(new T.Vector3(x, y, z));
+      return true;
+    },
+    /** La liste vivante des cibles — le drone y désigne et y lit. */
+    list: function () { return S.targets; },
+    /** Celle que la tourelle tient : c'est elle qu'on assigne au drone. */
+    aimed: function () { return S.hold || S.lock; },
+    aimZ: aimZ,
     moveTarget: moveTarget,
     marked: marked,
     defending: function () { return S.on && S.def; },
@@ -4463,6 +4609,485 @@ window.YLO = window.YLO || {};
 
     /** Dégâts pris autrement qu'au tir — le module de tir peut y recourir. */
     hurt: hurtBot
+  };
+})(window.YLO);
+/* =====================================================================
+   YLO-2 — drone de reconnaissance
+
+   Le robot voit à vingt-deux mètres, et seulement ce qui est à découvert.
+   C'est peu pour un terrain de cinquante, et c'est exactement le problème
+   que résout un drone : il monte, et de là-haut un merlon n'est plus un
+   masque. Ce qu'il repère entre dans la MÊME carte que ce que le robot
+   repère — il n'y a qu'une mémoire, sinon il faudrait choisir laquelle
+   croire.
+
+   Deux sens de marche, et c'est tout le mode :
+
+     · le robot désigne, le drone frappe. La tourelle tient une cible, on
+       l'assigne, le drone y va et lâche sa charge. C'est ce qui permet de
+       traiter ce qui est HORS de portée de l'arme, ou derrière un mur que
+       la balle ne traverse pas ;
+     · le drone repère, le robot élimine. Le drone balaie le terrain, les
+       cibles tombent sur la carte, et on lance l'assaut : le pilote
+       automatique s'occupe du chemin — gravats, porte, montée — et de la
+       conduite de tir.
+
+   Le drone ne se pose JAMAIS de lui-même. Sans tâche il tient le
+   stationnaire au-dessus du robot ; à court de batterie il rentre se
+   poser sur le pont, se recharge, et repart. Un drone qui atterrit parce
+   qu'il n'a rien à faire est un drone qu'on oublie.
+   ===================================================================== */
+(function (Y) {
+  "use strict";
+  const T = window.THREE;
+
+  const V_MAX = 6.0;                 // vitesse de translation, m/s
+  const V_TAU = 0.32;                // temps de réponse en translation, s
+  const AGL = 3.10;                  // hauteur de vol au-dessus du relief, m
+  const AGL_MIN = 1.60;              // garde minimale au-dessus d'un obstacle
+  const CLIMB = 3.0;                 // vitesse verticale, m/s
+  const DETECT = 34.0;               // portée de repérage depuis le ciel, m
+  const SCAN_DT = 0.12;              // on ne relit pas la scène à chaque image
+  const CHARGES = 3;                 // munitions emportées par sortie
+  const DROP_R = 1.10;               // il faut être à l'aplomb pour lâcher
+  const DROP_WAIT = 0.55;            // temps de stabilisation avant le largage
+  /* Autonomie. Elle n'est pas là pour punir : elle est là pour que « retour
+     au robot » soit une manœuvre qui arrive vraiment, et pas une option de
+     menu qu'on ne prend jamais. */
+  const BATT_HOVER = 0.6;            // %/s en stationnaire
+  const BATT_FLY = 1.2;              // %/s en déplacement
+  const BATT_LOW = 15;               // en dessous, il rentre de lui-même
+  const CHARGE_RATE = 9.0;           // %/s sur le pont
+  const DOCK = { x: -0.02, y: 0, z: 0.20 };   // sa place sur le dos du robot
+  const LANE = 2.2;                  // pas du balayage, en portées
+
+  const S = {
+    on: false, fly: false, mode: "pont", say: "Drone au pont",
+    p: null, v: null, yaw: 0, spin: 0,
+    tgt: null, wait: 0, charges: CHARGES, batt: 100, landing: false, recall: false,
+    scan: 0, found: 0, view: true,
+    route: [], leg: 0, group: null, cam: null, rotors: []
+  };
+
+  function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+
+  /* --- le maillage --------------------------------------------------
+     Un quadrirotor lisible de loin : une poutre en croix, quatre disques
+     qui tournent, une boule de caméra sous le ventre. Il fait 42 cm de
+     bras à bras — assez pour se voir à vingt mètres, assez petit pour
+     tenir sur le dos du robot. */
+  function build(scene) {
+    if (S.group) return;
+    const g = new T.Group();
+    g.visible = false;
+    const body = new T.Mesh(new T.BoxGeometry(0.20, 0.13, 0.07),
+      Y.Mat.get("drone"));
+    body.castShadow = true; body.userData.mat = "drone";
+    g.add(body);
+    const arms = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+    arms.forEach(function (a) {
+      const arm = new T.Mesh(new T.BoxGeometry(0.24, 0.022, 0.016),
+        Y.Mat.get("droneArm"));
+      arm.position.set(a[0] * 0.11, a[1] * 0.11, 0.006);
+      arm.rotation.z = a[0] * a[1] > 0 ? 0.79 : -0.79;
+      arm.userData.mat = "droneArm";
+      g.add(arm);
+      const pod = new T.Mesh(new T.CylinderGeometry(0.022, 0.022, 0.03, 8),
+        Y.Mat.get("droneArm"));
+      pod.rotation.x = Math.PI / 2;
+      pod.position.set(a[0] * 0.20, a[1] * 0.20, 0.02);
+      pod.userData.mat = "droneArm";
+      g.add(pod);
+      /* Le disque plutôt que deux pales : à la vitesse où tourne une hélice,
+         c'est un disque qu'on voit, et deux pales modélisées ne donnent
+         qu'un scintillement. */
+      const rot = new T.Mesh(new T.CylinderGeometry(0.095, 0.095, 0.004, 16),
+        Y.Mat.get("rotor"));
+      rot.rotation.x = Math.PI / 2;
+      rot.position.set(a[0] * 0.20, a[1] * 0.20, 0.038);
+      rot.userData.mat = "rotor";
+      g.add(rot); S.rotors.push(rot);
+    });
+    const ball = new T.Mesh(new T.SphereGeometry(0.035, 10, 8),
+      Y.Mat.get("sensor"));
+    ball.position.set(0.07, 0, -0.045);
+    ball.userData.mat = "sensor";
+    g.add(ball);
+    scene.add(g);
+    S.group = g;
+    S.p = new T.Vector3(); S.v = new T.Vector3();
+    S.cam = new T.PerspectiveCamera(64, 1.5, 0.05, 300);
+    S.cam.up.set(0, 0, 1);
+  }
+
+  /* --- relief -------------------------------------------------------
+     Un drone ne suit pas le sol, il suit le PLAFOND du relief : ce qui
+     compte est le point le plus haut sous lui et devant lui. Sonder un
+     seul point le ferait passer dans un mur qu'il n'a pas encore atteint. */
+  function ceiling(x, y, ax, ay) {
+    let h = 0;
+    for (let i = 0; i <= 4; i++) {
+      const k = i / 4;
+      const px = x + (ax - x) * k, py = y + (ay - y) * k;
+      const z = Y.Terrain.heightAt(px, py);
+      if (z > h) h = z;
+      /* Les linteaux ne comptent pas dans `heightAt` — un mur percé d'une
+         porte y est un trou. Le drone doit pourtant passer AU-DESSUS : on
+         relit donc les blocs qui portent un toit. */
+      (Y.Terrain.current.boxes || []).forEach(function (b) {
+        if (px < b.x0 - 0.3 || px > b.x1 + 0.3) return;
+        if (py < b.y0 - 0.3 || py > b.y1 + 0.3) return;
+        if (b.h > h) h = b.h;
+      });
+    }
+    return h;
+  }
+
+  /** Le point où le drone doit se tenir pour surveiller (x, y). */
+  function station(x, y, ax, ay) {
+    return ceiling(x, y, ax === undefined ? x : ax, ay === undefined ? y : ay)
+      + AGL;
+  }
+
+  /* --- la route de reconnaissance ------------------------------------
+     Un balayage en créneau sur l'emprise du terrain, au pas de deux
+     portées : c'est le motif qu'emploie une reconnaissance réelle, et
+     c'est le seul qui garantit qu'on ne laisse pas de trou. */
+  function route() {
+    const bs = Y.Terrain.current.boxes || [];
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    bs.forEach(function (b) {
+      if (b.x0 < x0) x0 = b.x0; if (b.x1 > x1) x1 = b.x1;
+      if (b.y0 < y0) y0 = b.y0; if (b.y1 > y1) y1 = b.y1;
+    });
+    if (!isFinite(x0)) { x0 = -6; x1 = 30; y0 = -6; y1 = 6; }
+    const step = DETECT / LANE;
+    const out = [];
+    const ny = Math.max(1, Math.round((y1 - y0) / step));
+    for (let j = 0; j <= ny; j++) {
+      const y = y0 + (y1 - y0) * (ny ? j / ny : 0.5);
+      const a = j % 2 ? x1 : x0, b = j % 2 ? x0 : x1;
+      out.push([a, y]); out.push([b, y]);
+    }
+    return out;
+  }
+
+  /* --- conduite de vol ------------------------------------------------ */
+
+  function seek(dt, wx, wy, wz, vmax) {
+    const dx = wx - S.p.x, dy = wy - S.p.y;
+    const d = Math.hypot(dx, dy);
+    /* La consigne se ralentit à l'approche : sans cela le drone dépasse son
+       point et y revient en oscillant, ce qu'aucun pilote automatique ne
+       fait — il freine. */
+    const v = Math.min(vmax, d * 1.7 + 0.05);
+    const ux = d > 1e-4 ? dx / d : 0, uy = d > 1e-4 ? dy / d : 0;
+    const k = 1 - Math.exp(-dt / V_TAU);
+    S.v.x += (ux * v - S.v.x) * k;
+    S.v.y += (uy * v - S.v.y) * k;
+    S.p.x += S.v.x * dt; S.p.y += S.v.y * dt;
+
+    /* L'altitude est tenue à part : elle ne se négocie pas avec la route. La
+       garde au-dessus du relief est un PLANCHER — sauf à la pose, seul
+       moment où l'on a le droit de descendre jusqu'au pont, et où ce
+       plancher empêcherait précisément de se poser. */
+    const ahead = 2.5;
+    const floor = ceiling(S.p.x, S.p.y, S.p.x + S.v.x * ahead,
+                          S.p.y + S.v.y * ahead) + AGL_MIN;
+    const want = S.landing ? wz : Math.max(wz, floor);
+    S.p.z += clamp(want - S.p.z, -CLIMB * dt, CLIMB * dt);
+
+    if (d > 0.25) {
+      const a = Math.atan2(dy, dx);
+      let e = ((a - S.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+      S.yaw += clamp(e, -3.2 * dt, 3.2 * dt);
+    }
+    return d;
+  }
+
+  /** Le point de repos : au-dessus du robot, décalé pour ne pas le masquer. */
+  function keepPoint() {
+    const st = Y.Motion.state;
+    const bx = st.px - Math.cos(st.yaw) * 1.2, by = st.py - Math.sin(st.yaw) * 1.2;
+    return [bx, by, station(bx, by)];
+  }
+
+  /* --- repérage -------------------------------------------------------
+     Ce qu'il voit entre dans la carte du robot. Rien d'autre : le drone
+     n'a pas sa propre mémoire, et c'est voulu — deux cartes qui ne
+     disent pas la même chose, c'est une carte de trop. */
+  function scan(dt) {
+    S.scan -= dt;
+    if (S.scan > 0) return;
+    S.scan = SCAN_DT;
+    const n = Y.Range.spot(S.p.x, S.p.y, S.p.z, DETECT);
+    if (n) { S.found += n; S.say = "Repéré " + S.found + " cible" + (S.found > 1 ? "s" : ""); }
+  }
+
+  /* --- la frappe ------------------------------------------------------ */
+
+  function drop() {
+    const t = S.tgt;
+    S.charges--;
+    Y.Range.strike(t.x, t.y, Y.Range.aimZ(t) - 0.15);
+    S.tgt = null; S.wait = 0;
+    S.say = S.charges > 0
+      ? "Charge larguée — " + S.charges + " restante" + (S.charges > 1 ? "s" : "")
+      : "Charges épuisées — retour";
+    S.mode = S.charges > 0 ? "garde" : "retour";
+  }
+
+  /* --- le pas de temps ------------------------------------------------ */
+
+  function step(dt) {
+    if (!S.on || !S.group) return;
+    S.group.visible = true;
+
+    // les hélices tournent tant qu'il est en l'air : c'est ce qui le fait vivre
+    S.spin += dt * (S.fly ? 62 : 0);
+    S.rotors.forEach(function (r, i) {
+      r.rotation.y = S.spin * (i % 2 ? -1 : 1);
+    });
+
+    if (!S.fly) {
+      /* Au pont : il colle au dos du robot et se recharge. On lit la pose du
+         robot dans le MONDE plutôt que d'accrocher le drone à la caisse —
+         il doit pouvoir décoller sans changer de parent au milieu d'une
+         image. */
+      const st = Y.Motion.state;
+      const c = Math.cos(st.yaw), s = Math.sin(st.yaw);
+      S.p.set(st.px + DOCK.x * c - DOCK.y * s,
+              st.py + DOCK.x * s + DOCK.y * c,
+              st.z + DOCK.z);
+      S.yaw = st.yaw;
+      S.v.set(0, 0, 0);
+      if (S.batt < 100) {
+        S.batt = Math.min(100, S.batt + CHARGE_RATE * dt);
+        if (S.batt >= 100) { S.charges = CHARGES; S.say = "Drone paré"; }
+        else S.say = "Recharge " + S.batt.toFixed(0) + " %";
+      }
+      place();
+      return;
+    }
+
+    /* En vol, la batterie descend — plus vite quand il se déplace. Sous le
+       seuil, il rentre : la décision lui appartient, pas au pilote. */
+    const moving = S.v.lengthSq() > 0.4;
+    S.batt = Math.max(0, S.batt - (moving ? BATT_FLY : BATT_HOVER) * dt);
+    if (S.batt <= BATT_LOW && S.mode !== "retour") {
+      S.mode = "retour"; S.tgt = null; S.landing = false;
+      S.say = "Batterie basse — retour au robot";
+      Y.Audio.raise();
+    }
+
+    scan(dt);
+
+    if (S.mode === "frappe" && S.tgt) {
+      if (S.tgt.state === "down" || S.tgt.friend) {
+        S.tgt = null; S.mode = "garde"; S.say = "Cible neutralisée";
+      } else {
+        const z = station(S.tgt.x, S.tgt.y) - 0.6;
+        const d = seek(dt, S.tgt.x, S.tgt.y, z, V_MAX);
+        if (d < DROP_R) {
+          S.wait += dt;
+          S.say = "À l'aplomb — largage dans " + Math.max(0, DROP_WAIT - S.wait).toFixed(1) + " s";
+          if (S.wait >= DROP_WAIT) drop();
+        } else { S.wait = 0; S.say = "En approche — " + d.toFixed(0) + " m"; }
+      }
+    } else if (S.mode === "recon") {
+      const w = S.route[S.leg];
+      if (!w) { S.mode = "garde"; S.say = "Reconnaissance terminée"; Y.Audio.done(); }
+      else {
+        const d = seek(dt, w[0], w[1], station(w[0], w[1]), V_MAX);
+        if (d < 1.6) S.leg++;
+        S.say = "Reconnaissance " + (S.leg + 1) + "/" + S.route.length
+          + " · " + S.found + " repérées";
+      }
+    } else if (S.mode === "retour") {
+      /* Le point de POSE est le pont lui-même, pas le stationnaire : viser le
+         point de garde faisait tourner le drone à un mètre de son berceau
+         sans jamais le trouver — il rattrapait la distance juste assez pour
+         que la condition de descente ne tienne jamais deux images de suite. */
+      const st = Y.Motion.state;
+      const c = Math.cos(st.yaw), sn = Math.sin(st.yaw);
+      const dx = st.px + DOCK.x * c - DOCK.y * sn;
+      const dy = st.py + DOCK.x * sn + DOCK.y * c;
+      const dz = st.z + DOCK.z;
+      const d = seek(dt, dx, dy, S.landing ? dz : station(dx, dy), V_MAX);
+      if (d < 1.4 && (S.recall || S.batt <= BATT_LOW)) S.landing = true;
+      if (S.landing) {
+        S.say = "Pose en cours";
+        if (d < 0.6 && Math.abs(S.p.z - dz) < 0.14) {
+          S.fly = false; S.landing = false; S.recall = false; S.mode = "pont";
+          S.say = "Posé — recharge"; Y.Audio.hold();
+        }
+      } else if (d < 1.2) { S.mode = "garde"; }
+      else S.say = "Retour au robot — " + d.toFixed(0) + " m";
+    } else {
+      /* Garde : stationnaire au-dessus du robot. Il SUIT, mais il ne se pose
+         pas — un drone en garde reste une paire d'yeux en l'air. */
+      const k = keepPoint();
+      const d = seek(dt, k[0], k[1], k[2], V_MAX * 0.8);
+      if (d < 1.2) S.say = "Stationnaire · " + S.batt.toFixed(0) + " %";
+      else S.say = "En suivi · " + S.batt.toFixed(0) + " %";
+    }
+
+    place();
+  }
+
+  /** Poser le maillage et la caméra là où le vol les a menés. */
+  function place() {
+    S.group.position.copy(S.p);
+    /* Une inclinaison proportionnelle à la vitesse : un quadrirotor avance en
+       se penchant, et sans ce détail il glisse comme un ascenseur. */
+    const c = Math.cos(-S.yaw), s = Math.sin(-S.yaw);
+    const fx = S.v.x * c - S.v.y * s, fy = S.v.x * s + S.v.y * c;
+    S.group.rotation.set(clamp(fy * 0.09, -0.35, 0.35),
+                         clamp(-fx * 0.09, -0.35, 0.35), S.yaw, "ZYX");
+
+    const cam = S.cam;
+    cam.position.set(S.p.x, S.p.y, S.p.z - 0.05);
+    if (S.tgt && S.mode === "frappe") {
+      cam.lookAt(S.tgt.x, S.tgt.y, Y.Range.aimZ(S.tgt));
+    } else {
+      /* Le regard porte devant et vers le bas : une caméra de drone qui
+         regarde l'horizon ne montre que le ciel, et c'est le sol qu'on
+         cherche. */
+      const look = 10;
+      cam.lookAt(S.p.x + Math.cos(S.yaw) * look,
+                 S.p.y + Math.sin(S.yaw) * look,
+                 S.p.z - look * 0.62);
+    }
+  }
+
+  /* --- commandes ------------------------------------------------------ */
+
+  function launch() {
+    if (!S.on) return false;
+    if (S.fly) {
+      /* Le rappel n'est pas un atterrissage immédiat : il rentre, et il se
+         pose. On ne coupe pas les moteurs d'un drone à trente mètres. */
+      S.mode = "retour"; S.recall = true; S.landing = false;
+      S.tgt = null; S.say = "Rappel — retour au pont";
+      Y.Audio.hold();
+      return true;
+    }
+    if (S.batt < 20) { S.say = "Batterie insuffisante — recharge en cours"; return false; }
+    S.fly = true; S.mode = "garde"; S.tgt = null; S.recall = false;
+    S.route = route(); S.leg = 0;
+    S.say = "Drone en vol";
+    Y.Audio.raise();
+    return true;
+  }
+
+  function task() {
+    if (!S.on) return false;
+    if (!S.fly) { S.say = "Drone au pont — lancez-le d'abord"; return false; }
+    if (S.mode === "recon") { S.mode = "garde"; S.say = "Reconnaissance suspendue"; }
+    else {
+      S.mode = "recon";
+      if (S.leg >= S.route.length) { S.route = route(); S.leg = 0; }
+      S.say = "Reconnaissance en cours";
+    }
+    Y.Audio.lock();
+    return true;
+  }
+
+  /** Le robot désigne, le drone frappe : la cible que tient la tourelle. */
+  function assign() {
+    if (!S.on) return false;
+    const t = Y.Range.aimed();
+    if (!t) { S.say = "Aucune cible désignée par le robot"; return false; }
+    if (!S.fly && !launch()) return false;
+    if (S.charges <= 0) { S.say = "Plus de charge — rappelez le drone"; return false; }
+    S.tgt = t; S.mode = "frappe"; S.wait = 0;
+    S.say = "Cible assignée au drone";
+    Y.Audio.ping();
+    return true;
+  }
+
+  /** Le drone repère, le robot élimine : on lance l'assaut. */
+  function assault() {
+    if (!S.on) return false;
+    const seen = Y.Range.list().filter(function (t) {
+      return t.seen && !t.friend && t.state !== "down" && t.state !== "falling";
+    }).length;
+    if (!seen) { S.say = "Rien de repéré — envoyez le drone en reconnaissance"; return false; }
+    if (Y.Range.autopilot()) { Y.Range.sweep(); S.say = "Assaut interrompu"; return true; }
+    Y.Range.sweep();
+    S.say = "Assaut : " + seen + " cible" + (seen > 1 ? "s" : "") + " à traiter";
+    return true;
+  }
+
+  const vMark = new T.Vector3();
+
+  Y.Drone = {
+    state: S,
+    build: build,
+    step: step,
+    launch: launch,
+    task: task,
+    assign: assign,
+    assault: assault,
+    view: function () { S.view = !S.view; return S.view; },
+
+    set: function (cfg) {
+      /* Le drone est un équipement du robot, pas un décor : il est là dès
+         qu'il y a une conduite de tir — champ de tir, défense, ou terrain
+         de reconnaissance. */
+      S.on = !!cfg;
+      S.fly = false; S.mode = "pont"; S.tgt = null; S.wait = 0;
+      S.charges = CHARGES; S.batt = 100; S.found = 0; S.leg = 0;
+      S.landing = false; S.recall = false;
+      S.route = S.on ? route() : [];
+      S.say = S.on ? "Drone au pont — ↑ pour décoller" : "";
+      S.view = true;
+      if (S.group) S.group.visible = S.on;
+      if (S.on && S.group) {
+        S.group.traverse(function (c) {
+          if (c.userData.mat) c.material = Y.Mat.get(c.userData.mat);
+        });
+      }
+    },
+
+    active: function () { return S.on; },
+    flying: function () { return S.on && S.fly; },
+    /** La caméra du drone — seulement quand il vole et qu'on veut la voir. */
+    camera: function () { return S.on && S.fly && S.view ? S.cam : null; },
+
+    /** Les repères à poser sur la vue du drone : tout ce qui est debout. */
+    marks: function () {
+      if (!S.on || !S.fly || !S.cam) return [];
+      const out = [];
+      Y.Range.list().forEach(function (t) {
+        if (t.state === "down" || t.state === "falling") return;
+        vMark.set(t.x, t.y, Y.Range.aimZ(t)).project(S.cam);
+        if (vMark.z > 1) return;
+        if (Math.abs(vMark.x) > 1.1 || Math.abs(vMark.y) > 1.1) return;
+        out.push({ x: vMark.x, y: vMark.y, on: t === S.tgt, friend: t.friend,
+                   seen: t.seen,
+                   far: Math.hypot(t.x - S.p.x, t.y - S.p.y) });
+      });
+      return out;
+    },
+
+    /** Pour la carte : où il est, où il regarde, et ce qu'il vise. */
+    map: function () {
+      if (!S.on) return null;
+      return { x: S.p.x, y: S.p.y, yaw: S.yaw, fly: S.fly,
+               tgt: S.tgt ? { x: S.tgt.x, y: S.tgt.y } : null,
+               reach: DETECT };
+    },
+
+    /** Le bandeau de la vignette. */
+    hud: function () {
+      if (!S.on) return null;
+      const label = { pont: "AU PONT", garde: "GARDE", recon: "RECON",
+                      frappe: "FRAPPE", retour: "RETOUR" }[S.mode] || "";
+      return { fly: S.fly, mode: label, say: S.say, batt: S.batt,
+               charges: S.charges, found: S.found,
+               alt: S.fly ? S.p.z - Y.Terrain.heightAt(S.p.x, S.p.y) : 0 };
+    }
   };
 })(window.YLO);
 /* =====================================================================
@@ -9098,9 +9723,13 @@ window.YLO = window.YLO || {};
     { pad: "□ ○ pendant", key: "C V pendant", act: "…passe en tenue SANS cesser de tourner" },
     { pad: "✕ en tenue", key: "Espace en tenue", act: "Saut sur place, dans la position" },
     { pad: "Clic stick G", key: "T", act: "Champ de tir : arme suivante — appui long : mode de tir" },
-    { pad: "Clic stick D", key: "R", act: "Saut 180" },
+    { pad: "Clic stick D", key: "R", act: "Saut 180 — au champ de tir : ouvrir ou fermer la vue drone" },
     { pad: "Clic stick D ×2", key: "R ×2", act: "Saut 360" },
     { pad: "↑ ↓ ← →", key: "Z S Q D", act: "Salto dans cette direction" },
+    { pad: "↑", key: "Z", act: "Champ de tir : lancer le drone — rappui : rappel et pose" },
+    { pad: "↓", key: "S", act: "Champ de tir : drone en reconnaissance ⇄ en garde au-dessus du robot" },
+    { pad: "→", key: "D", act: "Champ de tir : assigner au drone la cible que tient la tourelle" },
+    { pad: "←", key: "Q", act: "Champ de tir : lancer l'assaut du robot sur ce que le drone a repéré" },
     { pad: "flèche ×2", key: "touche ×2", act: "Salto double" },
     { pad: "— en l'air —", key: "— en l'air —", act: "les mêmes touches font tourner le vol" },
     { pad: "Stick gauche", key: "← →", act: "Tourner" },
@@ -9199,7 +9828,39 @@ window.YLO = window.YLO || {};
    * si la même flèche revient dans la fenêtre, c'est le double qui part et
    * l'attente est annulée.
    */
+  /**
+   * Les commandes du drone.
+   *
+   * Elles prennent la place des SALTOS, et seulement au champ de tir : le
+   * robot y porte une arme et un drone sur le dos, et un salto arrière avec
+   * un quadrirotor sur le pont n'a aucun sens. Partout ailleurs — skatepark,
+   * rampes, parcours — les flèches gardent leurs figures, entières.
+   *
+   * Cinq gestes, un par touche, et ils racontent le mode dans les deux sens :
+   * on décolle, on balaie, on assigne ce que la tourelle tient, et on lance
+   * l'assaut sur ce que le drone a trouvé.
+   */
+  const DRONE = {
+    up:    function () { return Y.Drone.launch(); },
+    down:  function () { return Y.Drone.task(); },
+    right: function () { return Y.Drone.assign(); },
+    left:  function () { return Y.Drone.assault(); },
+    r3:    function () {
+      const v = Y.Drone.view();
+      Y.Drone.state.say = v ? "Vue drone ouverte" : "Vue drone fermée";
+      return true;
+    }
+  };
+
   function pressDir(dir) {
+    /* Au champ de tir, la flèche ne lance plus de figure : elle commande le
+       drone. Le refus se dit lui aussi — une touche muette passe pour une
+       touche cassée. */
+    if (Y.Range.active() && DRONE[dir]) {
+      DRONE[dir]();
+      say(Y.Drone.state.say);
+      return;
+    }
     if (waitDir && waitDir.dir === dir) {
       waitDir = null;
       fire(DIR[dir].two);
@@ -9778,6 +10439,7 @@ window.YLO = window.YLO || {};
     Y.Ball.set(cur.ball);                          // la boule appartient au terrain
     Y.Range.set(cur.range);                        // et le champ de tir aussi
     Y.Defense.set(cur.range);                      // la défense de zone de même
+    Y.Drone.set(cur.range);                        // et le drone suit la conduite de tir
     // De quoi couvrir le terrain en entier, avec de la marge autour, et
     // jamais moins que les 40 m d'origine : sur sol plat rien ne change.
     const want = Math.max(40, Math.ceil((2 * ext.radius + 10) / 4) * 4);
@@ -9812,6 +10474,7 @@ window.YLO = window.YLO || {};
   Y.Ball.build(scene);
   Y.Range.build(scene);
   Y.Defense.build(scene);
+  Y.Drone.build(scene);
   Y.Terrain.watch(fitWorld);
 
   /* --- état d'affichage --- */
@@ -10893,6 +11556,7 @@ window.YLO = window.YLO || {};
     Y.Ball.step(dt);
     Y.Range.step(dt);
     Y.Defense.step(dt);
+    Y.Drone.step(dt);
     if (Y.Session.state.running) followSession(dt);
 
     const target = view.explodeOn ? 1 : 0;
@@ -11008,6 +11672,7 @@ window.YLO = window.YLO || {};
 
     renderer.render(scene, camera);
     renderFpv();
+    renderDrone();
     drawMap();
     drawDefense();
     requestAnimationFrame(tick);
@@ -11127,6 +11792,28 @@ window.YLO = window.YLO || {};
       }
     });
 
+    /* Le drone : un losange, et le cercle de ce qu'il voit d'en haut. Le
+       cercle n'est pas une décoration — c'est la seule façon de comprendre
+       pourquoi des cibles apparaissent d'un coup sur la carte. */
+    const dr = Y.Drone.map();
+    if (dr && dr.fly) {
+      const dx = PX(dr.x), dy = PY(dr.y);
+      c.beginPath();
+      c.strokeStyle = "#77c2a655"; c.lineWidth = 1;
+      c.arc(dx, dy, dr.reach * sx, 0, Math.PI * 2); c.stroke();
+      if (dr.tgt) {                                 // le trait de la frappe
+        c.beginPath(); c.strokeStyle = "#ff4433aa"; c.lineWidth = 1.2;
+        c.setLineDash([3, 3]);
+        c.moveTo(dx, dy); c.lineTo(PX(dr.tgt.x), PY(dr.tgt.y)); c.stroke();
+        c.setLineDash([]);
+      }
+      c.save(); c.translate(dx, dy); c.rotate(-dr.yaw);
+      c.fillStyle = "#77c2a6";
+      c.beginPath(); c.moveTo(6, 0); c.lineTo(0, 4); c.lineTo(-6, 0);
+      c.lineTo(0, -4); c.closePath(); c.fill();
+      c.restore();
+    }
+
     // le robot : un chevron, parce qu'un point ne dit pas où l'on regarde
     const st = M.state, rx = PX(st.px), ry = PY(st.py);
     const a = -st.yaw;                              // l'axe Y de la carte descend
@@ -11136,9 +11823,13 @@ window.YLO = window.YLO || {};
     c.lineTo(-5, -4.5); c.closePath(); c.fill();
     c.restore();
 
+    /* La ligne de la carte dit d'abord ce qui est en cours. Le drone y passe
+       en premier quand il vole : sa vignette peut être fermée, et un drone
+       en l'air dont plus rien ne parle est un drone qu'on perd. */
+    const dsay = dr && dr.fly ? "Drone : " + Y.Drone.state.say : "";
     mmapSay.textContent = Y.Defense.awaiting()
       ? "Cliquez ici ou sur la scène pour poser la zone"
-      : (m.say || (Y.Defense.active() ? Y.Defense.state.say : ""));
+      : (dsay || m.say || (Y.Defense.active() ? Y.Defense.state.say : ""));
 
     // le repère de la carte, gardé pour convertir un clic en mètres
     mmapFrame = { E: E, sx: sx, sy: sy, PAD: PAD, H: H };
@@ -11261,6 +11952,75 @@ window.YLO = window.YLO || {};
       + " · stab " + r.stab.toFixed(0) + "°";
     if (r.ready !== fpvWasLock) fpvWasLock = r.ready;
     drawMarks();
+  }
+
+  /* =====================================================================
+     La vue du drone
+
+     Le même ciseau de rendu que la caméra de l'arme, un cran plus haut sur
+     le bord droit : deux vignettes empilées, l'arme en bas parce qu'on y
+     tire, le drone au-dessus parce qu'on y regarde. Un troisième contexte
+     WebGL coûterait tout le décor une fois de plus pour un seul point de
+     vue de plus.
+     ===================================================================== */
+  const dfpvBox = document.getElementById("dfpv");
+  const dfpvMarks = document.getElementById("dfpvmarks");
+  const dfpvTag = document.getElementById("dfpvtag");
+  const dfpvBatt = document.getElementById("dfpvbatt");
+  const dmarkPool = [];
+
+  function drawDroneMarks() {
+    const list = Y.Drone.marks();
+    while (dmarkPool.length < list.length) {
+      const el = document.createElement("i");
+      dfpvMarks.appendChild(el); dmarkPool.push(el);
+    }
+    dmarkPool.forEach(function (el, i) {
+      const m = list[i];
+      if (!m) { el.hidden = true; return; }
+      el.hidden = false;
+      el.style.left = ((m.x + 1) * 50) + "%";
+      el.style.top = ((1 - m.y) * 50) + "%";
+      el.classList.toggle("on", m.on);
+      el.classList.toggle("friend", m.friend);
+      el.classList.toggle("new", !m.seen);
+    });
+  }
+
+  function renderDrone() {
+    const h = Y.Drone.hud();
+    const cam = h && Y.Drone.camera();
+    if (!cam) { if (!dfpvBox.hidden) dfpvBox.hidden = true; return; }
+    if (dfpvBox.hidden) dfpvBox.hidden = false;
+    /* Un tiers de largeur, trois dixièmes de hauteur : la vignette de l'arme
+       prend déjà la moitié basse, et le compte doit tomber juste — 50 % + 30 %
+       laissent le cinquième du haut à la ligne d'état, qu'une vignette d'un
+       tiers venait couper en deux. */
+    const w = Math.floor(stage.clientWidth / 3);
+    const hh = Math.floor(stage.clientHeight * 0.30);
+    if (w < 40 || hh < 40) return;
+    if (cam.aspect !== w / hh) { cam.aspect = w / hh; cam.updateProjectionMatrix(); }
+    // le ciseau compte depuis le BAS : la vignette du drone se pose sur celle
+    // de l'arme, qui monte à la moitié de la hauteur
+    const y0 = Math.floor(stage.clientHeight / 2);
+    renderer.autoClear = false;
+    renderer.setViewport(stage.clientWidth - w, y0, w, hh);
+    renderer.setScissor(stage.clientWidth - w, y0, w, hh);
+    renderer.setScissorTest(true);
+    renderer.clearDepth();
+    renderer.render(scene, cam);
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, stage.clientWidth, stage.clientHeight);
+    renderer.autoClear = true;
+
+    dfpvBox.style.width = w + "px";
+    dfpvBox.style.height = hh + "px";
+    dfpvBox.style.bottom = y0 + "px";
+    dfpvTag.textContent = h.mode + " · " + h.alt.toFixed(1) + " m · "
+      + h.charges + " charge" + (h.charges > 1 ? "s" : "") + " · " + h.say;
+    dfpvBatt.style.width = h.batt.toFixed(0) + "%";
+    dfpvBatt.style.background = h.batt > 45 ? "#77C2A6" : h.batt > 18 ? "#FFC24D" : "#FF5D52";
+    drawDroneMarks();
   }
 
   /* =====================================================================

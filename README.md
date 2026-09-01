@@ -139,6 +139,7 @@ géométrie sont la même chose, il n'y a pas de collision approchée.
 | **Skatepark** | mini-plaza : kicker, funbox, ledge, deux quarter pipes | reliefs enchaînés, en pattes comme en roues |
 | **Champ de tir** | gravats, mur **destructible** à fenêtres, carcasse de voiture, passerelle, douze cibles dont trois en hauteur et trois **mobiles** | rouler et tirer en même temps |
 | **Défense de zone** | arène ouverte de 44 m, abris centraux, merlons diagonaux | tenir un point pendant que ça vient de partout |
+| **Reconnaissance drone** | vallée de 50 m barrée par une crête percée d'un seul passage, plateau à 1,90 m, passerelle à 2,40 m, douze cibles | on ne voit pas ce qu'on doit détruire |
 | **Big ramp** | mini-ramp : deux transitions de 1,20 m face à face | un objet qu'on **roule** au lieu de le franchir |
 | **Mega ramp** | roll-in de 2,60 m, tremplin, gap, réception, transition de 2,60 m | un run complet, de la vitesse jusqu'au saut |
 | **Méga-parcours** | tout le catalogue à la suite, **fenêtre comprise** | 46 m d'obstacles enchaînés |
@@ -1086,6 +1087,90 @@ naît — ce qui est là est là.
 Relevé : kamikaze **1 ennemi en 4,9 s**, mine **2 en 11,3 s**, repli en 1,2 s.
 Et une partie complète en pilote automatique : **37 ennemis abattus en 70 s**
 sur 10 vagues, zone intacte.
+
+### Reconnaissance par drone, élimination par robot
+
+Le robot voit à **22 m**, et seulement ce qui est à découvert. C'est peu pour
+un terrain de cinquante, et c'est exactement le problème que résout un drone :
+il monte, et de là-haut un merlon n'est plus un masque.
+
+Le terrain **Reconnaissance drone** est bâti autour de cette seule idée. Une
+vallée de 50 m, barrée à mi-parcours par une **crête de 2,60 m percée d'un
+seul passage**, décalé sur la gauche ; derrière, deux abris, un plateau à
+1,90 m et une passerelle à 2,40 m qui ne se prennent que par leurs rampes.
+Depuis la ligne de départ, le robot ne repère que **3 cibles sur 12** — les
+neuf autres n'existent pas encore. Le drone passe, et elles sont **12 sur 12**.
+
+#### Deux sens de marche
+
+C'est ce qui fait le mode, et les deux se jouent avec les mêmes touches :
+
+- **le robot désigne, le drone frappe** (`→`). La tourelle tient une cible, on
+  l'assigne, le drone y va, se met **à l'aplomb** et lâche sa charge. C'est ce
+  qui permet de traiter ce qui est hors de portée de l'arme, ou derrière un mur
+  que la balle ne traverse pas. Trois charges par sortie ; le souffle est celui
+  d'une grenade de 40 mm, avec les mêmes deux rayons — la cible tombe, et le
+  décor prend ce qu'il doit prendre. Relevé : **assignation → largage en
+  2,0 s** sur une cible à 8 m ;
+- **le drone repère, le robot élimine** (`←`). Le drone balaie, les cibles
+  tombent sur la carte, et l'assaut lance le pilote automatique : c'est lui qui
+  s'occupe du chemin — gravats, passage de la crête, montée du plateau — et de
+  la conduite de tir. Relevé : **12 cibles sur 12** traitées, robot arrivé à
+  43,5 m du départ.
+
+#### Une seule mémoire
+
+Le drone n'a **pas de carte à lui**. Ce qu'il voit entre dans la carte du
+robot, par la même porte que ce que le robot voit lui-même — une fonction qui
+repère *depuis un point quelconque*. Deux cartes qui ne diraient pas la même
+chose, c'est une carte de trop : il faudrait choisir laquelle croire, et le
+pilote automatique n'a aucun moyen de choisir. Conséquence directe : tout ce
+qui était déjà écrit **marche sans une ligne de plus** — les cibles apparaissent
+sur la mini-carte, le nettoyage automatique les prend, la désignation à R1 les
+trouve.
+
+#### Il ne se pose jamais de lui-même
+
+C'était la demande, et elle a une raison : un drone qui atterrit parce qu'il
+n'a rien à faire est un drone qu'on oublie. Sans tâche, il tient le
+**stationnaire** au-dessus du robot et le suit ; à court de **batterie**, il
+rentre se poser sur le pont, se recharge à 9 %/s et repart. L'autonomie n'est
+pas là pour punir : elle est là pour que « retour au robot » soit une manœuvre
+qui arrive vraiment, et pas une option de menu qu'on ne prend jamais.
+
+Il vole à **3,1 m au-dessus du relief**, avec une garde minimale de 1,60 m
+sondée *devant lui* et non sous lui — un drone qui ne regarde que le sol qu'il
+survole entre dans le mur qu'il n'a pas encore atteint. Les linteaux comptent
+dans cette garde alors qu'ils ne comptent pas dans la hauteur du sol : une
+porte est un trou pour le robot, un obstacle plein pour le drone.
+
+#### Sa vue
+
+Une **troisième vignette**, empilée sur celle de l'arme — un tiers de largeur,
+trois dixièmes de hauteur, ce qui laisse le cinquième du haut à la ligne
+d'état. Le même **ciseau de rendu** que la caméra de l'arme : un troisième
+contexte WebGL coûterait tout le décor une fois de plus pour un seul point de
+vue de plus.
+
+Elle ne porte **pas de réticule** — le drone ne tire pas, il désigne et il
+largue. Ce qu'on veut y lire, c'est ce qu'il découvre : les cibles y sont
+encadrées, et celles qu'il **vient de découvrir clignotent**. C'est le moment
+utile du mode, il ne doit pas passer inaperçu. Sur la carte, son cercle de
+détection explique pourquoi des cibles apparaissent d'un coup, et un trait
+pointillé le relie à la cible qu'il va frapper.
+
+#### Les figures qu'on a sacrifiées
+
+Les cinq commandes du drone prennent la place des **saltos**, et **seulement au
+champ de tir** — un salto arrière avec un quadrirotor sur le pont n'a aucun
+sens de toute façon. Partout ailleurs — skatepark, rampes, méga-parcours — les
+flèches et le clic du stick droit gardent leurs figures, entières. Vérifié :
+sur le skatepark, `Z Z` donne toujours le salto avant double.
+
+Le drone est un **équipement du robot**, pas un décor : il est là dès qu'il y a
+une conduite de tir. Il vole donc aussi au **champ de tir** (6/12 repérées par
+le robot seul, 12/12 avec lui) et en **défense de zone**, où il sert d'œil
+au-dessus de l'arène.
 
 ### Le son, fabriqué et non joué
 
@@ -2063,6 +2148,11 @@ mentir sur ce que fait la manette.
 | R1 | `E` | 540 McTwist — au champ de tir : **cible suivante** |
 | L1 + R1 **tenus ensemble** | `A` + `E` | Pirouette, tant que les deux restent enfoncés |
 | Clic stick gauche | `T` | Champ de tir : arme suivante — **appui long** : mode de tir |
+| ↑ | `Z` | Champ de tir : **lancer le drone** — rappui : rappel et pose sur le pont |
+| ↓ | `S` | Champ de tir : drone en **reconnaissance** ⇄ en **garde** au-dessus du robot |
+| → | `D` | Champ de tir : **assigner au drone** la cible que tient la tourelle |
+| ← | `Q` | Champ de tir : **lancer l'assaut du robot** sur ce que le drone a repéré |
+| Clic stick droit | `R` | Saut 180 — au champ de tir : **ouvrir ou fermer la vue drone** |
 | ↑ ↓ ← → | `Z` `S` `Q` `D` | Salto dans la direction de la flèche |
 | flèche ×2 | touche ×2 | **Salto double** dans cette direction |
 | Stick gauche | `← →` | Tourner |
@@ -2330,6 +2420,7 @@ src/14-range.js       champ de tir : armes, affût stabilisé, carte mémoire, d
 src/15-audio.js       le son, synthétisé : coups, explosions, impacts, chargeur, verrouillage
 src/16-dance.js       le Shuffle : générateur de trajectoires de pieds, relevé sur vidéo
 src/17-defense.js     défense de zone : zone, vagues, tir ennemi, santé, choix de la fin
+src/18-drone.js       drone : vol, reconnaissance depuis le ciel, frappe assignée, batterie
 src/20-materials.js   matières PBR et motifs procéduraux
 src/30-robot.js       décodage des maillages et montage de l'arbre cinématique
 src/40-motion.js      cinématique inverse, allures, lecture de trajectoire, liaison directe

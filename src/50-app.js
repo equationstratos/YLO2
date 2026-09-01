@@ -86,6 +86,7 @@
     Y.Ball.set(cur.ball);                          // la boule appartient au terrain
     Y.Range.set(cur.range);                        // et le champ de tir aussi
     Y.Defense.set(cur.range);                      // la défense de zone de même
+    Y.Drone.set(cur.range);                        // et le drone suit la conduite de tir
     // De quoi couvrir le terrain en entier, avec de la marge autour, et
     // jamais moins que les 40 m d'origine : sur sol plat rien ne change.
     const want = Math.max(40, Math.ceil((2 * ext.radius + 10) / 4) * 4);
@@ -120,6 +121,7 @@
   Y.Ball.build(scene);
   Y.Range.build(scene);
   Y.Defense.build(scene);
+  Y.Drone.build(scene);
   Y.Terrain.watch(fitWorld);
 
   /* --- état d'affichage --- */
@@ -1201,6 +1203,7 @@
     Y.Ball.step(dt);
     Y.Range.step(dt);
     Y.Defense.step(dt);
+    Y.Drone.step(dt);
     if (Y.Session.state.running) followSession(dt);
 
     const target = view.explodeOn ? 1 : 0;
@@ -1316,6 +1319,7 @@
 
     renderer.render(scene, camera);
     renderFpv();
+    renderDrone();
     drawMap();
     drawDefense();
     requestAnimationFrame(tick);
@@ -1435,6 +1439,28 @@
       }
     });
 
+    /* Le drone : un losange, et le cercle de ce qu'il voit d'en haut. Le
+       cercle n'est pas une décoration — c'est la seule façon de comprendre
+       pourquoi des cibles apparaissent d'un coup sur la carte. */
+    const dr = Y.Drone.map();
+    if (dr && dr.fly) {
+      const dx = PX(dr.x), dy = PY(dr.y);
+      c.beginPath();
+      c.strokeStyle = "#77c2a655"; c.lineWidth = 1;
+      c.arc(dx, dy, dr.reach * sx, 0, Math.PI * 2); c.stroke();
+      if (dr.tgt) {                                 // le trait de la frappe
+        c.beginPath(); c.strokeStyle = "#ff4433aa"; c.lineWidth = 1.2;
+        c.setLineDash([3, 3]);
+        c.moveTo(dx, dy); c.lineTo(PX(dr.tgt.x), PY(dr.tgt.y)); c.stroke();
+        c.setLineDash([]);
+      }
+      c.save(); c.translate(dx, dy); c.rotate(-dr.yaw);
+      c.fillStyle = "#77c2a6";
+      c.beginPath(); c.moveTo(6, 0); c.lineTo(0, 4); c.lineTo(-6, 0);
+      c.lineTo(0, -4); c.closePath(); c.fill();
+      c.restore();
+    }
+
     // le robot : un chevron, parce qu'un point ne dit pas où l'on regarde
     const st = M.state, rx = PX(st.px), ry = PY(st.py);
     const a = -st.yaw;                              // l'axe Y de la carte descend
@@ -1444,9 +1470,13 @@
     c.lineTo(-5, -4.5); c.closePath(); c.fill();
     c.restore();
 
+    /* La ligne de la carte dit d'abord ce qui est en cours. Le drone y passe
+       en premier quand il vole : sa vignette peut être fermée, et un drone
+       en l'air dont plus rien ne parle est un drone qu'on perd. */
+    const dsay = dr && dr.fly ? "Drone : " + Y.Drone.state.say : "";
     mmapSay.textContent = Y.Defense.awaiting()
       ? "Cliquez ici ou sur la scène pour poser la zone"
-      : (m.say || (Y.Defense.active() ? Y.Defense.state.say : ""));
+      : (dsay || m.say || (Y.Defense.active() ? Y.Defense.state.say : ""));
 
     // le repère de la carte, gardé pour convertir un clic en mètres
     mmapFrame = { E: E, sx: sx, sy: sy, PAD: PAD, H: H };
@@ -1569,6 +1599,75 @@
       + " · stab " + r.stab.toFixed(0) + "°";
     if (r.ready !== fpvWasLock) fpvWasLock = r.ready;
     drawMarks();
+  }
+
+  /* =====================================================================
+     La vue du drone
+
+     Le même ciseau de rendu que la caméra de l'arme, un cran plus haut sur
+     le bord droit : deux vignettes empilées, l'arme en bas parce qu'on y
+     tire, le drone au-dessus parce qu'on y regarde. Un troisième contexte
+     WebGL coûterait tout le décor une fois de plus pour un seul point de
+     vue de plus.
+     ===================================================================== */
+  const dfpvBox = document.getElementById("dfpv");
+  const dfpvMarks = document.getElementById("dfpvmarks");
+  const dfpvTag = document.getElementById("dfpvtag");
+  const dfpvBatt = document.getElementById("dfpvbatt");
+  const dmarkPool = [];
+
+  function drawDroneMarks() {
+    const list = Y.Drone.marks();
+    while (dmarkPool.length < list.length) {
+      const el = document.createElement("i");
+      dfpvMarks.appendChild(el); dmarkPool.push(el);
+    }
+    dmarkPool.forEach(function (el, i) {
+      const m = list[i];
+      if (!m) { el.hidden = true; return; }
+      el.hidden = false;
+      el.style.left = ((m.x + 1) * 50) + "%";
+      el.style.top = ((1 - m.y) * 50) + "%";
+      el.classList.toggle("on", m.on);
+      el.classList.toggle("friend", m.friend);
+      el.classList.toggle("new", !m.seen);
+    });
+  }
+
+  function renderDrone() {
+    const h = Y.Drone.hud();
+    const cam = h && Y.Drone.camera();
+    if (!cam) { if (!dfpvBox.hidden) dfpvBox.hidden = true; return; }
+    if (dfpvBox.hidden) dfpvBox.hidden = false;
+    /* Un tiers de largeur, trois dixièmes de hauteur : la vignette de l'arme
+       prend déjà la moitié basse, et le compte doit tomber juste — 50 % + 30 %
+       laissent le cinquième du haut à la ligne d'état, qu'une vignette d'un
+       tiers venait couper en deux. */
+    const w = Math.floor(stage.clientWidth / 3);
+    const hh = Math.floor(stage.clientHeight * 0.30);
+    if (w < 40 || hh < 40) return;
+    if (cam.aspect !== w / hh) { cam.aspect = w / hh; cam.updateProjectionMatrix(); }
+    // le ciseau compte depuis le BAS : la vignette du drone se pose sur celle
+    // de l'arme, qui monte à la moitié de la hauteur
+    const y0 = Math.floor(stage.clientHeight / 2);
+    renderer.autoClear = false;
+    renderer.setViewport(stage.clientWidth - w, y0, w, hh);
+    renderer.setScissor(stage.clientWidth - w, y0, w, hh);
+    renderer.setScissorTest(true);
+    renderer.clearDepth();
+    renderer.render(scene, cam);
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, stage.clientWidth, stage.clientHeight);
+    renderer.autoClear = true;
+
+    dfpvBox.style.width = w + "px";
+    dfpvBox.style.height = hh + "px";
+    dfpvBox.style.bottom = y0 + "px";
+    dfpvTag.textContent = h.mode + " · " + h.alt.toFixed(1) + " m · "
+      + h.charges + " charge" + (h.charges > 1 ? "s" : "") + " · " + h.say;
+    dfpvBatt.style.width = h.batt.toFixed(0) + "%";
+    dfpvBatt.style.background = h.batt > 45 ? "#77C2A6" : h.batt > 18 ? "#FFC24D" : "#FF5D52";
+    drawDroneMarks();
   }
 
   /* =====================================================================
