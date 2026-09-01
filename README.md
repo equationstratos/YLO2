@@ -913,44 +913,34 @@ geste qui l'abandonne.
 
 ### Le Shuffle
 
-□ + ○ + △ + ✕ **ensemble** *(`C` + `V` + `Y` + Espace)* : un *running man* de
-quadrupède, **sur place**. Il se danse dans le train où l'on est — sur pattes
-le pied glisse, sur roues le pneu dérape. C'est même plus juste sur roues :
-une roue qui glisse ne triche pas.
+□ + ○ + △ + ✕ **ensemble** *(`C` + `V` + `Y` + Espace)* : le pas de danse sur
+place des quadrupèdes de Boston Dynamics. Il se danse dans le train où l'on
+est — sur pattes le pied racle, sur roues le pneu dérape. C'est même plus
+juste sur roues : une roue qui glisse ne triche pas.
 
-Le principe tient en une phrase : **les deux diagonales glissent en sens
-opposés**. Pendant qu'une diagonale recule au sol, chargée, l'autre revient
-vers l'avant à peine décollée — puis elles échangent. Ce sont les pieds qui
-défilent sous la caisse et non la caisse qui avance sur les pieds ; c'est
-l'inverse exact d'une marche, et c'est toute l'illusion.
+Le pas n'a pas été deviné, il a été **relevé image par image** sur une
+séquence de référence. Trois mesures ont tout décidé, et deux d'entre elles
+ont contredit ce que j'avais écrit :
+
+| Mesuré | Ce que ça a changé |
+| --- | --- |
+| **Rebond toutes les 480 ms** — 125 à la minute | Deux fois plus lent que ma version. À trois cents tapotements minute le pas n'était plus lisible, juste nerveux. |
+| **Amplitude : 28 % de la hauteur au garrot** (171 mm sur un robot qui se tient à 610) | Ramené aux 235 mm de garde d'YLO-2 : **66 mm** de battement, quatre fois ce que j'avais mis. Ce rebond est l'essentiel du mouvement, pas un ornement. |
+| **Les pattes s'écartent quand la caisse DESCEND** | L'inverse de ce que j'avais fait. C'est de la géométrie : une patte de longueur donnée porte moins haut quand elle est oblique. Le robot se détend en rassemblant ses appuis sous lui et s'écrase en les ouvrant — un ressort, pas des ciseaux. |
+
+S'y ajoute une **assiette qui bascule de 16°** d'un bord à l'autre, à la
+moitié de la fréquence du rebond : un rebond nez haut, le suivant nez bas.
+C'est elle qui donne son insolence au pas. Le **contact ne se rompt jamais** —
+les quatre pieds raclent le sol pendant toute la danse —, et un léger décalage
+gauche/droite désynchronise les deux flancs : sans lui, on voit une machine
+qui pompe et non un robot qui danse.
 
 C'est un **générateur de trajectoires de pieds**, pas une suite de consignes
 de marche. Le générateur d'allure sait faire avancer un robot ; il ne sait pas
 le faire danser, parce qu'une allure cherche justement à **ne pas glisser** —
-et le glissement est tout le pas. La danse écrit donc elle-même l'assiette, la
+et le raclement est tout le pas. La danse écrit donc elle-même l'assiette, la
 hauteur de caisse et les quatre appuis, à sa place : deux générateurs sur les
 mêmes pattes se battraient.
-
-Trois choses font que ça se lit comme une danse et pas comme un défaut :
-
-- **le contact ne se rompt jamais.** Deux pieds au moins portent en
-  permanence, et le poids passe de l'un à l'autre sans que le robot quitte le
-  sol. Une version précédente sautait pour échanger ses diagonales en l'air :
-  c'était juste mécaniquement, mais on y voyait un saut, pas un shuffle.
-- **la fréquence.** 0,42 s le cycle complet, donc un pas toutes les 210 ms —
-  près de trois cents tapotements à la minute. En dessous, le pas redevient
-  une marche : c'est la vitesse qui fait le style.
-- **le rebond.** La caisse monte et descend une fois **par pas** et non par
-  cycle : le rebond bat à deux fois la fréquence de la danse, ce qui le
-  synchronise avec le tapotement et non avec l'alternance. Il est au plus bas
-  quand le pied qui revient se repose — le poids arrive, la caisse s'écrase.
-
-Le pied libre ne fait pas une enjambée mais un **tapotement** : une bosse
-courte de 26 mm au milieu de son trajet, et il repose avant la fin du
-demi-pas. C'est ce qui garantit qu'aucun des deux côtés n'est en l'air en même
-temps. Le report de poids suit en sinusoïde — les appuis se resserrent de
-10 mm sous la caisse du côté chargé, ce qui garde le centre de masse au milieu
-du polygone pendant la bascule.
 
 **Le pas hérite des garde-fous de la marche.** Les cibles de pieds sont écrites
 dans le repère horizontal du robot — x devant, y à gauche, z sous la caisse,
@@ -959,14 +949,14 @@ danse en angles de genou. La conversion vers le repère du tronc, la contrainte
 d'enveloppe de travail et la continuité angulaire sont **exactement celles de
 la marche**. Relevé, sur pattes comme sur roues :
 
-| | |
-| --- | --- |
-| Déplacement pendant le pas | **0 mm** |
-| Temps sans aucun appui | **0 %** |
-| Appuis simultanés | 4 pendant 45 % du temps, 2 pendant 55 % |
-| Butées articulaires franchies | **0** |
-| Rebond de caisse | 48 mm, un par pas |
-| Roulis / tangage | 2,7° / 1,1° |
+| | Le robot | La référence |
+| --- | --- | --- |
+| Rebond de caisse | **66 mm** (202 → 268) | 66 mm ramenés à l'échelle |
+| Assiette | **15,4°** bout à bout | 16° |
+| Période | **480 ms** | 480 ms |
+| Déplacement | **0 mm** | sur place |
+| Appuis au sol | **4, tout le temps** | contact permanent |
+| Butées articulaires franchies | **0** | — |
 
 Sur roues, la cinématique vise l'**essieu** et non le contact, un rayon plus
 haut : la chorégraphie s'écrit au niveau du contact et ce décalage est ajouté à
@@ -2245,7 +2235,7 @@ src/12-terrain.js     terrains analytiques : hauteur, volumes, ligne de vue, ter
 src/13-ball.js        la boule poussable : inertie, pentes, rebonds, roulement sans glissement
 src/14-range.js       champ de tir : armes, affût stabilisé, carte mémoire, dégâts, nettoyage auto
 src/15-audio.js       le son, synthétisé : coups, explosions, impacts, chargeur, verrouillage
-src/16-dance.js       le Shuffle : générateur de trajectoires de pieds, diagonales opposées
+src/16-dance.js       le Shuffle : générateur de trajectoires de pieds, relevé sur vidéo
 src/20-materials.js   matières PBR et motifs procéduraux
 src/30-robot.js       décodage des maillages et montage de l'arbre cinématique
 src/40-motion.js      cinématique inverse, allures, lecture de trajectoire, liaison directe

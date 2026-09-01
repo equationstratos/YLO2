@@ -3593,30 +3593,36 @@ window.YLO = window.YLO || {};
 /* =====================================================================
    YLO-2 — le Shuffle
 
-   Un running man de quadrupède, SUR PLACE.
+   Le pas de danse sur place des quadrupèdes de Boston Dynamics, relevé
+   IMAGE PAR IMAGE sur une séquence de référence plutôt que deviné.
 
-   Le principe tient en une phrase : les deux diagonales glissent en sens
-   OPPOSÉS. Pendant qu'une diagonale recule au sol, chargée, l'autre revient
-   vers l'avant à peine décollée — puis elles échangent. Ce sont les pieds qui
-   défilent sous la caisse et non la caisse qui avance sur les pieds ; c'est
-   l'inverse exact d'une marche, et c'est toute l'illusion.
+   Trois mesures ont tout décidé, et deux d'entre elles ont contredit ce que
+   je croyais :
 
-   Trois choses font que ça se lit comme une danse et pas comme un bug :
+     · le REBOND bat toutes les 480 ms — 125 à la minute. Deux fois plus
+       lent que ce que j'avais écrit : à trois cents tapotements minute, le
+       pas n'était plus lisible, juste nerveux.
+     · son AMPLITUDE vaut 28 % de la hauteur au garrot (171 mm sur un robot
+       qui se tient à 610). Ramenée à YLO-2, qui roule à 235 mm de garde,
+       cela fait 66 mm de battement : quatre fois ce que j'avais mis. Ce
+       rebond-là est l'essentiel du mouvement, pas un ornement.
+     · les pattes s'ÉCARTENT QUAND LA CAISSE DESCEND et se rassemblent quand
+       elle monte. C'est l'inverse de ce que j'avais fait, et c'est
+       simplement de la géométrie : une patte de longueur donnée porte moins
+       haut quand elle est oblique. Le robot se détend en rassemblant ses
+       appuis sous lui et s'écrase en les ouvrant — ressort, pas ciseaux.
 
-     · le CONTACT NE SE ROMPT JAMAIS. Deux pieds au moins portent en
-       permanence, et le poids passe de l'un à l'autre sans que le robot
-       quitte le sol. Une version précédente sautait pour échanger ses
-       diagonales en l'air : c'était juste mécaniquement, mais on y voyait
-       un saut, pas un shuffle.
-     · la FRÉQUENCE. 0,42 s le cycle complet, donc un pas toutes les 210 ms —
-       près de trois cents tapotements à la minute. En dessous, le pas
-       redevient une marche ; c'est la vitesse qui fait le style.
-     · le REBOND. La caisse monte et descend une fois PAR PAS, et non par
-       cycle : le rebond bat à deux fois la fréquence de la danse, ce qui le
-       synchronise avec le tapotement et non avec l'alternance.
+   S'y ajoute une ASSIETTE qui bascule de 16° d'un bord à l'autre, à la
+   moitié de la fréquence du rebond : un rebond nez haut, le suivant nez bas.
+   C'est elle qui donne son insolence au pas.
 
-   Le tout se danse dans le train où l'on est : sur pattes le pied glisse,
-   sur roues le pneu dérape. C'est même plus juste sur roues — une roue qui
+   Le contact ne se rompt jamais : les quatre pieds raclent le sol pendant
+   toute la danse. Un léger décalage gauche/droite empêche le pas d'être
+   parfaitement symétrique — sans lui, on voit une machine qui pompe et non
+   un robot qui danse.
+
+   Le tout se danse dans le train où l'on est : sur pattes le pied racle, sur
+   roues le pneu dérape. C'est même plus juste sur roues — une roue qui
    glisse ne triche pas.
    ===================================================================== */
 (function (Y) {
@@ -3624,25 +3630,21 @@ window.YLO = window.YLO || {};
 
   const K = Y.K;
 
-  /* Le cycle complet, deux pas. 0,42 s : le rythme d'un running man, deux
-     fois plus vif qu'une marche de robot. */
-  const CYCLE = 0.42;
-  const CYCLES = 15;                 // un peu plus de six secondes de pas
+  /* Un rebond. Mesuré à 480 ms sur la séquence de référence. */
+  const BEAT = 0.48;
+  const BEATS = 14;                  // un peu moins de sept secondes de pas
 
-  /* Amplitudes, en mètres et en radians. Une danse de robot se lit au RYTHME
-     bien plus qu'à l'amplitude, et tout ce qui dépasse l'enveloppe de travail
-     se fait écrêter de toute façon — autant rester dedans. */
-  const SLIDE = 0.080;               // demi-course du glissement avant/arrière
-  const TAP = 0.026;                 // décollage du pied qui revient
-  const BOUNCE = 0.024;              // rebond vertical de la caisse
-  const ROLL = 0.055;                // report de poids sur la diagonale chargée
-  const PITCH = 0.030;               // tangage du rebond
-  const WAG = 0.055;                 // lacet de caisse, le déhanché
-  const GATHER = 0.010;              // les appuis se resserrent sous la caisse
-
-  /* Les deux diagonales, avec les identifiants du dépôt : `lf` avant-gauche,
-     `rh` arrière-droit, et l'autre paire. */
-  const DIAG = [["lf", "rh"], ["rf", "lh"]];
+  /* Amplitudes, en mètres et en radians. Le rebond et l'écartement sont
+     relevés ; le reste les accompagne. */
+  const RIDE = 0.235;                // garde moyenne
+  const BOUNCE = 0.033;              // demi-battement : 66 mm bout à bout
+  const OPEN = 0.075;                // ouverture des appuis, caisse basse
+  const GATHER = 0.028;              // rassemblement des appuis, caisse haute
+  const PITCH = 0.14;                // assiette : 16° bout à bout
+  const ROLL = 0.030;                // roulis du décalage gauche/droite
+  const WAG = 0.040;                 // lacet de caisse
+  const SKEW = 0.13;                 // décalage de phase gauche/droite
+  const SCUFF = 0.012;               // raclement latéral des pieds
 
   const S = {
     on: false, t: 0, say: "", beat: 0, cyc: 0,
@@ -3665,7 +3667,7 @@ window.YLO = window.YLO || {};
    */
   Y.Dance = {
     state: S,
-    duration: CYCLE * CYCLES,
+    duration: BEAT * BEATS,
 
     start: function (modeFn) {
       if (S.on) return false;
@@ -3714,83 +3716,58 @@ window.YLO = window.YLO || {};
      */
     pose: function (dt, st) {
       const T = Math.min(S.t, Y.Dance.duration);
-      const cyc = Math.floor(T / CYCLE);
-      const u = (T % CYCLE) / CYCLE;             // 0 → 1 sur le cycle complet
-      const half = u < 0.5 ? 0 : 1;              // quel demi-pas
-      const v = (u - half * 0.5) * 2;            // 0 → 1 dans le demi-pas
-      S.cyc = cyc;
-      S.beat = half + 1;
+      const n = T / BEAT;                        // rebonds écoulés, en continu
+      const beat = Math.floor(n);
+      S.cyc = beat; S.beat = (beat % 2) + 1;
 
       /* Fondu d'entrée et de sortie : le pas ne commence ni ne finit sur une
          amplitude pleine, sinon la première image est un à-coup. */
-      const fade = Math.min(1, T / 0.28, (Y.Dance.duration - T) / 0.35);
+      const fade = Math.min(1, T / 0.35, (Y.Dance.duration - T) / 0.40);
 
-      /* La diagonale CHARGÉE de ce demi-pas : c'est elle qui est au sol et qui
-         recule. L'autre revient vers l'avant en effleurant. */
-      const load = half;
-      const side = load === 0 ? 1 : -1;
-
-      /* --- caisse ---
-         Le rebond bat une fois par PAS, donc deux fois par cycle : c'est ce
-         qui le synchronise avec le tapotement. Il est au plus bas quand le
-         pied qui revient se repose — le poids arrive, la caisse s'écrase —
-         et au plus haut au milieu du glissement. */
-      const bob = -Math.cos(v * Math.PI * 2) * BOUNCE;
-      const ride = 0.235;
-      const WR = S.wheels ? 0.075 : 0;
+      /* Le cycle du rebond, en radians. `-cos` place le CREUX au début de
+         chaque rebond : la caisse touche son point bas au temps, remonte au
+         milieu, et redescend. C'est ce phasage qui fait tomber le point bas
+         sur la pulsation plutôt qu'entre deux. */
+      const w = n * Math.PI * 2;
+      const up = -Math.cos(w);                   // −1 en bas, +1 en haut
 
       /* Sur place, strictement : le cap et la position ne bougent pas. */
       st.px = S.x0; st.py = S.y0; st.yaw = S.yaw0;
       const ground = Y.Terrain ? Y.Terrain.heightAt(st.px, st.py) : 0;
-      st.z = ground + ride + WR + bob * fade;
+      const WR = S.wheels ? 0.075 : 0;
+      const ride = RIDE + up * BOUNCE * fade;
+      st.z = ground + ride + WR;
 
-      /* Report de poids, doux : le roulis suit la diagonale chargée et passe
-         de l'une à l'autre en sinusoïde, sans marche d'escalier. */
-      const w = Math.sin(u * Math.PI * 2);
-      st.roll = lerp(st.roll, -w * ROLL * fade, Math.min(1, dt * 22));
-      st.pitch = lerp(st.pitch, Math.sin(v * Math.PI * 2 + 0.6) * PITCH * fade,
-                      Math.min(1, dt * 22));
-      st.yawWag = w * WAG * fade;
+      /* L'assiette bascule à la MOITIÉ de la fréquence du rebond : un rebond
+         nez haut, le suivant nez bas. Le roulis, lui, suit le décalage
+         gauche/droite des appuis. */
+      st.pitch = lerp(st.pitch, Math.sin(w / 2) * PITCH * fade, Math.min(1, dt * 20));
+      st.roll = lerp(st.roll, Math.sin(w - Math.PI / 2) * ROLL * fade, Math.min(1, dt * 20));
+      st.yawWag = Math.sin(w / 2 + 0.8) * WAG * fade;
       st.sway = 0;
 
-      /* --- les pieds ---
-         Chaque diagonale fait, sur un cycle complet, un aller-retour : elle
-         recule en portant pendant son demi-pas chargé, elle revient vers
-         l'avant pendant l'autre. Les deux sont donc toujours en opposition de
-         phase — l'une va vers l'arrière quand l'autre va vers l'avant. */
+      /* --- les appuis ---
+         Ils s'OUVRENT quand la caisse descend et se rassemblent quand elle
+         monte : les pattes avant partent devant et les arrière derrière au
+         creux du rebond, tout revient sous la caisse au sommet. Le décalage
+         gauche/droite désynchronise légèrement les deux flancs. */
       const feet = {};
       Y.LEGS.forEach(function (L) {
         const id = L.id;
         const nx = L.x, ny = L.y + L.m * K.abadPlane;
-        const charged = DIAG[load][0] === id || DIAG[load][1] === id;
 
-        let x, z = -ride, contact = 1, lift = 0;
-        if (charged) {
-          /* CHARGÉE : elle part de l'avant et recule au sol, pied collé.
-             C'est ce glissement-là qu'on voit, et c'est lui qui porte. */
-          x = nx + lerp(SLIDE, -SLIDE, ease(v));
-        } else {
-          /* LIBRE : elle revient vers l'avant en effleurant. Le décollage est
-             une bosse courte au milieu du trajet — un tapotement, pas une
-             enjambée : le pied repose avant la fin du demi-pas, et le contact
-             ne se rompt donc jamais des deux côtés à la fois. */
-          x = nx + lerp(-SLIDE, SLIDE, ease(v));
-          lift = Math.sin(Math.PI * clamp((v - 0.12) / 0.66, 0, 1)) * TAP;
-          contact = lift < TAP * 0.25 ? 1 : 0;
-        }
-        z = -ride + lift;
+        // phase propre à ce flanc : la gauche mène, la droite suit
+        const ph = w + (L.m > 0 ? -SKEW : SKEW) * Math.PI;
+        const open = (1 - Math.cos(ph)) / 2;      // 0 rassemblé, 1 ouvert
+        const spread = lerp(-GATHER, OPEN, open) * L.f;
 
-        /* Les appuis se resserrent LÉGÈREMENT sous la caisse du côté chargé :
-           c'est ce qui garde le centre de masse au milieu du polygone pendant
-           que le poids passe d'une diagonale à l'autre. */
-        const y = ny - side * GATHER * (charged ? 1 : -0.4) * fade;
+        const x = nx + spread * fade;
+        // les pieds raclent aussi vers l'extérieur en s'ouvrant : c'est ce
+        // frottement latéral qui fait crisser le pas plutôt que le sautiller
+        const y = ny + L.m * open * SCUFF * fade;
+        const z = -ride;
 
-        // amplitude fondue au départ et à l'arrivée
-        const xf = nx + (x - nx) * fade;
-        const yf = ny + (y - ny) * fade;
-        const zf = -ride + (z + ride) * fade;
-
-        feet[id] = [xf, yf, zf, contact, u, zf - WR];
+        feet[id] = [x, y, z, 1, n % 1, z - WR];
       });
 
       Y.Natural.placeFeet(st, feet);
@@ -3800,15 +3777,15 @@ window.YLO = window.YLO || {};
          figée pendant un dérapage se voit tout de suite. */
       if (S.wheels) {
         Y.LEGS.forEach(function (L) {
-          const n = Y.Robot.legs[L.id];
-          if (!n.wheel) return;
+          const nd = Y.Robot.legs[L.id];
+          if (!nd.wheel) return;
           const px = S.last[L.id];
-          if (px !== undefined) n.wheel.rotation.y -= (feet[L.id][0] - px) / 0.075;
+          if (px !== undefined) nd.wheel.rotation.y -= (feet[L.id][0] - px) / 0.075;
           S.last[L.id] = feet[L.id][0];
         });
       }
 
-      S.say = half === 0 ? "Shuffle · gauche" : "Shuffle · droite";
+      S.say = up > 0 ? "Shuffle · détente" : "Shuffle · appui";
     }
   };
 })(window.YLO);
