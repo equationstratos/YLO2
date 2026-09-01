@@ -361,6 +361,34 @@ input[type=range]::-moz-range-thumb{
   position:absolute;top:14px;left:16px;font-family:var(--mono);font-size:10px;
   letter-spacing:.08em;color:var(--faint);text-transform:uppercase;pointer-events:none;
 }
+.def{
+  /* Sous la ligne d'aide de la scène : les deux barres doivent se lire d'un
+     coup d'œil, pas se disputer la place avec un rappel de commandes. */
+  position:absolute;left:12px;top:34px;z-index:8;width:210px;
+  background:#0B0E0CE0;border:1px solid var(--line);padding:9px 10px;
+  pointer-events:none;font-family:var(--mono);
+}
+.def[hidden]{display:none}
+.defrow{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.defrow span{font-size:9px;letter-spacing:.16em;color:var(--faint);width:44px}
+.defrow i{flex:1;height:7px;background:var(--line-soft);display:block;overflow:hidden}
+.defrow i b{display:block;height:100%;width:100%;background:var(--data);
+  transition:width .12s linear,background .2s linear}
+.defsay{font-size:10px;letter-spacing:.05em;color:var(--warn);min-height:13px;
+  margin-top:2px;line-height:1.35}
+.defend{margin-top:8px;border-top:1px solid var(--line);padding-top:8px;pointer-events:auto}
+.defend[hidden]{display:none}
+.defend p{margin:0 0 6px;font-size:10px;color:var(--bad);letter-spacing:.04em}
+.defend button{
+  display:block;width:100%;text-align:left;margin-bottom:4px;padding:5px 7px;
+  border:1px solid var(--line);background:var(--panel-2);font-size:11px;
+  letter-spacing:.04em;cursor:pointer;
+}
+.defend button:hover{border-color:var(--accent);color:var(--accent)}
+/* La scène attend un clic pour poser la zone : le curseur le dit. */
+.stage.defplace canvas{cursor:crosshair}
+.stage.defplace .mmap{pointer-events:auto;cursor:crosshair}
+
 .mmap{
   position:absolute;left:12px;bottom:12px;z-index:7;pointer-events:none;
   background:#0B0E0CE0;border:1px solid var(--line);padding:18px 8px 8px;
@@ -544,6 +572,22 @@ input[type=range]::-moz-range-thumb{
         <table id="padmaptable"></table>
         <p class="padnote" id="padnote"></p>
       </div>
+      <!-- Défense de zone : deux barres, une ligne, et le choix de la fin.
+           Elles sont en HAUT à gauche, loin de la carte et du viseur : ce
+           sont les deux seules valeurs qu'on doit pouvoir lire sans quitter
+           la scène des yeux. -->
+      <div class="def" id="def" hidden>
+        <div class="defrow"><span>ZONE</span><i><b id="defZone"></b></i></div>
+        <div class="defrow"><span>ROBOT</span><i><b id="defBot"></b></i></div>
+        <div class="defsay" id="defSay"></div>
+        <div class="defend" id="defEnd" hidden>
+          <p>Systèmes critiques. Dernière décision&nbsp;:</p>
+          <button data-end="kamikaze">□ &nbsp;Kamikaze</button>
+          <button data-end="mine">○ &nbsp;Mine</button>
+          <button data-end="repli">△ &nbsp;Repli</button>
+        </div>
+      </div>
+
       <!-- Carte de reconnaissance : ce que le robot a REPÉRÉ, et qui ne
            s'efface plus. Un canevas et non du SVG — on redessine douze points
            soixante fois par seconde, et remplacer douze noeuds du document à
@@ -786,7 +830,10 @@ window.YLO = window.YLO || {};
     { id: "carGlass", name: "Vitrage",      preset: { color: "#232c30", metal: 0.30, rough: 0.14, pattern: "none" } },
     { id: "wreck",    name: "Épave",         preset: { color: "#241d1a", metal: 0.40, rough: 0.88, pattern: "none" } },
     { id: "debris",   name: "Décombres",     preset: { color: "#4a4741", metal: 0.05, rough: 0.95, pattern: "print" } },
-    { id: "rail",     name: "Rails de cible", preset: { color: "#3a4144", metal: 0.60, rough: 0.45, pattern: "brushed" } }
+    { id: "rail",     name: "Rails de cible", preset: { color: "#3a4144", metal: 0.60, rough: 0.45, pattern: "brushed" } },
+    { id: "foe",      name: "Ennemis",       preset: { color: "#3d2a2a", metal: 0.30, rough: 0.70, pattern: "none" } },
+    { id: "foeMark",  name: "Marques ennemies", preset: { color: "#ff4433", metal: 0.05, rough: 0.60, pattern: "none" } },
+    { id: "zone",     name: "Zone à tenir",  preset: { color: "#2f9bd8", metal: 0.10, rough: 0.55, pattern: "none" } }
   ];
 
   Y.PATTERNS = [
@@ -1241,6 +1288,54 @@ window.YLO = window.YLO || {};
                   [21.0, 1.0], [24.5, -2.0, 0, [-2.6, 2.2, 2.1]],
                   [26.0, 2.95, 1.85], [28.0, 2.2], [28.6, -3.1]]
       } },
+
+    /* Arène de défense : un terrain OUVERT, et c'est tout l'enjeu.
+       Le champ de tir est un couloir — on sait d'où ça vient. Ici les
+       ennemis arrivent de partout, et le relief ne sert qu'à donner des
+       abris et des angles morts : quatre blocs bas au centre, quatre
+       merlons diagonaux, un anneau de gravats. Rien qui ferme un secteur,
+       tout qui gêne un peu. */
+    { id: "defense", name: "Défense de zone", maxStep: 0.14,
+      desc: "Arène ouverte de 44 m. Placez la zone à protéger d'un clic — " +
+            "sur la scène ou sur la carte —, puis tenez-la : les ennemis " +
+            "arrivent de tous les côtés et tirent. L1 tire, R1 désigne, " +
+            "PS lance le mode autonome.",
+      boxes: (function () {
+        const out = [];
+        const add = function (list) { list.forEach(function (b) { out.push(b); }); };
+        // quatre blocs bas au centre : des abris, pas des murs
+        [[-3.4, -3.4], [3.4, -3.4], [-3.4, 3.4], [3.4, 3.4]].forEach(function (c) {
+          out.push(box(c[0] - 1.1, c[0] + 1.1, c[1] - 1.1, c[1] + 1.1, 0.55));
+        });
+        // merlons diagonaux, plus loin : de quoi couper les lignes de tir
+        [[9, 9, 0.8], [-9, 9, -0.8], [9, -9, -0.8], [-9, -9, 0.8]].forEach(function (m) {
+          for (let i = -3; i <= 3; i++) {
+            const x = m[0] + i * 0.9, y = m[1] + i * 0.9 * m[2];
+            out.push(box(x - 0.55, x + 0.55, y - 0.55, y + 0.55, 0.75));
+          }
+        });
+        // couronne de gravats : on ne fonce pas en ligne droite vers le bord
+        add(rubble(-15.5, -13.0, 15.0, 0.5, 0.11));
+        add(rubble(13.0, 15.5, 15.0, 0.5, 0.11));
+        // et le talus de pourtour, qui ferme l'arène sans la boucher
+        [-21, 21].forEach(function (y) {
+          for (let i = 0; i < 22; i++) {
+            const x = -22 + i * 2;
+            out.push(box(x, x + 1.9, y - 1.2, y + 1.2, 0.9 + 0.2 * Math.sin(i * 1.3)));
+          }
+        });
+        [-21, 21].forEach(function (x) {
+          for (let i = 0; i < 22; i++) {
+            const y = -22 + i * 2;
+            out.push(box(x - 1.2, x + 1.2, y, y + 1.9, 0.9 + 0.2 * Math.sin(i * 1.7)));
+          }
+        });
+        return out;
+      })(),
+      start: [0, -7.5, 0],
+      /* Pas de ligne de tir ni de cibles écrites : c'est le mode défense qui
+         fait apparaître les ennemis, et la zone se place au clic. */
+      range: { defense: true, zone: null, targets: [] } },
 
     // Mini-ramp : deux grandes transitions qui se font face, un flat entre
     // les deux. C'est l'objet de skate le plus simple et le plus riche — on
@@ -2017,11 +2112,11 @@ window.YLO = window.YLO || {};
   }
 
   const S = {
-    on: false, targets: [], group: null, gun: null, turret: null, barrel: null,
+    on: false, def: false, targets: [], group: null, gun: null, turret: null, barrel: null,
     flash: null, fpv: null, tracers: [], yaw: 0, pitch: 0, lock: null,
     hold: null, ready: false, wasReady: false, seen: 0, auto: false, autoSay: "",
     autoJam: 0, autoBack: 0, autoTurn: 0, autoSide: 1, far: 30, mode: 1, want: 0,
-    wasIn: false, carHP: 0,
+    wasIn: false, carHP: 0, guard: null,
     ammo: 30, reload: 0, burst: 0, next: 0, rest: 0, wpn: 0, gimbal: null,
     gimbalErr: 0, gimbalUse: 0, gimbalNeed: 0, models: null,
     shells: [], booms: [], scars: null, wrecked: false, breach: 0,
@@ -2238,6 +2333,11 @@ window.YLO = window.YLO || {};
     if (S.gun) S.gun.visible = S.on;
     if (!S.on) { S.running = false; return; }
     S.cfg = cfg;
+    /* En DÉFENSE, le stand n'a ni ligne de tir ni série : les cibles sont des
+       ennemis qui arrivent, et c'est le module de défense qui les fait
+       naître. La conduite de tir, elle, ne change pas d'un iota — c'est tout
+       l'intérêt de les faire passer par les mêmes cibles. */
+    S.def = !!cfg.defense;
     /* Le bout du stand : là où va la reconnaissance quand elle n'a plus rien
        à se mettre sous la dent. C'est une donnée de TERRAIN, pas une position
        de cible — le robot a le droit de savoir où finit le couloir. */
@@ -2401,7 +2501,13 @@ window.YLO = window.YLO || {};
     S.targets.forEach(function (t) {
       if (t.friend || !t.seen) return;
       if (t.state !== "up" && t.state !== "rising") return;
-      const d = Math.hypot(t.x - st.px, t.y - st.py);
+      /* En DÉFENSE, la plus proche du robot n'est pas la plus urgente : c'est
+         celle qui est la plus près de ce qu'on protège. Un robot qui prend
+         toujours la plus proche de lui se laisse entraîner au large pendant
+         que la zone se fait démolir dans son dos. */
+      const d = S.guard
+        ? Math.hypot(t.x - S.guard.x, t.y - S.guard.y)
+        : Math.hypot(t.x - st.px, t.y - st.py);
       if (d < bd) { bd = d; best = t; }
     });
     return best;
@@ -2455,6 +2561,26 @@ window.YLO = window.YLO || {};
   function autoStep(dt) {
     const st = Y.Motion.state;
     let t = autoTarget();
+    if (!t && S.guard) {
+      /* En DÉFENSE, plus rien à tirer ne veut pas dire terminé : cela veut
+         dire qu'on attend la vague suivante. Le pilote rentre sur sa zone et
+         y tient position. Sans ce cas, le nettoyage s'arrêtait de lui-même
+         à la première seconde — l'arène était encore vide — et le robot
+         restait planté pendant tout le reste de la partie. */
+      const dz = Math.hypot(st.px - S.guard.x, st.py - S.guard.y);
+      if (dz > S.guard.r * 0.45) {
+        const a = autoHeading(Math.atan2(S.guard.y - st.py, S.guard.x - st.px), dz);
+        let e = ((a - st.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+        st.wz = clamp(e * 2.4, -1.6, 1.6);
+        st.vx = AUTO_V * (1 - Math.min(1, Math.abs(e) / 1.2) * 0.75);
+        Y.Natural.setBrake(false);
+        S.autoSay = "Retour sur zone";
+      } else {
+        st.vx = 0; st.wz = 0; Y.Natural.setBrake(true);
+        S.autoSay = "En garde";
+      }
+      return;
+    }
     if (!t) {
       const left = S.targets.filter(function (x) {
         return !x.friend && x.state !== "down" && !x.seen;
@@ -2480,7 +2606,14 @@ window.YLO = window.YLO || {};
     const shootNow = !t.recon && see && d < W().reach - 0.6;
     if (shootNow) {
       st.vx = 0;
-      st.wz = 0;
+      /* On s'arrête, mais on se TOURNE VERS la cible. La visée automatique ne
+         cherche que dans un cône de 1 rad devant : un robot qui s'arrête sans
+         se présenter face à l'adversaire ne verrouille jamais rien et ne tire
+         donc jamais. En défense, où l'on s'arrête souvent sans être déjà dans
+         l'axe, c'était zéro ennemi abattu en trente secondes. */
+      const face = Math.atan2(t.y - st.py, t.x - st.px);
+      const fe = ((face - st.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+      st.wz = Math.abs(fe) > 0.10 ? clamp(fe * 2.6, -2.0, 2.0) : 0;
       /* Le frein, et pas seulement la consigne à zéro : sur une pente, lâcher
          les gaz ne suffit pas à tenir un robot sur roues, et un poste de tir
          qui dérive de dix centimètres pendant la rafale rate tout. */
@@ -2511,7 +2644,16 @@ window.YLO = window.YLO || {};
       S.autoTurn = (S.autoSide = -S.autoSide) * 1.1;
       return;
     }
-    const want = Math.atan2(t.y - st.py, t.x - st.px);
+    /* La LAISSE : en défense, le robot ne s'éloigne pas de ce qu'il garde.
+       S'il est déjà au bout de sa longe, il rentre au lieu de poursuivre —
+       une cible qu'on ne peut pas atteindre sans découvrir la zone n'est pas
+       une cible, c'est un appât. */
+    let gx = t.x, gy = t.y;
+    if (S.guard) {
+      const dz = Math.hypot(st.px - S.guard.x, st.py - S.guard.y);
+      if (dz > S.guard.r) { gx = S.guard.x; gy = S.guard.y; S.autoSay = "Retour sur zone"; }
+    }
+    const want = Math.atan2(gy - st.py, gx - st.px);
     const go = autoHeading(want, d);
     let e = ((go - st.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
     st.wz = Math.max(-1.6, Math.min(1.6, e * 2.4));
@@ -2627,6 +2769,52 @@ window.YLO = window.YLO || {};
     S.say = "Cible " + (list.indexOf(S.hold) + 1) + "/" + list.length;
     Y.Audio.lock();
     return true;
+  }
+
+  /* --- cibles créées à la volée : les ennemis de la défense -----------
+     Un ennemi EST une cible du stand. Ce n'est pas un raccourci : la conduite
+     de tir — visée, ligne de vue, réticule, repères, désignation, pilote
+     automatique — est écrite pour des cibles, et la réécrire pour un second
+     type d'adversaire garantirait qu'ils divergent. On se contente donc
+     d'ajouter et de retirer des entrées dans la même liste. */
+
+  function spawn(x, y, z, foe) {
+    if (!S.on || !S.group) return null;
+    const o = silhouette();
+    o.position.set(x, y, z || 0);
+    o.traverse(function (c) {
+      if (c.userData.mat) {
+        c.material = Y.Mat.get(c.userData.mat === "targetFace" && foe
+          ? "foe" : c.userData.mat);
+      }
+    });
+    if (foe) {
+      const pl = o.userData.plate;
+      pl.userData.mat = "foe"; pl.material = Y.Mat.get("foe");
+    }
+    S.group.add(o);
+    const t = { x: x, y: y, z: z || 0, up: 0, state: "rising", friend: false,
+                seen: false, obj: o, mv: null, dir: 1, home: y, foe: !!foe };
+    S.targets.push(t);
+    S.total = hostiles();
+    return t;
+  }
+
+  function despawn(t) {
+    const i = S.targets.indexOf(t);
+    if (i < 0) return false;
+    S.group.remove(t.obj);
+    S.targets.splice(i, 1);
+    if (S.hold === t) S.hold = null;
+    if (S.lock === t) S.lock = null;
+    S.total = hostiles();
+    return true;
+  }
+
+  /** Déplacer une cible : la défense s'en sert pour faire avancer ses ennemis. */
+  function moveTarget(t, x, y) {
+    t.x = x; t.y = y;
+    t.obj.position.set(x, y, t.z);
   }
 
   function finish() {
@@ -2855,7 +3043,7 @@ window.YLO = window.YLO || {};
       if (free.t) {
         free.t.state = "falling"; S.hits++;
         Y.Audio.hit();
-        if (S.hits >= S.total) finish();
+        if (!S.def && S.hits >= S.total) finish();
       }
     }
     Y.Audio.shot();
@@ -2864,7 +3052,7 @@ window.YLO = window.YLO || {};
       S.hits++;
       if (S.hold === t) S.hold = null;      // elle est tombée : le viseur repart
       Y.Audio.hit();
-      if (S.hits >= S.total) finish();
+      if (!S.def && S.hits >= S.total) finish();
     } else if (!free || !free.t) Y.Audio.miss();
     // traceur : du canon au point d'impact, ou jusqu'où le rayon libre est allé
     if (t) v1.set(t.x, t.y, aimZ(t));
@@ -3030,7 +3218,7 @@ window.YLO = window.YLO || {};
       t.state = "falling"; S.hits++;
       if (S.hold === t) S.hold = null;
     });
-    if (S.hits >= S.total && S.running) finish();
+    if (!S.def && S.hits >= S.total && S.running) finish();
 
     damage(p, R);
   }
@@ -3128,7 +3316,7 @@ window.YLO = window.YLO || {};
 
     // entrée sur la ligne de tir : les cibles se relèvent
     const z = S.cfg.zone;
-    const inZone = st.px > z[0] && st.px < z[1] && st.py > z[2] && st.py < z[3];
+    const inZone = z && st.px > z[0] && st.px < z[1] && st.py > z[2] && st.py < z[3];
     /* La zone verte relance une série NEUVE, et elle le fait au
        FRANCHISSEMENT — au moment où l'on entre, pas tant qu'on y est.
 
@@ -3140,8 +3328,10 @@ window.YLO = window.YLO || {};
        maintenant : on entre, tout se remet debout, le chrono repart de zéro.
        Rester sur la ligne ne fait plus rien — il faut ressortir et revenir,
        ce qui est le geste qu'on fait de toute façon. */
-    if (inZone && !S.wasIn) { reset(); raise(); }
-    S.wasIn = inZone;
+    if (!S.def) {
+      if (inZone && !S.wasIn) { reset(); raise(); }
+      S.wasIn = inZone;
+    }
     if (S.running) S.t += dt;
 
     // montée, chute et pose des silhouettes
@@ -3290,6 +3480,17 @@ window.YLO = window.YLO || {};
     spare: spare,
     hold: toggleHold,
     sweep: toggleAuto,
+    /** Ce que le pilote automatique doit garder, et jusqu'où il peut aller. */
+    guard: function (x, y, r) {
+      S.guard = (x === null || x === undefined) ? null : { x: x, y: y, r: r };
+    },
+    spawn: spawn,
+    despawn: despawn,
+    moveTarget: moveTarget,
+    marked: marked,
+    defending: function () { return S.on && S.def; },
+    /** Ouvrir le feu : la défense veut un stand toujours prêt. */
+    arm: function () { S.running = true; S.say = "Défense"; },
     nextTarget: nextTarget,
     /**
      * Les repères à dessiner dans la caméra de l'arme : pour chaque cible
@@ -3804,6 +4005,464 @@ window.YLO = window.YLO || {};
 
       S.say = fly === 0 ? "Shuffle · diagonale gauche" : "Shuffle · diagonale droite";
     }
+  };
+})(window.YLO);
+/* =====================================================================
+   YLO-2 — défense de zone
+
+   Le champ de tir demandait d'aller chercher des cibles qui attendaient.
+   Ici c'est l'inverse : une zone à tenir, et des adversaires qui viennent
+   de partout. Tout le reste — visée automatique, ligne de vue, réticule,
+   repères, désignation à R1, pilote automatique sur PS — ne change pas
+   d'une ligne, parce qu'un ennemi EST une cible du stand. Réécrire une
+   seconde conduite de tir pour un second type d'adversaire garantirait
+   qu'elles divergent.
+
+   Ce que ce module ajoute, et rien de plus :
+
+     · la ZONE, posée d'un clic sur la scène ou sur la carte ;
+     · des VAGUES d'ennemis qui naissent au bord de l'arène, marchent vers
+       la zone, s'arrêtent à portée et tirent ;
+     · deux BARRES DE SANTÉ, celle de la zone et celle du robot ;
+     · et, quand le robot est à bout, le CHOIX DE LA FIN — se jeter sur un
+       ennemi, se poser en mine, ou se replier.
+
+   Le tir ennemi est un lancer de rayon comme celui du robot, et il obéit à
+   la même géométrie : un mur arrête une balle ennemie exactement comme il
+   arrête la nôtre. Les blocs du centre sont donc des abris pour tout le
+   monde, ce qui est la seule façon honnête de les rendre intéressants.
+   ===================================================================== */
+(function (Y) {
+  "use strict";
+
+  const T = window.THREE;
+
+  const R_ZONE = 3.2;                 // rayon de la zone à tenir, m
+  const SPAWN_R = 19.0;               // les ennemis naissent au bord
+  const FOE_V = 1.15;                 // leur vitesse d'approche, m/s
+  const FOE_STOP = 7.5;               // ils s'arrêtent à cette distance de la zone
+  const FOE_REACH = 11.0;             // portée de leur tir
+  const FOE_RATE = 2.3;               // s entre deux de leurs coups
+  const FOE_SPREAD = 3.2;             // leur dispersion, degrés
+  const DMG_ZONE = 3;                 // dégâts d'un coup au but sur la zone
+  const DMG_BOT = 6;                  // dégâts d'un coup au but sur le robot
+  const ZONE_HP = 100, BOT_HP = 100;
+  const WAVE_GAP = 9.0;               // s entre deux vagues
+  const FOE_MAX = 8;                  // au-delà, on ne fait plus naître personne
+  const GUARD_R = 12.0;               // la laisse du pilote automatique
+
+  /** Combien d'ennemis on tolère en même temps, selon l'avancement. */
+  function cap() { return Math.min(14, FOE_MAX + Math.floor(S.wave / 3)); }
+  const KAMIKAZE_V = 3.2;             // le dernier élan, m/s
+  const BLAST_R = 4.2;                // rayon de la charge du robot
+
+  const S = {
+    on: false, placed: false, cx: 0, cy: 0, r: R_ZONE,
+    zoneHP: ZONE_HP, botHP: BOT_HP,
+    foes: [], wave: 0, next: 0, t: 0,
+    over: false, choice: "", ending: "", endT: 0,
+    say: "Placez la zone à protéger", kills: 0,
+    ring: null, group: null, tracers: []
+  };
+
+  function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+
+  /* --- la couronne au sol qui marque la zone ------------------------ */
+
+  function buildRing(scene) {
+    if (S.group) return;
+    S.group = new T.Group();
+    S.group.visible = false;
+    scene.add(S.group);
+    const ring = new T.Mesh(new T.RingGeometry(R_ZONE - 0.12, R_ZONE, 48),
+      new T.MeshBasicMaterial({ color: 0x2f9bd8, transparent: true, opacity: 0.85,
+        side: T.DoubleSide, depthWrite: false }));
+    const disc = new T.Mesh(new T.CircleGeometry(R_ZONE, 48),
+      new T.MeshBasicMaterial({ color: 0x2f9bd8, transparent: true, opacity: 0.10,
+        side: T.DoubleSide, depthWrite: false }));
+    const pole = new T.Mesh(new T.CylinderGeometry(0.05, 0.05, 1.6, 10),
+      new T.MeshBasicMaterial({ color: 0x2f9bd8 }));
+    pole.rotation.x = Math.PI / 2; pole.position.z = 0.8;
+    S.ring = new T.Group();
+    S.ring.add(ring, disc, pole);
+    S.group.add(S.ring);
+  }
+
+  /* --- placer la zone ------------------------------------------------ */
+
+  function place(x, y) {
+    if (!S.on) return false;
+    S.cx = x; S.cy = y; S.placed = true;
+    const z = Y.Terrain.heightAt(x, y);
+    S.ring.position.set(x, y, z + 0.02);
+    S.group.visible = true;
+    S.zoneHP = ZONE_HP; S.botHP = BOT_HP;
+    S.wave = 0; S.next = 2.5; S.t = 0; S.kills = 0;
+    /* Le pilote automatique reçoit sa consigne : garder CECI, et ne pas
+       s'en éloigner de plus que ça. */
+    Y.Range.guard(x, y, GUARD_R);
+    S.over = false; S.choice = ""; S.ending = "";
+    clearFoes();
+    Y.Range.arm();
+    S.say = "Zone posée — tenez-la";
+    Y.Audio.hold();
+    return true;
+  }
+
+  function clearFoes() {
+    S.foes.forEach(function (f) { Y.Range.despawn(f.t); });
+    S.foes.length = 0;
+  }
+
+  /* --- les vagues ---------------------------------------------------- */
+
+  function wave() {
+    S.wave++;
+    /* Le nombre monte, mais lentement : ce qui rend une vague dure n'est pas
+       la foule, c'est qu'elle arrive de plusieurs côtés à la fois. */
+    const n = Math.min(cap() - S.foes.length, Math.min(6, 2 + Math.floor(S.wave * 0.5)));
+    if (n <= 0) return;
+    const base = Math.random() * Math.PI * 2;
+    for (let i = 0; i < n; i++) {
+      /* Réparties sur le tour, avec du jeu : deux ennemis exactement opposés
+         se prennent l'un l'autre dans le dos du robot, et c'est le sel. */
+      const a = base + (i / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.7;
+      const rr = SPAWN_R + (Math.random() - 0.5) * 2.0;
+      const x = S.cx + Math.cos(a) * rr, y = S.cy + Math.sin(a) * rr;
+      const t = Y.Range.spawn(x, y, Y.Terrain.heightAt(x, y), true);
+      if (t) S.foes.push({ t: t, fire: 1.0 + Math.random(), a: a });
+    }
+    S.say = "Vague " + S.wave + " — " + n + " ennemis";
+    Y.Audio.raise();
+  }
+
+  /* --- leur tir ------------------------------------------------------ */
+
+  const v0 = new T.Vector3(), v1 = new T.Vector3();
+
+  function foeShoot(f) {
+    const st = Y.Motion.state;
+    const gz = Y.Terrain.heightAt(f.t.x, f.t.y) + 0.75;
+    v0.set(f.t.x, f.t.y, gz);
+    /* Ils tirent sur le ROBOT quand ils le voient, sinon sur la zone. Un
+       ennemi qui viserait toujours la zone se ferait démolir sans réagir ;
+       un ennemi qui viserait toujours le robot ne menacerait jamais ce
+       qu'on défend. Le choix se fait sur ce qui est à découvert. */
+    const seeBot = !Y.Terrain.blocked(v0.x, v0.y, v0.z, st.px, st.py, st.z + 0.05, 0.4)
+      && Math.hypot(st.px - f.t.x, st.py - f.t.y) < FOE_REACH;
+    const tx = seeBot ? st.px : S.cx, ty = seeBot ? st.py : S.cy;
+    const tz = seeBot ? st.z + 0.05 : Y.Terrain.heightAt(S.cx, S.cy) + 0.6;
+    const d = Math.hypot(tx - v0.x, ty - v0.y);
+    if (!seeBot && d > FOE_REACH + 4) return;
+
+    // dispersion : ils ne sont pas des snipers
+    const sp = FOE_SPREAD * Math.PI / 180;
+    const yaw = Math.atan2(ty - v0.y, tx - v0.x) + (Math.random() - 0.5) * 2 * sp;
+    const pit = Math.atan2(tz - v0.z, d) + (Math.random() - 0.5) * 2 * sp;
+    const dir = new T.Vector3(Math.cos(pit) * Math.cos(yaw),
+                              Math.cos(pit) * Math.sin(yaw), Math.sin(pit));
+    const wall = Y.Terrain.hitDist(v0.x, v0.y, v0.z,
+      v0.x + dir.x * FOE_REACH, v0.y + dir.y * FOE_REACH, v0.z + dir.z * FOE_REACH, 0.4);
+    const reach = wall < 0 ? FOE_REACH : wall;
+    v1.copy(v0).addScaledVector(dir, reach);
+
+    // touché ? on compare l'écart du rayon à la cible visée
+    let hit = false;
+    if (wall < 0 || wall > d - 0.4) {
+      const ox = tx - v0.x, oy = ty - v0.y, oz = tz - v0.z;
+      const along = ox * dir.x + oy * dir.y + oz * dir.z;
+      const px = ox - dir.x * along, py = oy - dir.y * along, pz = oz - dir.z * along;
+      hit = Math.hypot(px, py, pz) < (seeBot ? 0.30 : S.r * 0.8);
+    }
+    if (hit) {
+      if (seeBot) hurtBot(DMG_BOT);
+      else { S.zoneHP = Math.max(0, S.zoneHP - DMG_ZONE); Y.Audio.hit(); }
+    }
+    S.tracers.push({ a: v0.clone(), b: v1.clone(), t: 0 });
+    Y.Audio.shot();
+  }
+
+  function hurtBot(n) {
+    if (S.over) return;
+    S.botHP = Math.max(0, S.botHP - n);
+    Y.Audio.hit();
+    if (S.botHP <= 0) {
+      S.over = true; S.choice = "";
+      S.say = "Systèmes critiques — choisissez la fin";
+      Y.Audio.done();
+    }
+  }
+
+  /* --- la fin, et ses trois portes ---------------------------------- */
+
+  /**
+   * Le robot n'a plus de vie. Il ne meurt pas tout seul : il PROPOSE.
+   *
+   * Les trois sorties ne se valent pas et c'est voulu. Le kamikaze paie un
+   * ennemi comptant, la mine en paie peut-être plusieurs mais il faut qu'ils
+   * viennent, le repli n'en paie aucun mais laisse la zone tenir un peu plus
+   * longtemps sans le robot pour attirer les tirs. Il n'y a pas de bon choix,
+   * seulement un choix.
+   */
+  function choose(kind) {
+    if (!S.over || S.ending) return false;
+    S.ending = kind; S.endT = 0; S.choice = kind;
+    S.say = kind === "kamikaze" ? "Kamikaze — dernier élan"
+      : kind === "mine" ? "Mode mine — armé, en attente"
+      : "Repli — systèmes en veille";
+    Y.Audio.hold();
+    return true;
+  }
+
+  function blast(x, y) {
+    const p = new T.Vector3(x, y, Y.Terrain.heightAt(x, y) + 0.3);
+    let n = 0;
+    for (let i = S.foes.length - 1; i >= 0; i--) {
+      const f = S.foes[i];
+      if (Math.hypot(f.t.x - x, f.t.y - y) > BLAST_R) continue;
+      Y.Range.despawn(f.t); S.foes.splice(i, 1); n++;
+    }
+    S.kills += n;
+    Y.Audio.blast();
+    S.say = n ? "Explosion — " + n + " ennemi" + (n > 1 ? "s" : "") + " emporté"
+                + (n > 1 ? "s" : "") : "Explosion — personne";
+    S.ending = "fini";
+    return n;
+  }
+
+  /* --- pas de temps -------------------------------------------------- */
+
+  function step(dt) {
+    if (!S.on) return;
+    const st = Y.Motion.state;
+
+    // les traceurs ennemis s'éteignent comme les nôtres
+    for (let i = S.tracers.length - 1; i >= 0; i--) {
+      const tr = S.tracers[i];
+      tr.t += dt;
+      if (tr.t > 0.10) {
+        if (tr.line) { S.group.remove(tr.line); tr.line.geometry.dispose(); }
+        S.tracers.splice(i, 1); continue;
+      }
+      if (!tr.line) {
+        tr.line = new T.Line(new T.BufferGeometry().setFromPoints([tr.a, tr.b]),
+          new T.LineBasicMaterial({ color: 0xff5a44, transparent: true, opacity: 0.9 }));
+        S.group.add(tr.line);
+      }
+      tr.line.material.opacity = 0.9 * (1 - tr.t / 0.10);
+    }
+
+    if (!S.placed) return;
+    S.t += dt;
+
+    /* La couronne bat au rythme de ce qu'il lui reste : discrète tant que
+       tout va bien, insistante quand elle est entamée. */
+    const life = S.zoneHP / ZONE_HP;
+    S.ring.children[0].material.opacity =
+      0.55 + 0.35 * Math.sin(S.t * (2 + (1 - life) * 10));
+    S.ring.children[0].material.color.setHSL(0.55 * life, 0.75, 0.5);
+    S.ring.children[1].material.color.setHSL(0.55 * life, 0.75, 0.5);
+
+    /* --- la fin, si elle est engagée ---
+       Les ennemis, eux, CONTINUENT : ils avancent et ils tirent pendant que
+       le robot joue sa dernière carte. Les figer pendant une fin vidait le
+       mode mine de tout son sens — personne ne venait jamais se poser
+       dessus, et l'on attendait vingt secondes pour rien. En revanche plus
+       aucune vague ne naît : ce qui est là est là. */
+    if (S.ending && S.ending !== "fini") {
+      stepFoes(dt, true);
+      stepEnding(dt);
+      return;
+    }
+    if (S.over) { stepFoes(dt, true); return; }   // on attend le choix
+
+    if (S.zoneHP <= 0) {
+      S.over = true; S.ending = "fini";
+      S.say = "Zone perdue — vague " + S.wave + ", " + S.kills + " ennemis abattus";
+      Y.Audio.blast();
+      return;
+    }
+
+    stepFoes(dt, false);
+  }
+
+  /** Les ennemis : ils naissent, ils avancent, ils s'arrêtent et ils tirent. */
+  function stepFoes(dt, endgame) {
+    const st = Y.Motion.state;
+    S.next -= dt;
+    /* La pression MONTE : les vagues se rapprochent et grossissent. Sans
+       escalade, une défense bien tenue durerait indéfiniment et l'on ne
+       verrait jamais la fin — or c'est la fin qui est intéressante. Pendant
+       une fin engagée, en revanche, plus personne n'arrive : ce qui est là
+       est là, et c'est avec ça qu'on joue sa dernière carte. */
+    if (!endgame && S.next <= 0 && S.foes.length < cap()) {
+      wave();
+      S.next = Math.max(4.0, WAVE_GAP - S.wave * 0.35);
+    }
+
+    for (let i = S.foes.length - 1; i >= 0; i--) {
+      const f = S.foes[i];
+      if (f.t.state === "down" || f.t.state === "falling") {
+        Y.Range.despawn(f.t); S.foes.splice(i, 1); S.kills++;
+        S.say = S.kills + " ennemis abattus · vague " + S.wave;
+        continue;
+      }
+      const dx = S.cx - f.t.x, dy = S.cy - f.t.y;
+      const d = Math.hypot(dx, dy);
+      /* Le robot hors jeu, plus rien ne les retient : ils entrent DANS la
+         zone au lieu de la tirer de loin. C'est ce qui donne son sens au
+         mode mine — il faut qu'ils viennent — et son prix au repli. */
+      const stop = S.over ? 1.8 : FOE_STOP;
+      if (d > stop) {
+        /* Ils marchent vers la zone en contournant ce qui les gêne : le même
+           balayage d'angle que le pilote automatique du robot, en plus
+           simple — ils n'ont qu'à trouver un cap qui passe. */
+        let a = Math.atan2(dy, dx);
+        const z = Y.Terrain.heightAt(f.t.x, f.t.y) + 0.5;
+        for (let k = 0; k < 9; k++) {
+          const off = (k === 0 ? 0 : (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.35);
+          const c = a + off;
+          if (!Y.Terrain.blocked(f.t.x, f.t.y, z,
+                f.t.x + Math.cos(c) * 2.2, f.t.y + Math.sin(c) * 2.2, z, 0.05)) {
+            a = c; break;
+          }
+        }
+        Y.Range.moveTarget(f.t, f.t.x + Math.cos(a) * FOE_V * dt,
+                                f.t.y + Math.sin(a) * FOE_V * dt);
+      } else {
+        f.fire -= dt;
+        if (f.fire <= 0) { foeShoot(f); f.fire = FOE_RATE * (0.75 + Math.random() * 0.5); }
+      }
+    }
+  }
+
+  /**
+   * Un cap qui passe, vers un point donné.
+   *
+   * Les blocs du centre font 550 mm : ce sont des murs pour une roue qui en
+   * franchit 450. Un dernier élan qui va taper dedans n'est pas un dernier
+   * élan, c'est une panne — le kamikaze mettait vingt-cinq secondes à ne
+   * tuer personne. On balaie donc l'angle comme le fait le pilote
+   * automatique, en gardant l'écart le plus faible qui passe.
+   */
+  function steer(st, tx, ty, span) {
+    const want = Math.atan2(ty - st.py, tx - st.px);
+    const z = Y.Terrain.heightAt(st.px, st.py) + 0.25;
+    const d = Math.min(span || 3.0, Math.max(1.0, Math.hypot(tx - st.px, ty - st.py)));
+    for (let i = 0; i < 15; i++) {
+      const off = i === 0 ? 0 : (i % 2 ? 1 : -1) * Math.ceil(i / 2) * 0.26;
+      const a = want + off;
+      let free = true;
+      for (let sgn = -1; sgn <= 1 && free; sgn++) {
+        const nx = -Math.sin(a) * 0.26 * sgn, ny = Math.cos(a) * 0.26 * sgn;
+        if (Y.Terrain.blocked(st.px + nx, st.py + ny, z,
+              st.px + nx + Math.cos(a) * d, st.py + ny + Math.sin(a) * d, z, 0.05)) {
+          free = false;
+        }
+      }
+      if (free) return a;
+    }
+    return want;
+  }
+
+  /** Les trois fins, une fois choisies. */
+  function stepEnding(dt) {
+    const st = Y.Motion.state;
+    S.endT += dt;
+    if (S.ending === "repli") {
+      /* Repli : le robot se met en veille. Il ne tire plus, il ne bouge plus,
+         et les ennemis cessent de le viser — la zone tient seule ce qu'elle
+         peut tenir. */
+      st.vx = 0; st.wz = 0;
+      Y.Natural.setBrake(true);
+      if (S.endT > 1.2) { S.ending = "fini"; S.say = "Replié — la zone tient seule"; }
+      return;
+    }
+    if (S.ending === "mine") {
+      /* Mine : le robot se traîne au CENTRE de ce qu'il défendait, puis ne
+         bouge plus. On ne mine pas n'importe où — on mine ce que l'autre
+         vient chercher, et c'est la seule position où l'attente a un sens. */
+      const dz = Math.hypot(S.cx - st.px, S.cy - st.py);
+      if (dz > 0.6 && S.endT < 8) {
+        const a = steer(st, S.cx, S.cy);
+        let e = ((a - st.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+        st.wz = clamp(e * 2.6, -1.8, 1.8);
+        st.vx = 1.1 * (1 - Math.min(1, Math.abs(e) / 1.3) * 0.7);
+        Y.Natural.setBrake(false);
+        S.say = "Mode mine — en place";
+      } else {
+        st.vx = 0; st.wz = 0;
+        Y.Natural.setBrake(true);
+        S.say = "Mode mine — armé, en attente";
+      }
+      const near = S.foes.some(function (f) {
+        return Math.hypot(f.t.x - st.px, f.t.y - st.py) < BLAST_R * 0.8;
+      });
+      if (near || S.endT > 22) blast(st.px, st.py);
+      return;
+    }
+    // kamikaze : on fonce sur le plus proche, et on saute au contact
+    let best = null, bd = Infinity;
+    S.foes.forEach(function (f) {
+      const d = Math.hypot(f.t.x - st.px, f.t.y - st.py);
+      if (d < bd) { bd = d; best = f; }
+    });
+    if (!best) { blast(st.px, st.py); return; }
+    const a = steer(st, best.t.x, best.t.y);
+    let e = ((a - st.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    st.wz = clamp(e * 3.0, -2.2, 2.2);
+    st.vx = KAMIKAZE_V * (1 - Math.min(1, Math.abs(e) / 1.4) * 0.6);
+    Y.Natural.setBrake(false);
+    if (bd < 1.1 || S.endT > 25) blast(st.px, st.py);
+  }
+
+  Y.Defense = {
+    state: S,
+    build: buildRing,
+    place: place,
+    choose: choose,
+    step: step,
+
+    set: function (cfg) {
+      S.on = !!(cfg && cfg.defense);
+      if (!S.on && Y.Range) Y.Range.guard(null);
+      if (S.group) S.group.visible = false;
+      S.placed = false; S.over = false; S.ending = ""; S.choice = "";
+      S.zoneHP = ZONE_HP; S.botHP = BOT_HP;
+      S.foes.length = 0; S.wave = 0; S.kills = 0; S.t = 0;
+      S.say = S.on ? "Placez la zone à protéger — clic sur la scène ou la carte" : "";
+      if (S.on && S.ring) {
+        [0, 1].forEach(function (i) {
+          S.ring.children[i].material.color.set(0x2f9bd8);
+        });
+      }
+    },
+
+    active: function () { return S.on; },
+    awaiting: function () { return S.on && !S.placed; },
+    /** Le robot est-il à bout, et attend-il qu'on choisisse sa fin ? */
+    asking: function () { return S.on && S.over && !S.ending; },
+    /** Le robot a-t-il rendu les armes ? */
+    finished: function () { return S.on && S.ending === "fini"; },
+    /** Le pilote n'a plus la main pendant une fin engagée. */
+    scripted: function () { return S.on && S.ending && S.ending !== "fini"; },
+
+    /** Ce que le bandeau affiche : deux barres et une ligne. */
+    hud: function () {
+      if (!S.on) return null;
+      return { placed: S.placed, zone: S.zoneHP / ZONE_HP, bot: S.botHP / BOT_HP,
+               wave: S.wave, kills: S.kills, foes: S.foes.length,
+               say: S.say, asking: S.on && S.over && !S.ending, end: S.ending };
+    },
+
+    /** Pour la carte : la zone et les ennemis repérés. */
+    map: function () {
+      if (!S.on || !S.placed) return null;
+      return { cx: S.cx, cy: S.cy, r: S.r, life: S.zoneHP / ZONE_HP };
+    },
+
+    /** Dégâts pris autrement qu'au tir — le module de tir peut y recourir. */
+    hurt: hurtBot
   };
 })(window.YLO);
 /* =====================================================================
@@ -8431,6 +9090,7 @@ window.YLO = window.YLO || {};
     { pad: "PARTAGE", key: "F", act: "Champ de tir : figer le viseur sur la cible (rappui = libre)" },
     { pad: "OPTIONS", key: "O", act: "Champ de tir : déclarer la cible amie — tir interdit" },
     { pad: "□ + ○ + △ + ✕", key: "C + V + Y + Espace", act: "Shuffle : le pas de danse, sur les pattes" },
+    { pad: "□ ○ △", key: "C V Y", act: "Défense, systèmes critiques : kamikaze · mine · repli" },
     { pad: "PS", key: "P", act: "Champ de tir : le robot nettoie seul les cibles repérées (85 % de la vitesse)" },
     { pad: "—", key: "H", act: "Afficher ou masquer cette aide" },
     { pad: "R1", key: "E", act: "540 McTwist — au champ de tir : CIBLE SUIVANTE" },
@@ -8721,6 +9381,18 @@ window.YLO = window.YLO || {};
        les roues avant, ou sur l'autre flanc. Et un appui bref pendant la
        tenue le repose, quel que soit le côté levé — c'est le même bouton qui
        met et qui enlève, comme un interrupteur. */
+    /* Défense de zone, systèmes critiques : les trois boutons de figures
+       deviennent les trois portes de sortie. On ne les détourne QUE pendant
+       la question — le reste du temps ils cabrent et ils basculent comme
+       partout ailleurs. */
+    if (Y.Defense.asking() && (name === "square" || name === "circle"
+        || name === "triangle")) {
+      if (!edge(name, down)) return;
+      const kind = name === "square" ? "kamikaze"
+        : name === "circle" ? "mine" : "repli";
+      if (Y.Defense.choose(kind)) say(Y.Defense.state.say);
+      return;
+    }
     if (name === "square" || name === "circle") {
       const id = name === "square" ? "wheelie" : "sidestand";
       const was = !!prev[name];
@@ -8845,7 +9517,8 @@ window.YLO = window.YLO || {};
     drive(trig("r2"), trig("l2"));
     const lx = ax[L.stick.lx] || 0;
     const stick = Math.abs(lx) > DEAD ? lx : 0;
-    if (hooks.setWz && !Y.Range.autopilot() && !Y.Dance.dancing()) {
+    if (hooks.setWz && !Y.Range.autopilot() && !Y.Dance.dancing()
+        && !Y.Defense.scripted()) {
       hooks.setWz(-stick * WZ_MAX);
     }
 
@@ -8877,7 +9550,9 @@ window.YLO = window.YLO || {};
        image se battraient en duel à soixante images par seconde. Les figures,
        elles, restent disponibles — arrêter le nettoyage n'est pas la seule
        chose qu'on doit pouvoir faire pendant qu'il tourne. */
-    if (Y.Range.autopilot() || Y.Dance.dancing()) return;
+    /* Pendant une fin engagée — kamikaze, mine ou repli —, le pilote n'a
+       plus la main : c'est le robot qui joue sa dernière carte. */
+    if (Y.Range.autopilot() || Y.Dance.dancing() || Y.Defense.scripted()) return;
     const rolling = Y.Natural.state.vx * (Y.Natural.state.dir || 1) > 0.05;
     const braking = brk > TRIG && rolling;
     /* Relâcher les DEUX gâchettes freine. Un skateur roule sur son erre, mais
@@ -8925,7 +9600,7 @@ window.YLO = window.YLO || {};
 
   function stepKeys() {
     drive(keys.ArrowUp ? 1 : 0, keys.ArrowDown ? 1 : 0);
-    if (Y.Range.autopilot() || Y.Dance.dancing()) return;
+    if (Y.Range.autopilot() || Y.Dance.dancing() || Y.Defense.scripted()) return;
     const turn = (keys.ArrowLeft ? 1 : 0) - (keys.ArrowRight ? 1 : 0);
     if (hooks.setWz) hooks.setWz(turn * WZ_MAX);
   }
@@ -9102,6 +9777,7 @@ window.YLO = window.YLO || {};
   function fitWorld(cur, ext) {
     Y.Ball.set(cur.ball);                          // la boule appartient au terrain
     Y.Range.set(cur.range);                        // et le champ de tir aussi
+    Y.Defense.set(cur.range);                      // la défense de zone de même
     // De quoi couvrir le terrain en entier, avec de la marge autour, et
     // jamais moins que les 40 m d'origine : sur sol plat rien ne change.
     const want = Math.max(40, Math.ceil((2 * ext.radius + 10) / 4) * 4);
@@ -9135,6 +9811,7 @@ window.YLO = window.YLO || {};
   Y.Terrain.build(scene);
   Y.Ball.build(scene);
   Y.Range.build(scene);
+  Y.Defense.build(scene);
   Y.Terrain.watch(fitWorld);
 
   /* --- état d'affichage --- */
@@ -9261,6 +9938,8 @@ window.YLO = window.YLO || {};
 
   /* --- sélection --- */
   const ray = new T.Raycaster(), ndc = new T.Vector2();
+  /* Le plan du sol, pour poser la zone de défense là où l'on clique. */
+  const groundPlane = new T.Plane(new T.Vector3(0, 0, 1), 0);
   const highlighted = [];
 
   canvas.addEventListener("pointerup", function (e) {
@@ -9272,6 +9951,18 @@ window.YLO = window.YLO || {};
     const r = canvas.getBoundingClientRect();
     ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
+    /* En défense, tant que la zone n'est pas posée, un clic sur la scène la
+       POSE au lieu de sélectionner une pièce : on croise le rayon avec le
+       plan du sol, ce qui donne le point visé sans dépendre de ce qu'il y a
+       dessous. */
+    if (Y.Defense.awaiting()) {
+      const p0 = new T.Vector3();
+      if (ray.ray.intersectPlane(groundPlane, p0)) {
+        Y.Defense.place(p0.x, p0.y);
+        flash("Zone posée — tenez-la");
+      }
+      return;
+    }
     const hit = ray.intersectObjects(Y.Robot.root.children, true)
       .find(function (h) { return h.object.userData.sys; });
     select(hit ? hit.object.userData.sys : null);
@@ -10201,6 +10892,7 @@ window.YLO = window.YLO || {};
     M.step(dt);
     Y.Ball.step(dt);
     Y.Range.step(dt);
+    Y.Defense.step(dt);
     if (Y.Session.state.running) followSession(dt);
 
     const target = view.explodeOn ? 1 : 0;
@@ -10317,6 +11009,7 @@ window.YLO = window.YLO || {};
     renderer.render(scene, camera);
     renderFpv();
     drawMap();
+    drawDefense();
     requestAnimationFrame(tick);
   }
 
@@ -10348,6 +11041,7 @@ window.YLO = window.YLO || {};
   const mmapSay = document.getElementById("mmapsay");
   const mmapCtx = mmapCv.getContext("2d");
   let mmapExt = null;
+  let mmapFrame = null;
 
   function drawMap() {
     const m = Y.Range.map();
@@ -10386,6 +11080,21 @@ window.YLO = window.YLO || {};
       c.fillRect(PX(b.x0), PY(b.y1), Math.max(1, (b.x1 - b.x0) * sx),
                  Math.max(1, (b.y1 - b.y0) * sy));
     });
+
+    /* La zone à tenir, quand il y en a une : un disque dont la couleur suit
+       ce qu'il lui reste de vie, comme la couronne au sol. */
+    const dz = Y.Defense.map();
+    if (dz) {
+      const hue = 120 * dz.life;
+      c.beginPath();
+      c.fillStyle = "hsla(" + hue.toFixed(0) + ",60%,50%,0.18)";
+      c.arc(PX(dz.cx), PY(dz.cy), Math.max(3, dz.r * sx), 0, Math.PI * 2);
+      c.fill();
+      c.beginPath();
+      c.strokeStyle = "hsl(" + hue.toFixed(0) + ",70%,55%)"; c.lineWidth = 1.6;
+      c.arc(PX(dz.cx), PY(dz.cy), Math.max(3, dz.r * sx), 0, Math.PI * 2);
+      c.stroke();
+    }
 
     // la ligne de tir
     if (m.zone) {
@@ -10427,8 +11136,63 @@ window.YLO = window.YLO || {};
     c.lineTo(-5, -4.5); c.closePath(); c.fill();
     c.restore();
 
-    mmapSay.textContent = m.say || "";
+    mmapSay.textContent = Y.Defense.awaiting()
+      ? "Cliquez ici ou sur la scène pour poser la zone"
+      : (m.say || (Y.Defense.active() ? Y.Defense.state.say : ""));
+
+    // le repère de la carte, gardé pour convertir un clic en mètres
+    mmapFrame = { E: E, sx: sx, sy: sy, PAD: PAD, H: H };
   }
+
+  /* =====================================================================
+     Défense de zone : deux barres, une ligne, et le choix de la fin
+     ===================================================================== */
+  const defBox = document.getElementById("def");
+  const defZone = document.getElementById("defZone");
+  const defBot = document.getElementById("defBot");
+  const defSay = document.getElementById("defSay");
+  const defEnd = document.getElementById("defEnd");
+
+  function drawDefense() {
+    const d = Y.Defense.hud();
+    if (!d) {
+      if (!defBox.hidden) { defBox.hidden = true; stage.classList.remove("defplace"); }
+      return;
+    }
+    if (defBox.hidden) defBox.hidden = false;
+    stage.classList.toggle("defplace", Y.Defense.awaiting());
+    /* La barre change de couleur avant de se vider : on doit voir venir la
+       perte, pas la constater. */
+    const paint = function (el, k) {
+      el.style.width = (k * 100).toFixed(1) + "%";
+      el.style.background = k > 0.55 ? "#77C2A6" : k > 0.25 ? "#FFC24D" : "#FF5D52";
+    };
+    paint(defZone, d.zone);
+    paint(defBot, d.bot);
+    defSay.textContent = d.placed
+      ? d.say + " · vague " + d.wave + " · " + d.kills + " abattus"
+      : d.say;
+    defEnd.hidden = !d.asking;
+  }
+
+  defEnd.addEventListener("click", function (e) {
+    const b = e.target.closest("button[data-end]");
+    if (b && Y.Defense.choose(b.dataset.end)) flash(Y.Defense.state.say);
+  });
+
+  /* Poser la zone d'un clic SUR LA CARTE : c'est le geste le plus précis
+     des deux — la carte est un plan, la scène est une perspective. */
+  mmapCv.addEventListener("pointerdown", function (e) {
+    if (!Y.Defense.awaiting() || !mmapFrame) return;
+    const r = mmapCv.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width * mmapCv.width;
+    const py = (e.clientY - r.top) / r.height * mmapCv.height;
+    const F = mmapFrame;
+    const x = F.E.x0 + (px - F.PAD) / F.sx;
+    const y = F.E.y0 + (F.H - F.PAD - py) / F.sy;
+    if (Y.Defense.place(x, y)) flash("Zone posée — tenez-la");
+    e.stopPropagation();
+  });
 
   const fpvBox = document.getElementById("fpv");
   const fpvMarks = document.getElementById("fpvmarks");

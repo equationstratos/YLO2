@@ -121,7 +121,7 @@ et un rappel amorti au contact — c'est ce qui donne le poids à la réception.
 
 ## Terrains et obstacles
 
-Un sélecteur, douze terrains, et un bouton **Réinitialiser** (touche `R`) qui
+Un sélecteur, treize terrains, et un bouton **Réinitialiser** (touche `R`) qui
 replace le robot au centre, à plat, face au +X — le plus court chemin pour
 réattaquer un obstacle. Changer de terrain le déclenche aussi, sinon on peut se
 retrouver dans un mur. La même description analytique sert à calculer la hauteur
@@ -138,6 +138,7 @@ géométrie sont la même chose, il n'y a pas de collision approchée.
 | Gravats | blocs jusqu'à 90 mm | appuis à des hauteurs différentes |
 | **Skatepark** | mini-plaza : kicker, funbox, ledge, deux quarter pipes | reliefs enchaînés, en pattes comme en roues |
 | **Champ de tir** | gravats, mur **destructible** à fenêtres, carcasse de voiture, passerelle, douze cibles dont trois en hauteur et trois **mobiles** | rouler et tirer en même temps |
+| **Défense de zone** | arène ouverte de 44 m, abris centraux, merlons diagonaux | tenir un point pendant que ça vient de partout |
 | **Big ramp** | mini-ramp : deux transitions de 1,20 m face à face | un objet qu'on **roule** au lieu de le franchir |
 | **Mega ramp** | roll-in de 2,60 m, tremplin, gap, réception, transition de 2,60 m | un run complet, de la vitesse jusqu'au saut |
 | **Méga-parcours** | tout le catalogue à la suite, **fenêtre comprise** | 46 m d'obstacles enchaînés |
@@ -995,6 +996,96 @@ automatique ne sait pas : **quoi** viser.
 Un stand où tout ce qui se lève est à abattre ne demande qu'un doigt. Pouvoir
 déclarer une silhouette amie change la nature de l'exercice : la tourelle vise
 toute seule, mais c'est au pilote de dire ce qui est une cible.
+
+### Défense de zone
+
+Un mode qui renverse le champ de tir. Là-bas, on allait chercher des cibles
+qui attendaient ; ici on **tient un point** pendant que les autres viennent.
+
+**Placez la zone d'un clic** — sur la scène ou sur la carte. Sur la scène, le
+rayon croise le plan du sol, ce qui donne le point visé sans dépendre de ce
+qu'il y a dessous ; sur la carte, c'est un plan, donc c'est plus précis. Le
+curseur passe en croix tant que la zone n'est pas posée. Une couronne bleue de
+3,2 m de rayon marque le point, et elle **bat au rythme de ce qu'il lui
+reste** : discrète tant que tout va bien, insistante et rouge quand elle est
+entamée.
+
+Ensuite les vagues arrivent, **de tous les côtés**. Ce qui rend une vague dure
+n'est pas la foule, c'est qu'elle arrive de plusieurs azimuts à la fois : deux
+ennemis exactement opposés se prennent l'un l'autre dans le dos du robot. Ils
+naissent à 19 m, marchent à 1,15 m/s en contournant ce qui les gêne,
+s'arrêtent à 7,5 m de la zone et tirent. **La pression monte** : les vagues se
+rapprochent et grossissent, sinon une défense bien tenue durerait
+indéfiniment — et c'est la fin qui est intéressante.
+
+**Ils tirent sur le robot quand ils le voient, sinon sur la zone.** Un ennemi
+qui viserait toujours la zone se ferait démolir sans réagir ; un ennemi qui
+viserait toujours le robot ne menacerait jamais ce qu'on défend. Leur tir est
+un lancer de rayon comme le nôtre et obéit à la même géométrie : **un mur
+arrête une balle ennemie exactement comme il arrête la nôtre**. Les blocs du
+centre sont donc des abris pour tout le monde, ce qui est la seule façon
+honnête de les rendre intéressants.
+
+Deux **barres de santé** en haut à gauche, celle de la zone et celle du robot.
+Elles changent de couleur avant de se vider : on doit voir venir la perte, pas
+la constater.
+
+#### Un ennemi EST une cible du stand
+
+Ce n'est pas un raccourci d'implémentation, c'est ce qui garantit la
+cohérence. Toute la conduite de tir — visée automatique, ligne de vue,
+réticule, ronds dans la caméra de l'arme, désignation à R1, choix de l'arme,
+modes de tir, pilote automatique sur PS — est écrite **pour des cibles**. La
+réécrire pour un second type d'adversaire garantirait qu'elles divergent. Le
+mode défense se contente donc d'ajouter et de retirer des entrées dans la même
+liste, et **tout marche déjà** : les ennemis s'entourent au viseur, se
+désignent, se mémorisent sur la carte, et le nettoyage automatique les prend.
+
+Deux ajustements ont suffi, et ils venaient tous deux d'un pilote automatique
+écrit pour un couloir :
+
+- **la plus proche du ROBOT n'est pas la plus urgente**, c'est la plus proche
+  de ce qu'on protège. Un robot qui prend toujours la cible la plus proche de
+  lui se laisse entraîner au large pendant que la zone se fait démolir dans
+  son dos. Il reçoit donc une **laisse** de 12 m : au-delà, il rentre au lieu
+  de poursuivre — une cible qu'on ne peut pas atteindre sans découvrir la zone
+  n'est pas une cible, c'est un appât ;
+- **il faut se tourner vers la cible pour tirer.** La visée ne cherche que
+  dans un cône de 1 rad devant : un robot qui s'arrête sans se présenter face
+  à l'adversaire ne verrouille jamais rien. Au stand il arrivait toujours face
+  à sa cible ; ici non. **Zéro ennemi abattu en trente secondes** avant
+  correction, trente-sept en soixante-dix après.
+
+Et « plus rien à tirer » ne veut pas dire « terminé » : cela veut dire qu'on
+attend la vague suivante. Le pilote rentre sur sa zone et **tient position**.
+Sans ce cas, le nettoyage s'arrêtait de lui-même à la première seconde —
+l'arène était encore vide — et le robot restait planté toute la partie.
+
+#### Le choix de la fin
+
+Le robot à bout ne meurt pas tout seul : il **propose**. Trois portes, et
+elles ne se valent pas — c'est voulu. Il n'y a pas de bon choix, seulement un
+choix.
+
+| | | |
+| --- | --- | --- |
+| **□** | **Kamikaze** | Il fonce sur le plus proche et saute au contact. Un ennemi payé comptant. |
+| **○** | **Mine** | Il se traîne au centre de ce qu'il défendait et ne bouge plus. On ne mine pas n'importe où — on mine ce que l'autre vient chercher. Peut-être plusieurs, s'ils viennent. |
+| **△** | **Repli** | Systèmes en veille. Aucun ennemi payé, mais la zone tient un peu plus longtemps sans le robot pour attirer les tirs. |
+
+**Le robot hors jeu, plus rien ne retient les ennemis** : ils entrent *dans* la
+zone au lieu de la tirer de loin. C'est ce qui donne son sens au mode mine — il
+faut qu'ils viennent — et son prix au repli.
+
+Un piège en a découlé, corrigé : les ennemis étaient **figés** pendant une fin
+engagée. La mine attendait vingt secondes que quelqu'un vienne se poser dessus,
+et personne ne bougeait. Ils continuent maintenant d'avancer et de tirer
+pendant que le robot joue sa dernière carte ; en revanche plus aucune vague ne
+naît — ce qui est là est là.
+
+Relevé : kamikaze **1 ennemi en 4,9 s**, mine **2 en 11,3 s**, repli en 1,2 s.
+Et une partie complète en pilote automatique : **37 ennemis abattus en 70 s**
+sur 10 vagues, zone intacte.
 
 ### Le son, fabriqué et non joué
 
@@ -1968,6 +2059,7 @@ mentir sur ce que fait la manette.
 | OPTIONS | `O` | Champ de tir : déclarer la cible **amie** — tir impossible |
 | PS | `P` | Champ de tir : **nettoyage automatique** des cibles repérées |
 | □ + ○ + △ + ✕ | `C`+`V`+`Y`+Espace | **Shuffle** : le pas de danse, sur les pattes |
+| □ / ○ / △ | `C` / `V` / `Y` | Défense, systèmes critiques : **kamikaze · mine · repli** |
 | R1 | `E` | 540 McTwist — au champ de tir : **cible suivante** |
 | L1 + R1 **tenus ensemble** | `A` + `E` | Pirouette, tant que les deux restent enfoncés |
 | Clic stick gauche | `T` | Champ de tir : arme suivante — **appui long** : mode de tir |
@@ -2237,6 +2329,7 @@ src/13-ball.js        la boule poussable : inertie, pentes, rebonds, roulement s
 src/14-range.js       champ de tir : armes, affût stabilisé, carte mémoire, dégâts, nettoyage auto
 src/15-audio.js       le son, synthétisé : coups, explosions, impacts, chargeur, verrouillage
 src/16-dance.js       le Shuffle : générateur de trajectoires de pieds, relevé sur vidéo
+src/17-defense.js     défense de zone : zone, vagues, tir ennemi, santé, choix de la fin
 src/20-materials.js   matières PBR et motifs procéduraux
 src/30-robot.js       décodage des maillages et montage de l'arbre cinématique
 src/40-motion.js      cinématique inverse, allures, lecture de trajectoire, liaison directe

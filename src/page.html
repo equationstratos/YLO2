@@ -356,6 +356,34 @@ input[type=range]::-moz-range-thumb{
   position:absolute;top:14px;left:16px;font-family:var(--mono);font-size:10px;
   letter-spacing:.08em;color:var(--faint);text-transform:uppercase;pointer-events:none;
 }
+.def{
+  /* Sous la ligne d'aide de la scène : les deux barres doivent se lire d'un
+     coup d'œil, pas se disputer la place avec un rappel de commandes. */
+  position:absolute;left:12px;top:34px;z-index:8;width:210px;
+  background:#0B0E0CE0;border:1px solid var(--line);padding:9px 10px;
+  pointer-events:none;font-family:var(--mono);
+}
+.def[hidden]{display:none}
+.defrow{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.defrow span{font-size:9px;letter-spacing:.16em;color:var(--faint);width:44px}
+.defrow i{flex:1;height:7px;background:var(--line-soft);display:block;overflow:hidden}
+.defrow i b{display:block;height:100%;width:100%;background:var(--data);
+  transition:width .12s linear,background .2s linear}
+.defsay{font-size:10px;letter-spacing:.05em;color:var(--warn);min-height:13px;
+  margin-top:2px;line-height:1.35}
+.defend{margin-top:8px;border-top:1px solid var(--line);padding-top:8px;pointer-events:auto}
+.defend[hidden]{display:none}
+.defend p{margin:0 0 6px;font-size:10px;color:var(--bad);letter-spacing:.04em}
+.defend button{
+  display:block;width:100%;text-align:left;margin-bottom:4px;padding:5px 7px;
+  border:1px solid var(--line);background:var(--panel-2);font-size:11px;
+  letter-spacing:.04em;cursor:pointer;
+}
+.defend button:hover{border-color:var(--accent);color:var(--accent)}
+/* La scène attend un clic pour poser la zone : le curseur le dit. */
+.stage.defplace canvas{cursor:crosshair}
+.stage.defplace .mmap{pointer-events:auto;cursor:crosshair}
+
 .mmap{
   position:absolute;left:12px;bottom:12px;z-index:7;pointer-events:none;
   background:#0B0E0CE0;border:1px solid var(--line);padding:18px 8px 8px;
@@ -537,6 +565,22 @@ input[type=range]::-moz-range-thumb{
         <table id="padmaptable"></table>
         <p class="padnote" id="padnote"></p>
       </div>
+      <!-- Défense de zone : deux barres, une ligne, et le choix de la fin.
+           Elles sont en HAUT à gauche, loin de la carte et du viseur : ce
+           sont les deux seules valeurs qu'on doit pouvoir lire sans quitter
+           la scène des yeux. -->
+      <div class="def" id="def" hidden>
+        <div class="defrow"><span>ZONE</span><i><b id="defZone"></b></i></div>
+        <div class="defrow"><span>ROBOT</span><i><b id="defBot"></b></i></div>
+        <div class="defsay" id="defSay"></div>
+        <div class="defend" id="defEnd" hidden>
+          <p>Systèmes critiques. Dernière décision&nbsp;:</p>
+          <button data-end="kamikaze">□ &nbsp;Kamikaze</button>
+          <button data-end="mine">○ &nbsp;Mine</button>
+          <button data-end="repli">△ &nbsp;Repli</button>
+        </div>
+      </div>
+
       <!-- Carte de reconnaissance : ce que le robot a REPÉRÉ, et qui ne
            s'efface plus. Un canevas et non du SVG — on redessine douze points
            soixante fois par seconde, et remplacer douze noeuds du document à

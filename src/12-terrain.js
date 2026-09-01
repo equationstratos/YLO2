@@ -307,6 +307,54 @@
                   [26.0, 2.95, 1.85], [28.0, 2.2], [28.6, -3.1]]
       } },
 
+    /* Arène de défense : un terrain OUVERT, et c'est tout l'enjeu.
+       Le champ de tir est un couloir — on sait d'où ça vient. Ici les
+       ennemis arrivent de partout, et le relief ne sert qu'à donner des
+       abris et des angles morts : quatre blocs bas au centre, quatre
+       merlons diagonaux, un anneau de gravats. Rien qui ferme un secteur,
+       tout qui gêne un peu. */
+    { id: "defense", name: "Défense de zone", maxStep: 0.14,
+      desc: "Arène ouverte de 44 m. Placez la zone à protéger d'un clic — " +
+            "sur la scène ou sur la carte —, puis tenez-la : les ennemis " +
+            "arrivent de tous les côtés et tirent. L1 tire, R1 désigne, " +
+            "PS lance le mode autonome.",
+      boxes: (function () {
+        const out = [];
+        const add = function (list) { list.forEach(function (b) { out.push(b); }); };
+        // quatre blocs bas au centre : des abris, pas des murs
+        [[-3.4, -3.4], [3.4, -3.4], [-3.4, 3.4], [3.4, 3.4]].forEach(function (c) {
+          out.push(box(c[0] - 1.1, c[0] + 1.1, c[1] - 1.1, c[1] + 1.1, 0.55));
+        });
+        // merlons diagonaux, plus loin : de quoi couper les lignes de tir
+        [[9, 9, 0.8], [-9, 9, -0.8], [9, -9, -0.8], [-9, -9, 0.8]].forEach(function (m) {
+          for (let i = -3; i <= 3; i++) {
+            const x = m[0] + i * 0.9, y = m[1] + i * 0.9 * m[2];
+            out.push(box(x - 0.55, x + 0.55, y - 0.55, y + 0.55, 0.75));
+          }
+        });
+        // couronne de gravats : on ne fonce pas en ligne droite vers le bord
+        add(rubble(-15.5, -13.0, 15.0, 0.5, 0.11));
+        add(rubble(13.0, 15.5, 15.0, 0.5, 0.11));
+        // et le talus de pourtour, qui ferme l'arène sans la boucher
+        [-21, 21].forEach(function (y) {
+          for (let i = 0; i < 22; i++) {
+            const x = -22 + i * 2;
+            out.push(box(x, x + 1.9, y - 1.2, y + 1.2, 0.9 + 0.2 * Math.sin(i * 1.3)));
+          }
+        });
+        [-21, 21].forEach(function (x) {
+          for (let i = 0; i < 22; i++) {
+            const y = -22 + i * 2;
+            out.push(box(x - 1.2, x + 1.2, y, y + 1.9, 0.9 + 0.2 * Math.sin(i * 1.7)));
+          }
+        });
+        return out;
+      })(),
+      start: [0, -7.5, 0],
+      /* Pas de ligne de tir ni de cibles écrites : c'est le mode défense qui
+         fait apparaître les ennemis, et la zone se place au clic. */
+      range: { defense: true, zone: null, targets: [] } },
+
     // Mini-ramp : deux grandes transitions qui se font face, un flat entre
     // les deux. C'est l'objet de skate le plus simple et le plus riche — on
     // n'y franchit rien, on y roule : la pente rend l'élan qu'on lui a donné,

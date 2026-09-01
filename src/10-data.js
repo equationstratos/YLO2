@@ -114,7 +114,10 @@ window.YLO = window.YLO || {};
     { id: "carGlass", name: "Vitrage",      preset: { color: "#232c30", metal: 0.30, rough: 0.14, pattern: "none" } },
     { id: "wreck",    name: "Épave",         preset: { color: "#241d1a", metal: 0.40, rough: 0.88, pattern: "none" } },
     { id: "debris",   name: "Décombres",     preset: { color: "#4a4741", metal: 0.05, rough: 0.95, pattern: "print" } },
-    { id: "rail",     name: "Rails de cible", preset: { color: "#3a4144", metal: 0.60, rough: 0.45, pattern: "brushed" } }
+    { id: "rail",     name: "Rails de cible", preset: { color: "#3a4144", metal: 0.60, rough: 0.45, pattern: "brushed" } },
+    { id: "foe",      name: "Ennemis",       preset: { color: "#3d2a2a", metal: 0.30, rough: 0.70, pattern: "none" } },
+    { id: "foeMark",  name: "Marques ennemies", preset: { color: "#ff4433", metal: 0.05, rough: 0.60, pattern: "none" } },
+    { id: "zone",     name: "Zone à tenir",  preset: { color: "#2f9bd8", metal: 0.10, rough: 0.55, pattern: "none" } }
   ];
 
   Y.PATTERNS = [

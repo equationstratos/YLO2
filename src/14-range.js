@@ -134,11 +134,11 @@
   }
 
   const S = {
-    on: false, targets: [], group: null, gun: null, turret: null, barrel: null,
+    on: false, def: false, targets: [], group: null, gun: null, turret: null, barrel: null,
     flash: null, fpv: null, tracers: [], yaw: 0, pitch: 0, lock: null,
     hold: null, ready: false, wasReady: false, seen: 0, auto: false, autoSay: "",
     autoJam: 0, autoBack: 0, autoTurn: 0, autoSide: 1, far: 30, mode: 1, want: 0,
-    wasIn: false, carHP: 0,
+    wasIn: false, carHP: 0, guard: null,
     ammo: 30, reload: 0, burst: 0, next: 0, rest: 0, wpn: 0, gimbal: null,
     gimbalErr: 0, gimbalUse: 0, gimbalNeed: 0, models: null,
     shells: [], booms: [], scars: null, wrecked: false, breach: 0,
@@ -355,6 +355,11 @@
     if (S.gun) S.gun.visible = S.on;
     if (!S.on) { S.running = false; return; }
     S.cfg = cfg;
+    /* En DÉFENSE, le stand n'a ni ligne de tir ni série : les cibles sont des
+       ennemis qui arrivent, et c'est le module de défense qui les fait
+       naître. La conduite de tir, elle, ne change pas d'un iota — c'est tout
+       l'intérêt de les faire passer par les mêmes cibles. */
+    S.def = !!cfg.defense;
     /* Le bout du stand : là où va la reconnaissance quand elle n'a plus rien
        à se mettre sous la dent. C'est une donnée de TERRAIN, pas une position
        de cible — le robot a le droit de savoir où finit le couloir. */
@@ -518,7 +523,13 @@
     S.targets.forEach(function (t) {
       if (t.friend || !t.seen) return;
       if (t.state !== "up" && t.state !== "rising") return;
-      const d = Math.hypot(t.x - st.px, t.y - st.py);
+      /* En DÉFENSE, la plus proche du robot n'est pas la plus urgente : c'est
+         celle qui est la plus près de ce qu'on protège. Un robot qui prend
+         toujours la plus proche de lui se laisse entraîner au large pendant
+         que la zone se fait démolir dans son dos. */
+      const d = S.guard
+        ? Math.hypot(t.x - S.guard.x, t.y - S.guard.y)
+        : Math.hypot(t.x - st.px, t.y - st.py);
       if (d < bd) { bd = d; best = t; }
     });
     return best;
@@ -572,6 +583,26 @@
   function autoStep(dt) {
     const st = Y.Motion.state;
     let t = autoTarget();
+    if (!t && S.guard) {
+      /* En DÉFENSE, plus rien à tirer ne veut pas dire terminé : cela veut
+         dire qu'on attend la vague suivante. Le pilote rentre sur sa zone et
+         y tient position. Sans ce cas, le nettoyage s'arrêtait de lui-même
+         à la première seconde — l'arène était encore vide — et le robot
+         restait planté pendant tout le reste de la partie. */
+      const dz = Math.hypot(st.px - S.guard.x, st.py - S.guard.y);
+      if (dz > S.guard.r * 0.45) {
+        const a = autoHeading(Math.atan2(S.guard.y - st.py, S.guard.x - st.px), dz);
+        let e = ((a - st.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+        st.wz = clamp(e * 2.4, -1.6, 1.6);
+        st.vx = AUTO_V * (1 - Math.min(1, Math.abs(e) / 1.2) * 0.75);
+        Y.Natural.setBrake(false);
+        S.autoSay = "Retour sur zone";
+      } else {
+        st.vx = 0; st.wz = 0; Y.Natural.setBrake(true);
+        S.autoSay = "En garde";
+      }
+      return;
+    }
     if (!t) {
       const left = S.targets.filter(function (x) {
         return !x.friend && x.state !== "down" && !x.seen;
@@ -597,7 +628,14 @@
     const shootNow = !t.recon && see && d < W().reach - 0.6;
     if (shootNow) {
       st.vx = 0;
-      st.wz = 0;
+      /* On s'arrête, mais on se TOURNE VERS la cible. La visée automatique ne
+         cherche que dans un cône de 1 rad devant : un robot qui s'arrête sans
+         se présenter face à l'adversaire ne verrouille jamais rien et ne tire
+         donc jamais. En défense, où l'on s'arrête souvent sans être déjà dans
+         l'axe, c'était zéro ennemi abattu en trente secondes. */
+      const face = Math.atan2(t.y - st.py, t.x - st.px);
+      const fe = ((face - st.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+      st.wz = Math.abs(fe) > 0.10 ? clamp(fe * 2.6, -2.0, 2.0) : 0;
       /* Le frein, et pas seulement la consigne à zéro : sur une pente, lâcher
          les gaz ne suffit pas à tenir un robot sur roues, et un poste de tir
          qui dérive de dix centimètres pendant la rafale rate tout. */
@@ -628,7 +666,16 @@
       S.autoTurn = (S.autoSide = -S.autoSide) * 1.1;
       return;
     }
-    const want = Math.atan2(t.y - st.py, t.x - st.px);
+    /* La LAISSE : en défense, le robot ne s'éloigne pas de ce qu'il garde.
+       S'il est déjà au bout de sa longe, il rentre au lieu de poursuivre —
+       une cible qu'on ne peut pas atteindre sans découvrir la zone n'est pas
+       une cible, c'est un appât. */
+    let gx = t.x, gy = t.y;
+    if (S.guard) {
+      const dz = Math.hypot(st.px - S.guard.x, st.py - S.guard.y);
+      if (dz > S.guard.r) { gx = S.guard.x; gy = S.guard.y; S.autoSay = "Retour sur zone"; }
+    }
+    const want = Math.atan2(gy - st.py, gx - st.px);
     const go = autoHeading(want, d);
     let e = ((go - st.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
     st.wz = Math.max(-1.6, Math.min(1.6, e * 2.4));
@@ -744,6 +791,52 @@
     S.say = "Cible " + (list.indexOf(S.hold) + 1) + "/" + list.length;
     Y.Audio.lock();
     return true;
+  }
+
+  /* --- cibles créées à la volée : les ennemis de la défense -----------
+     Un ennemi EST une cible du stand. Ce n'est pas un raccourci : la conduite
+     de tir — visée, ligne de vue, réticule, repères, désignation, pilote
+     automatique — est écrite pour des cibles, et la réécrire pour un second
+     type d'adversaire garantirait qu'ils divergent. On se contente donc
+     d'ajouter et de retirer des entrées dans la même liste. */
+
+  function spawn(x, y, z, foe) {
+    if (!S.on || !S.group) return null;
+    const o = silhouette();
+    o.position.set(x, y, z || 0);
+    o.traverse(function (c) {
+      if (c.userData.mat) {
+        c.material = Y.Mat.get(c.userData.mat === "targetFace" && foe
+          ? "foe" : c.userData.mat);
+      }
+    });
+    if (foe) {
+      const pl = o.userData.plate;
+      pl.userData.mat = "foe"; pl.material = Y.Mat.get("foe");
+    }
+    S.group.add(o);
+    const t = { x: x, y: y, z: z || 0, up: 0, state: "rising", friend: false,
+                seen: false, obj: o, mv: null, dir: 1, home: y, foe: !!foe };
+    S.targets.push(t);
+    S.total = hostiles();
+    return t;
+  }
+
+  function despawn(t) {
+    const i = S.targets.indexOf(t);
+    if (i < 0) return false;
+    S.group.remove(t.obj);
+    S.targets.splice(i, 1);
+    if (S.hold === t) S.hold = null;
+    if (S.lock === t) S.lock = null;
+    S.total = hostiles();
+    return true;
+  }
+
+  /** Déplacer une cible : la défense s'en sert pour faire avancer ses ennemis. */
+  function moveTarget(t, x, y) {
+    t.x = x; t.y = y;
+    t.obj.position.set(x, y, t.z);
   }
 
   function finish() {
@@ -972,7 +1065,7 @@
       if (free.t) {
         free.t.state = "falling"; S.hits++;
         Y.Audio.hit();
-        if (S.hits >= S.total) finish();
+        if (!S.def && S.hits >= S.total) finish();
       }
     }
     Y.Audio.shot();
@@ -981,7 +1074,7 @@
       S.hits++;
       if (S.hold === t) S.hold = null;      // elle est tombée : le viseur repart
       Y.Audio.hit();
-      if (S.hits >= S.total) finish();
+      if (!S.def && S.hits >= S.total) finish();
     } else if (!free || !free.t) Y.Audio.miss();
     // traceur : du canon au point d'impact, ou jusqu'où le rayon libre est allé
     if (t) v1.set(t.x, t.y, aimZ(t));
@@ -1147,7 +1240,7 @@
       t.state = "falling"; S.hits++;
       if (S.hold === t) S.hold = null;
     });
-    if (S.hits >= S.total && S.running) finish();
+    if (!S.def && S.hits >= S.total && S.running) finish();
 
     damage(p, R);
   }
@@ -1245,7 +1338,7 @@
 
     // entrée sur la ligne de tir : les cibles se relèvent
     const z = S.cfg.zone;
-    const inZone = st.px > z[0] && st.px < z[1] && st.py > z[2] && st.py < z[3];
+    const inZone = z && st.px > z[0] && st.px < z[1] && st.py > z[2] && st.py < z[3];
     /* La zone verte relance une série NEUVE, et elle le fait au
        FRANCHISSEMENT — au moment où l'on entre, pas tant qu'on y est.
 
@@ -1257,8 +1350,10 @@
        maintenant : on entre, tout se remet debout, le chrono repart de zéro.
        Rester sur la ligne ne fait plus rien — il faut ressortir et revenir,
        ce qui est le geste qu'on fait de toute façon. */
-    if (inZone && !S.wasIn) { reset(); raise(); }
-    S.wasIn = inZone;
+    if (!S.def) {
+      if (inZone && !S.wasIn) { reset(); raise(); }
+      S.wasIn = inZone;
+    }
     if (S.running) S.t += dt;
 
     // montée, chute et pose des silhouettes
@@ -1407,6 +1502,17 @@
     spare: spare,
     hold: toggleHold,
     sweep: toggleAuto,
+    /** Ce que le pilote automatique doit garder, et jusqu'où il peut aller. */
+    guard: function (x, y, r) {
+      S.guard = (x === null || x === undefined) ? null : { x: x, y: y, r: r };
+    },
+    spawn: spawn,
+    despawn: despawn,
+    moveTarget: moveTarget,
+    marked: marked,
+    defending: function () { return S.on && S.def; },
+    /** Ouvrir le feu : la défense veut un stand toujours prêt. */
+    arm: function () { S.running = true; S.say = "Défense"; },
     nextTarget: nextTarget,
     /**
      * Les repères à dessiner dans la caméra de l'arme : pour chaque cible

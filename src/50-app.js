@@ -85,6 +85,7 @@
   function fitWorld(cur, ext) {
     Y.Ball.set(cur.ball);                          // la boule appartient au terrain
     Y.Range.set(cur.range);                        // et le champ de tir aussi
+    Y.Defense.set(cur.range);                      // la défense de zone de même
     // De quoi couvrir le terrain en entier, avec de la marge autour, et
     // jamais moins que les 40 m d'origine : sur sol plat rien ne change.
     const want = Math.max(40, Math.ceil((2 * ext.radius + 10) / 4) * 4);
@@ -118,6 +119,7 @@
   Y.Terrain.build(scene);
   Y.Ball.build(scene);
   Y.Range.build(scene);
+  Y.Defense.build(scene);
   Y.Terrain.watch(fitWorld);
 
   /* --- état d'affichage --- */
@@ -244,6 +246,8 @@
 
   /* --- sélection --- */
   const ray = new T.Raycaster(), ndc = new T.Vector2();
+  /* Le plan du sol, pour poser la zone de défense là où l'on clique. */
+  const groundPlane = new T.Plane(new T.Vector3(0, 0, 1), 0);
   const highlighted = [];
 
   canvas.addEventListener("pointerup", function (e) {
@@ -255,6 +259,18 @@
     const r = canvas.getBoundingClientRect();
     ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
+    /* En défense, tant que la zone n'est pas posée, un clic sur la scène la
+       POSE au lieu de sélectionner une pièce : on croise le rayon avec le
+       plan du sol, ce qui donne le point visé sans dépendre de ce qu'il y a
+       dessous. */
+    if (Y.Defense.awaiting()) {
+      const p0 = new T.Vector3();
+      if (ray.ray.intersectPlane(groundPlane, p0)) {
+        Y.Defense.place(p0.x, p0.y);
+        flash("Zone posée — tenez-la");
+      }
+      return;
+    }
     const hit = ray.intersectObjects(Y.Robot.root.children, true)
       .find(function (h) { return h.object.userData.sys; });
     select(hit ? hit.object.userData.sys : null);
@@ -1184,6 +1200,7 @@
     M.step(dt);
     Y.Ball.step(dt);
     Y.Range.step(dt);
+    Y.Defense.step(dt);
     if (Y.Session.state.running) followSession(dt);
 
     const target = view.explodeOn ? 1 : 0;
@@ -1300,6 +1317,7 @@
     renderer.render(scene, camera);
     renderFpv();
     drawMap();
+    drawDefense();
     requestAnimationFrame(tick);
   }
 
@@ -1331,6 +1349,7 @@
   const mmapSay = document.getElementById("mmapsay");
   const mmapCtx = mmapCv.getContext("2d");
   let mmapExt = null;
+  let mmapFrame = null;
 
   function drawMap() {
     const m = Y.Range.map();
@@ -1369,6 +1388,21 @@
       c.fillRect(PX(b.x0), PY(b.y1), Math.max(1, (b.x1 - b.x0) * sx),
                  Math.max(1, (b.y1 - b.y0) * sy));
     });
+
+    /* La zone à tenir, quand il y en a une : un disque dont la couleur suit
+       ce qu'il lui reste de vie, comme la couronne au sol. */
+    const dz = Y.Defense.map();
+    if (dz) {
+      const hue = 120 * dz.life;
+      c.beginPath();
+      c.fillStyle = "hsla(" + hue.toFixed(0) + ",60%,50%,0.18)";
+      c.arc(PX(dz.cx), PY(dz.cy), Math.max(3, dz.r * sx), 0, Math.PI * 2);
+      c.fill();
+      c.beginPath();
+      c.strokeStyle = "hsl(" + hue.toFixed(0) + ",70%,55%)"; c.lineWidth = 1.6;
+      c.arc(PX(dz.cx), PY(dz.cy), Math.max(3, dz.r * sx), 0, Math.PI * 2);
+      c.stroke();
+    }
 
     // la ligne de tir
     if (m.zone) {
@@ -1410,8 +1444,63 @@
     c.lineTo(-5, -4.5); c.closePath(); c.fill();
     c.restore();
 
-    mmapSay.textContent = m.say || "";
+    mmapSay.textContent = Y.Defense.awaiting()
+      ? "Cliquez ici ou sur la scène pour poser la zone"
+      : (m.say || (Y.Defense.active() ? Y.Defense.state.say : ""));
+
+    // le repère de la carte, gardé pour convertir un clic en mètres
+    mmapFrame = { E: E, sx: sx, sy: sy, PAD: PAD, H: H };
   }
+
+  /* =====================================================================
+     Défense de zone : deux barres, une ligne, et le choix de la fin
+     ===================================================================== */
+  const defBox = document.getElementById("def");
+  const defZone = document.getElementById("defZone");
+  const defBot = document.getElementById("defBot");
+  const defSay = document.getElementById("defSay");
+  const defEnd = document.getElementById("defEnd");
+
+  function drawDefense() {
+    const d = Y.Defense.hud();
+    if (!d) {
+      if (!defBox.hidden) { defBox.hidden = true; stage.classList.remove("defplace"); }
+      return;
+    }
+    if (defBox.hidden) defBox.hidden = false;
+    stage.classList.toggle("defplace", Y.Defense.awaiting());
+    /* La barre change de couleur avant de se vider : on doit voir venir la
+       perte, pas la constater. */
+    const paint = function (el, k) {
+      el.style.width = (k * 100).toFixed(1) + "%";
+      el.style.background = k > 0.55 ? "#77C2A6" : k > 0.25 ? "#FFC24D" : "#FF5D52";
+    };
+    paint(defZone, d.zone);
+    paint(defBot, d.bot);
+    defSay.textContent = d.placed
+      ? d.say + " · vague " + d.wave + " · " + d.kills + " abattus"
+      : d.say;
+    defEnd.hidden = !d.asking;
+  }
+
+  defEnd.addEventListener("click", function (e) {
+    const b = e.target.closest("button[data-end]");
+    if (b && Y.Defense.choose(b.dataset.end)) flash(Y.Defense.state.say);
+  });
+
+  /* Poser la zone d'un clic SUR LA CARTE : c'est le geste le plus précis
+     des deux — la carte est un plan, la scène est une perspective. */
+  mmapCv.addEventListener("pointerdown", function (e) {
+    if (!Y.Defense.awaiting() || !mmapFrame) return;
+    const r = mmapCv.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width * mmapCv.width;
+    const py = (e.clientY - r.top) / r.height * mmapCv.height;
+    const F = mmapFrame;
+    const x = F.E.x0 + (px - F.PAD) / F.sx;
+    const y = F.E.y0 + (F.H - F.PAD - py) / F.sy;
+    if (Y.Defense.place(x, y)) flash("Zone posée — tenez-la");
+    e.stopPropagation();
+  });
 
   const fpvBox = document.getElementById("fpv");
   const fpvMarks = document.getElementById("fpvmarks");

@@ -140,6 +140,7 @@
     { pad: "PARTAGE", key: "F", act: "Champ de tir : figer le viseur sur la cible (rappui = libre)" },
     { pad: "OPTIONS", key: "O", act: "Champ de tir : déclarer la cible amie — tir interdit" },
     { pad: "□ + ○ + △ + ✕", key: "C + V + Y + Espace", act: "Shuffle : le pas de danse, sur les pattes" },
+    { pad: "□ ○ △", key: "C V Y", act: "Défense, systèmes critiques : kamikaze · mine · repli" },
     { pad: "PS", key: "P", act: "Champ de tir : le robot nettoie seul les cibles repérées (85 % de la vitesse)" },
     { pad: "—", key: "H", act: "Afficher ou masquer cette aide" },
     { pad: "R1", key: "E", act: "540 McTwist — au champ de tir : CIBLE SUIVANTE" },
@@ -430,6 +431,18 @@
        les roues avant, ou sur l'autre flanc. Et un appui bref pendant la
        tenue le repose, quel que soit le côté levé — c'est le même bouton qui
        met et qui enlève, comme un interrupteur. */
+    /* Défense de zone, systèmes critiques : les trois boutons de figures
+       deviennent les trois portes de sortie. On ne les détourne QUE pendant
+       la question — le reste du temps ils cabrent et ils basculent comme
+       partout ailleurs. */
+    if (Y.Defense.asking() && (name === "square" || name === "circle"
+        || name === "triangle")) {
+      if (!edge(name, down)) return;
+      const kind = name === "square" ? "kamikaze"
+        : name === "circle" ? "mine" : "repli";
+      if (Y.Defense.choose(kind)) say(Y.Defense.state.say);
+      return;
+    }
     if (name === "square" || name === "circle") {
       const id = name === "square" ? "wheelie" : "sidestand";
       const was = !!prev[name];
@@ -554,7 +567,8 @@
     drive(trig("r2"), trig("l2"));
     const lx = ax[L.stick.lx] || 0;
     const stick = Math.abs(lx) > DEAD ? lx : 0;
-    if (hooks.setWz && !Y.Range.autopilot() && !Y.Dance.dancing()) {
+    if (hooks.setWz && !Y.Range.autopilot() && !Y.Dance.dancing()
+        && !Y.Defense.scripted()) {
       hooks.setWz(-stick * WZ_MAX);
     }
 
@@ -586,7 +600,9 @@
        image se battraient en duel à soixante images par seconde. Les figures,
        elles, restent disponibles — arrêter le nettoyage n'est pas la seule
        chose qu'on doit pouvoir faire pendant qu'il tourne. */
-    if (Y.Range.autopilot() || Y.Dance.dancing()) return;
+    /* Pendant une fin engagée — kamikaze, mine ou repli —, le pilote n'a
+       plus la main : c'est le robot qui joue sa dernière carte. */
+    if (Y.Range.autopilot() || Y.Dance.dancing() || Y.Defense.scripted()) return;
     const rolling = Y.Natural.state.vx * (Y.Natural.state.dir || 1) > 0.05;
     const braking = brk > TRIG && rolling;
     /* Relâcher les DEUX gâchettes freine. Un skateur roule sur son erre, mais
@@ -634,7 +650,7 @@
 
   function stepKeys() {
     drive(keys.ArrowUp ? 1 : 0, keys.ArrowDown ? 1 : 0);
-    if (Y.Range.autopilot() || Y.Dance.dancing()) return;
+    if (Y.Range.autopilot() || Y.Dance.dancing() || Y.Defense.scripted()) return;
     const turn = (keys.ArrowLeft ? 1 : 0) - (keys.ArrowRight ? 1 : 0);
     if (hooks.setWz) hooks.setWz(turn * WZ_MAX);
   }
