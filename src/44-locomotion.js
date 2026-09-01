@@ -2678,6 +2678,33 @@
 
   Y.Natural = {
     profiles: PROFILES,
+    /**
+     * Poser les quatre pieds à des positions données, et résoudre.
+     *
+     * `feet` donne, par patte, une cible dans le repère HORIZONTAL du robot —
+     * x devant, y à gauche, z sous la caisse. C'est le repère dans lequel une
+     * chorégraphie se pense : on ne veut pas écrire une danse en angles de
+     * genou. La conversion vers le repère du tronc, la contrainte d'enveloppe
+     * et la continuité angulaire sont exactement celles de la marche, donc la
+     * danse hérite des mêmes butées et des mêmes garde-fous.
+     */
+    placeFeet: function (state, feet) {
+      const cy = Math.cos(state.yaw), sy = Math.sin(state.yaw);
+      Y.LEGS.forEach(function (L) {
+        const n = Y.Robot.legs[L.id];
+        const lv = feet[L.id];
+        const target = constrain(L, levelToBody(lv, state.roll, state.pitch, state.yawWag));
+        assign(n, Y.Motion.ik(L, target[0], target[1], target[2]));
+        /* Le monde, pour les ombres, les traces et le diagramme d'appui. Sur
+           roues, la cible de la cinématique est l'ESSIEU et le contact est un
+           rayon plus bas : `lv[5]` porte cette différence quand elle existe. */
+        n.footWorld = [state.px + cy * lv[0] - sy * lv[1],
+                       state.py + sy * lv[0] + cy * lv[1],
+                       state.z + (lv[5] !== undefined ? lv[5] : lv[2])];
+        n.contact = lv[3] > 0.5;
+        n.phase = lv[4] || 0;
+      });
+    },
     state: nat,
     step: stepNatural,
     stepWheels: stepWheels,

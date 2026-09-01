@@ -913,47 +913,67 @@ geste qui l'abandonne.
 
 ### Le Shuffle
 
-□ + ○ + △ + ✕ **ensemble** *(`C` + `V` + `Y` + Espace)* : le robot descend de
-ses roues et danse.
+□ + ○ + △ + ✕ **ensemble** *(`C` + `V` + `Y` + Espace)* : un *running man* de
+quadrupède. Il se danse **dans le train où l'on est** — sur pattes le pied
+gratte, sur roues le pneu dérape. C'est le même pas, et changer de train pour
+danser reviendrait à refuser la moitié de la demande.
 
-C'est un pas de danse, **pas une figure de plus**. Les figures du catalogue
-sont des acrobaties : elles quittent le sol, et le moteur qui les joue écrit
-directement l'assiette et les appuis. Un pas de danse ne fait rien de tout
-cela — il **marche**. Le Shuffle est donc une suite de *consignes de marche*
-jouées au tempo : 0,52 s la mesure, soit 115 à la noire.
+C'est un **générateur de trajectoires de pieds**, pas une suite de consignes
+de marche. Le générateur d'allure sait faire avancer un robot ; il ne sait pas
+le faire danser, parce qu'une allure cherche justement à **ne pas glisser** —
+et le glissement est tout le pas. La danse écrit donc elle-même l'assiette, la
+hauteur de caisse et les quatre appuis, à la place du générateur d'allure : deux
+générateurs sur les mêmes pattes se battraient.
 
-| Temps | Le pas |
+Le cycle tient en **quatre temps**, à 130 à la noire (0,46 s le cycle), et il
+est écrit tel quel dans le code :
+
+| Temps | | Ce qui se passe |
+| --- | --- | --- |
+| **1** | Glisse | la diagonale d'appui recule au sol, pied collé — c'est ce glissement qu'on voit. La patte avant opposée **gratte** vers le bas et l'arrière : l'appel du running man. La dernière se **replie sous le centre de masse**. |
+| **2** | Saut | impulsion sur la diagonale d'appui, la caisse décolle de 38 mm. En l'air, **les diagonales s'échangent** : la repliée se détend vers l'avant, l'ancienne d'appui se lève. C'est ce vide qui autorise l'inversion, et c'est pourquoi le temps 2 est le plus court des quatre. |
+| **3** | Réception | la nouvelle diagonale touche, **genoux fléchis** pour absorber, puis **rétro-pulsion** des pieds au sol. |
+| **4** | Reset | roulis et tangage marqués au tempo, et les pieds reviennent d'où la glisse du cycle suivant repartira — c'est ce temps qui rend le pas bouclable. |
+
+Quatorze cycles, six secondes et demie, et le robot **avance de 2,2 m** : c'est
+le « in » du shuffle. Il ne danse pas à travers un mur — la caisse a beau être
+posée image par image, un sondage devant elle arrête l'avancée.
+
+**Le pas hérite des garde-fous de la marche.** Les cibles de pieds sont écrites
+dans le repère horizontal du robot — x devant, y à gauche, z sous la caisse,
+le repère dans lequel une chorégraphie se pense ; on ne veut pas écrire une
+danse en angles de genou. La conversion vers le repère du tronc, la contrainte
+d'enveloppe de travail et la continuité angulaire sont **exactement celles de
+la marche**. Relevé, sur pattes comme sur roues :
+
+| | |
 | --- | --- |
-| 4 | le shuffle : quatre allers-retours latéraux à 0,62 m/s, en avançant |
-| 2 | le « in » : quatre pas serrés, caisse basse à 215 mm |
-| 4 | le pivot : **un tour complet** sur place, caisse haute |
-| 2 | deux pas en arrière, hanches marquées |
-| 2,6 | la révérence : 170 mm, puis on se relève |
+| Butées articulaires franchies | **0** |
+| Temps sans aucun appui | **13 %** — le saut, et lui seul |
+| Appuis simultanés | 4 pendant 39 %, 3 pendant 16 %, 2 pendant 33 % |
+| Caisse | 66 mm de battement |
+| Roulis / tangage | 4,9° / 1,9° |
 
-Le générateur d'allure fait le reste, et c'est lui qui donne au pas son
-balancement de hanches : le style « souple » fait déjà osciller la caisse au
-rythme du trot, il suffit de lui donner des pas qui vont d'un côté puis de
-l'autre. Écrire la danse dans le vocabulaire du robot plutôt que dans celui de
-l'animation a un avantage qu'on ne voit qu'à l'usage : **elle reste vraie**.
-Les douze articulations font ce qu'elles feraient pour n'importe quel
-déplacement — relevé : **aucune butée franchie**, caisse entre 242 et 377 mm —
-et le pas marche en pente comme sur du plat.
+Le centre de masse reste dans le polygone d'appui aux temps 1, 3 et 4 — la
+diagonale au sol passe par-dessous, et le report de caisse est décalé de 12 mm
+vers elle. Au temps 2 il n'y a plus d'appui du tout : c'est un saut, la
+question ne se pose que de part et d'autre.
 
-Deux détails qui ont demandé une correction :
+Sur roues, la cinématique vise l'**essieu** et non le contact, un rayon plus
+haut : la chorégraphie s'écrit au niveau du contact et ce décalage est ajouté à
+la fin — la danse n'a pas à savoir sur quoi le robot roule. Les roues tournent
+avec ce que le pneu parcourt : une roue figée pendant un dérapage se verrait
+tout de suite.
 
-- **le pivot faisait un demi-tour.** Deux temps, c'était demander six radians
-  par seconde à un robot dont l'accélération angulaire ne les atteint jamais.
-  Sur quatre temps à 3,02 rad/s, le tour est **exact à 360°** ;
-- **l'accord se lit sur la tenue**, pas sur la simultanéité : quatre doigts ne
-  tombent jamais dans la même image. Chacun des quatre boutons lance donc sa
-  figure au passage — la danse les annule en remettant le robot d'aplomb —,
-  sauf le triangle, dont la hauteur de caisse ne s'efface pas toute seule :
-  elle est explicitement reprise.
+**L'accord se lit sur la tenue**, pas sur la simultanéité : quatre doigts ne
+tombent jamais dans la même image. Chacun des quatre boutons lance donc sa
+figure au passage — la danse les annule en reprenant les pattes —, sauf le
+triangle, dont la hauteur de caisse ne s'efface pas toute seule : elle est
+explicitement reprise. Le robot revient ensuite exactement comme il était, et
+pilotable dans la seconde.
 
-Le robot revient ensuite exactement comme il était : mode, allure, hauteur, et
-pilotable dans la seconde. *(Le pas de côté n'est pas capturé par
-l'enregistreur, qui ne garde pas la vitesse latérale : une prise rejouée
-gardera le rythme mais pas le déhanché.)*
+*(Le pas n'est pas reproduit par l'enregistreur, qui garde des consignes de
+marche : une prise rejouée passera devant le shuffle sans le danser.)*
 
 #### PARTAGE fige, OPTIONS épargne
 
@@ -2216,7 +2236,7 @@ src/12-terrain.js     terrains analytiques : hauteur, volumes, ligne de vue, ter
 src/13-ball.js        la boule poussable : inertie, pentes, rebonds, roulement sans glissement
 src/14-range.js       champ de tir : armes, affût stabilisé, carte mémoire, dégâts, nettoyage auto
 src/15-audio.js       le son, synthétisé : coups, explosions, impacts, chargeur, verrouillage
-src/16-dance.js       le Shuffle : une chorégraphie en consignes de marche
+src/16-dance.js       le Shuffle : générateur de trajectoires de pieds, en quatre temps
 src/20-materials.js   matières PBR et motifs procéduraux
 src/30-robot.js       décodage des maillages et montage de l'arbre cinématique
 src/40-motion.js      cinématique inverse, allures, lecture de trajectoire, liaison directe

@@ -234,7 +234,14 @@
   /* ---------- pas de simulation, quelle que soit la source ---------- */
   function step(dt) {
     state.t += dt;
-    if (Y.Stunt && Y.Stunt.active && state.source === "internal") {
+    /* La danse passe avant tout le reste : elle écrit elle-même l'assiette,
+       la hauteur de caisse et les quatre appuis. Ce n'est pas une consigne de
+       marche que le générateur d'allure interpréterait — c'est une
+       chorégraphie de pieds, et deux générateurs sur les mêmes pattes se
+       battraient. */
+    if (Y.Dance && Y.Dance.dancing() && state.source === "internal") {
+      Y.Dance.pose(dt, state);
+    } else if (Y.Stunt && Y.Stunt.active && state.source === "internal") {
       Y.Stunt.step(dt, state);
     } else if (state.source === "file") {
       play.step(dt);
