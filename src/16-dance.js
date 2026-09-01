@@ -10,6 +10,10 @@
 
    Le cycle tient en quatre temps, et il est écrit tel quel dans le code :
 
+   Il se danse SUR PLACE : ce sont les pieds qui reculent sous la caisse, pas
+   la caisse qui avance sur les pieds. C'est l'inverse exact d'une marche, et
+   c'est toute l'illusion du running man.
+
      1  GLISSE      la diagonale d'appui recule au sol, pied collé ;
                     la patte avant opposée gratte vers le bas et l'arrière ;
                     la dernière se replie sous le centre de masse.
@@ -55,14 +59,13 @@
   const ROLL = 0.085;                // roulis marqué au tempo
   const PITCH = 0.055;               // tangage
   const WAG = 0.10;                  // lacet de caisse, le déhanché
-  const DRIFT = 0.16;                // avancée par cycle : le « in » du shuffle
 
   /* Les deux diagonales, avec les identifiants du dépôt : `lf` avant-gauche,
      `rh` arrière-droit, et l'autre paire. */
   const DIAG = [["lf", "rh"], ["rf", "lh"]];
 
   const S = {
-    on: false, t: 0, say: "", beat: 0, cyc: 0, adv: 0,
+    on: false, t: 0, say: "", beat: 0, cyc: 0,
     back: null, modeFn: null, x0: 0, y0: 0, yaw0: 0, wheels: false, last: {}
   };
 
@@ -98,7 +101,7 @@
       S.wheels = st.mode === "roues";
       st.vx = 0; st.vy = 0; st.wz = 0;
       S.x0 = st.px; S.y0 = st.py; S.yaw0 = st.yaw;
-      S.on = true; S.t = 0; S.cyc = 0; S.adv = 0; S.say = "Shuffle"; S.last = {};
+      S.on = true; S.t = 0; S.cyc = 0; S.say = "Shuffle"; S.last = {};
       return true;
     },
 
@@ -170,24 +173,13 @@
          Le shuffle « in » avance : le robot progresse d'un cran par cycle,
          posé sur la lancée de la rétro-pulsion. Et il tourne très peu — le
          lacet de caisse suffit à donner le déhanché sans le faire dériver. */
-      /* L'avancée est CUMULÉE : elle ne se fond pas, sous peine de ramener
-         le robot en arrière à la fin du pas — un fondu s'applique à une
-         amplitude, jamais à une position déjà parcourue. */
-      let adv = (cyc + ease(Math.min(1, u * 1.4))) * DRIFT;
-      const wx = Math.cos(S.yaw0), wy = Math.sin(S.yaw0);
-      /* Et l'on ne danse pas à travers un mur : la caisse a beau être posée
-         image par image, elle reste soumise à ce qui l'entoure. */
-      if (Y.Terrain && adv > S.adv) {
-        const z = Y.Terrain.heightAt(st.px, st.py) + 0.25;
-        if (Y.Terrain.blocked(st.px, st.py, z,
-              S.x0 + wx * (adv + 0.35), S.y0 + wy * (adv + 0.35), z, 0.05)) {
-          adv = S.adv;
-        }
-      }
-      S.adv = adv;
-      st.px = S.x0 + wx * adv;
-      st.py = S.y0 + wy * adv;
-      st.yaw = S.yaw0;
+      /* SUR PLACE. Le running man tire son nom de là : les pieds courent, le
+         corps ne va nulle part. Ce sont les pieds qui reculent sous la caisse
+         au lieu de la caisse qui avance sur les pieds — c'est exactement
+         l'inverse d'une marche, et c'est ce qui donne l'illusion. Faire
+         avancer le robot en même temps effaçait le pas : on ne voyait plus
+         qu'un déplacement bancal. */
+      st.px = S.x0; st.py = S.y0; st.yaw = S.yaw0;
 
       const ground = Y.Terrain ? Y.Terrain.heightAt(st.px, st.py) : 0;
       /* Sur roues, la cinématique vise l'ESSIEU et non le contact : il est un

@@ -935,9 +935,13 @@ est écrit tel quel dans le code :
 | **3** | Réception | la nouvelle diagonale touche, **genoux fléchis** pour absorber, puis **rétro-pulsion** des pieds au sol. |
 | **4** | Reset | roulis et tangage marqués au tempo, et les pieds reviennent d'où la glisse du cycle suivant repartira — c'est ce temps qui rend le pas bouclable. |
 
-Quatorze cycles, six secondes et demie, et le robot **avance de 2,2 m** : c'est
-le « in » du shuffle. Il ne danse pas à travers un mur — la caisse a beau être
-posée image par image, un sondage devant elle arrête l'avancée.
+Quatorze cycles, six secondes et demie, et le robot **ne bouge pas d'un
+millimètre** : le *running man* tire son nom de là — les pieds courent, le
+corps ne va nulle part. Ce sont les pieds qui reculent sous la caisse, pas la
+caisse qui avance sur les pieds. C'est l'inverse exact d'une marche, et c'est
+toute l'illusion. Une première version faisait avancer le robot de 2,2 m
+pendant le pas : le shuffle s'y noyait, on ne voyait plus qu'un déplacement
+bancal. Mesuré : **0 mm de déplacement**, sur pattes comme sur roues.
 
 **Le pas hérite des garde-fous de la marche.** Les cibles de pieds sont écrites
 dans le repère horizontal du robot — x devant, y à gauche, z sous la caisse,
