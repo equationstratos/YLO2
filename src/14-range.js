@@ -37,6 +37,13 @@
      la crosse —, et de −18° à +58° de TILT, de quoi aller chercher une
      silhouette sur une passerelle sans avancer. */
   const PAN_MAX = 150 * Math.PI / 180;
+  /* Le cône de RECHERCHE n'est pas le débattement : l'affût peut pointer à
+     150°, mais il ne va CHERCHER une cible que dans le secteur avant. Il
+     valait 2,0 rad — presque tout l'horizon —, ce qui rendait la visée
+     collante : elle happait ce qui passait sur le côté et n'en démordait
+     plus. À 1,0 rad, elle prend ce qu'on lui présente et le lâche dès qu'on
+     se détourne ; le choix de la cible redevient au pilote. */
+  const SEARCH = 1.0;
   const TILT_MIN = -18 * Math.PI / 180;
   const TILT_MAX = 58 * Math.PI / 180;
   const SLEW = 3.4;                  // vitesse de rotation de la tourelle, rad/s
@@ -695,6 +702,50 @@
   function nextWeapon() { return useWeapon(S.wpn + 1); }
   function primaryWeapon() { return useWeapon(0); }
 
+  /**
+   * Les cibles RETENUES : debout, hostiles, à portée, dans le secteur et à
+   * découvert. C'est ce que le viseur entoure, et c'est là-dedans que R1
+   * fait tourner le choix.
+   */
+  function marked() {
+    if (!S.on || !S.gun) return [];
+    const st = Y.Motion.state;
+    const g = S.gun.getWorldPosition(v0.clone());
+    return S.targets.filter(function (t) {
+      if (t.friend || (t.state !== "up" && t.state !== "rising")) return false;
+      const d = Math.hypot(t.x - g.x, t.y - g.y);
+      if (d > W().reach) return false;
+      let a = Math.atan2(t.y - g.y, t.x - g.x) - st.yaw;
+      a = ((a + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+      if (Math.abs(a) > SEARCH) return false;
+      return clear(g, t);
+    }).sort(function (a, b) {
+      return Math.hypot(a.x - g.x, a.y - g.y) - Math.hypot(b.x - g.x, b.y - g.y);
+    });
+  }
+
+  /**
+   * R1 : la cible SUIVANTE.
+   *
+   * La visée automatique prend toujours la plus proche, et c'est le bon choix
+   * neuf fois sur dix. La dixième, on veut celle d'à côté — et jusqu'ici il
+   * fallait manœuvrer le robot pour la lui faire préférer. Un appui fait
+   * maintenant tourner le choix dans la liste de ce qui est entouré au
+   * viseur, sans rien changer d'autre : on peut tirer à tout moment, y
+   * compris pendant qu'on change.
+   */
+  function nextTarget() {
+    if (!S.on) return false;
+    const list = marked();
+    if (!list.length) { S.say = "Aucune cible à désigner"; return false; }
+    const cur = S.hold || S.lock;
+    const i = list.indexOf(cur);
+    S.hold = list[(i + 1) % list.length];
+    S.say = "Cible " + (list.indexOf(S.hold) + 1) + "/" + list.length;
+    Y.Audio.lock();
+    return true;
+  }
+
   function finish() {
     S.running = false;
     if (S.best === null || S.t < S.best) S.best = S.t;
@@ -745,7 +796,7 @@
     return out;
   }
 
-  const v0 = new T.Vector3(), v1 = new T.Vector3();
+  const v0 = new T.Vector3(), v1 = new T.Vector3(), vMark = new T.Vector3();
 
   /**
    * Une balle ne traverse pas un mur.
@@ -1259,6 +1310,14 @@
        peut réellement toucher. */
     if (S.hold && (S.hold.state !== "up" && S.hold.state !== "rising")) S.hold = null;
     if (S.hold && !clear(gunW, S.hold)) S.hold = null;
+    /* Une cible choisie se lâche aussi quand on se détourne d'elle : le
+       verrouillage ne doit pas survivre au geste qui l'abandonne. */
+    if (S.hold) {
+      const ah = ((Math.atan2(S.hold.y - gunW.y, S.hold.x - gunW.x) - st.yaw
+                   + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+      if (Math.abs(ah) > SEARCH
+          || Math.hypot(S.hold.x - gunW.x, S.hold.y - gunW.y) > W().reach) S.hold = null;
+    }
     if (S.hold) best = S.hold;
     else S.targets.forEach(function (t) {
       if (t.friend) return;
@@ -1268,7 +1327,7 @@
       if (d > W().reach) return;
       let a = Math.atan2(dy, dx) - st.yaw;
       a = ((a + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-      if (Math.abs(a) > PAN_MAX) return;
+      if (Math.abs(a) > SEARCH) return;
       if (d >= bd) return;
       if (!clear(gunW, t)) return;
       bd = d; best = t;
@@ -1348,6 +1407,26 @@
     spare: spare,
     hold: toggleHold,
     sweep: toggleAuto,
+    nextTarget: nextTarget,
+    /**
+     * Les repères à dessiner dans la caméra de l'arme : pour chaque cible
+     * retenue, sa place à l'écran en coordonnées normalisées, et si c'est
+     * elle que le canon tient. La projection appartient à la caméra, donc
+     * elle se fait ici — l'application n'a plus qu'à poser les ronds.
+     */
+    marks: function () {
+      if (!S.on || !S.fpv) return [];
+      const out = [];
+      marked().forEach(function (t) {
+        vMark.set(t.x, t.y, aimZ(t)).project(S.fpv);
+        if (vMark.z > 1) return;                       // derrière la caméra
+        if (Math.abs(vMark.x) > 1.15 || Math.abs(vMark.y) > 1.15) return;
+        out.push({ x: vMark.x, y: vMark.y, on: t === S.lock,
+                   held: t === S.hold, far: Math.hypot(t.x - Y.Motion.state.px,
+                                                       t.y - Y.Motion.state.py) });
+      });
+      return out;
+    },
     nextWeapon: nextWeapon,
     primaryWeapon: primaryWeapon,
     nextMode: nextMode,

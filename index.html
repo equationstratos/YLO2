@@ -397,6 +397,23 @@ input[type=range]::-moz-range-thumb{
 .fpv.aim .ret{stroke:#ffc24d}
 .fpv.aim .rdot{fill:#ffc24d}
 .fpv.held .rbrk{opacity:1}
+.fpvmarks{position:absolute;inset:0;overflow:hidden}
+.fpvmarks i{
+  position:absolute;width:34px;height:34px;margin:-17px 0 0 -17px;
+  border:1.5px solid #9fd8c0;border-radius:50%;opacity:.6;
+  transition:opacity .1s linear,border-color .1s linear;
+}
+/* Celle que le canon tient : plus grande, ambre, avec ses quatre crochets.
+   Celle qu'on a DÉSIGNÉE en plus : rouge et pleine d'un liseré. */
+.fpvmarks i.on{width:46px;height:46px;margin:-23px 0 0 -23px;
+  border-color:#ffc24d;opacity:1;border-width:2px}
+.fpvmarks i.held{border-color:#ff4433;box-shadow:0 0 0 1px #ff443355}
+.fpvmarks i b{
+  position:absolute;left:50%;top:calc(100% + 3px);transform:translateX(-50%);
+  font-family:var(--mono);font-size:8px;letter-spacing:.08em;color:var(--faint);
+  font-weight:400;white-space:nowrap;
+}
+.fpvmarks i.on b{color:#ffc24d}
 .fpvret .rlob{opacity:0}
 .fpv.lob .rlob{opacity:.9}
 .fpvtag{
@@ -554,6 +571,12 @@ input[type=range]::-moz-range-thumb{
             <path class="rlob" d="M92 118h16M94 128h12M96 138h8"/>
           </g>
         </svg>
+        <!-- Les ronds posés sur les cibles repérées. Des éléments du
+             document et non du dessin dans le SVG : le viseur garde son
+             rapport carré au milieu de l'image, alors qu'un repère doit
+             tomber PILE là où est la cible, sur une image qui n'est pas
+             carrée. Un placement en pourcentage règle les deux. -->
+        <div class="fpvmarks" id="fpvmarks"></div>
         <div class="fpvtag" id="fpvtag"></div>
         <div class="fpvlabel">CAM ARME</div>
       </div>
@@ -1897,6 +1920,13 @@ window.YLO = window.YLO || {};
      la crosse —, et de −18° à +58° de TILT, de quoi aller chercher une
      silhouette sur une passerelle sans avancer. */
   const PAN_MAX = 150 * Math.PI / 180;
+  /* Le cône de RECHERCHE n'est pas le débattement : l'affût peut pointer à
+     150°, mais il ne va CHERCHER une cible que dans le secteur avant. Il
+     valait 2,0 rad — presque tout l'horizon —, ce qui rendait la visée
+     collante : elle happait ce qui passait sur le côté et n'en démordait
+     plus. À 1,0 rad, elle prend ce qu'on lui présente et le lâche dès qu'on
+     se détourne ; le choix de la cible redevient au pilote. */
+  const SEARCH = 1.0;
   const TILT_MIN = -18 * Math.PI / 180;
   const TILT_MAX = 58 * Math.PI / 180;
   const SLEW = 3.4;                  // vitesse de rotation de la tourelle, rad/s
@@ -2555,6 +2585,50 @@ window.YLO = window.YLO || {};
   function nextWeapon() { return useWeapon(S.wpn + 1); }
   function primaryWeapon() { return useWeapon(0); }
 
+  /**
+   * Les cibles RETENUES : debout, hostiles, à portée, dans le secteur et à
+   * découvert. C'est ce que le viseur entoure, et c'est là-dedans que R1
+   * fait tourner le choix.
+   */
+  function marked() {
+    if (!S.on || !S.gun) return [];
+    const st = Y.Motion.state;
+    const g = S.gun.getWorldPosition(v0.clone());
+    return S.targets.filter(function (t) {
+      if (t.friend || (t.state !== "up" && t.state !== "rising")) return false;
+      const d = Math.hypot(t.x - g.x, t.y - g.y);
+      if (d > W().reach) return false;
+      let a = Math.atan2(t.y - g.y, t.x - g.x) - st.yaw;
+      a = ((a + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+      if (Math.abs(a) > SEARCH) return false;
+      return clear(g, t);
+    }).sort(function (a, b) {
+      return Math.hypot(a.x - g.x, a.y - g.y) - Math.hypot(b.x - g.x, b.y - g.y);
+    });
+  }
+
+  /**
+   * R1 : la cible SUIVANTE.
+   *
+   * La visée automatique prend toujours la plus proche, et c'est le bon choix
+   * neuf fois sur dix. La dixième, on veut celle d'à côté — et jusqu'ici il
+   * fallait manœuvrer le robot pour la lui faire préférer. Un appui fait
+   * maintenant tourner le choix dans la liste de ce qui est entouré au
+   * viseur, sans rien changer d'autre : on peut tirer à tout moment, y
+   * compris pendant qu'on change.
+   */
+  function nextTarget() {
+    if (!S.on) return false;
+    const list = marked();
+    if (!list.length) { S.say = "Aucune cible à désigner"; return false; }
+    const cur = S.hold || S.lock;
+    const i = list.indexOf(cur);
+    S.hold = list[(i + 1) % list.length];
+    S.say = "Cible " + (list.indexOf(S.hold) + 1) + "/" + list.length;
+    Y.Audio.lock();
+    return true;
+  }
+
   function finish() {
     S.running = false;
     if (S.best === null || S.t < S.best) S.best = S.t;
@@ -2605,7 +2679,7 @@ window.YLO = window.YLO || {};
     return out;
   }
 
-  const v0 = new T.Vector3(), v1 = new T.Vector3();
+  const v0 = new T.Vector3(), v1 = new T.Vector3(), vMark = new T.Vector3();
 
   /**
    * Une balle ne traverse pas un mur.
@@ -3119,6 +3193,14 @@ window.YLO = window.YLO || {};
        peut réellement toucher. */
     if (S.hold && (S.hold.state !== "up" && S.hold.state !== "rising")) S.hold = null;
     if (S.hold && !clear(gunW, S.hold)) S.hold = null;
+    /* Une cible choisie se lâche aussi quand on se détourne d'elle : le
+       verrouillage ne doit pas survivre au geste qui l'abandonne. */
+    if (S.hold) {
+      const ah = ((Math.atan2(S.hold.y - gunW.y, S.hold.x - gunW.x) - st.yaw
+                   + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+      if (Math.abs(ah) > SEARCH
+          || Math.hypot(S.hold.x - gunW.x, S.hold.y - gunW.y) > W().reach) S.hold = null;
+    }
     if (S.hold) best = S.hold;
     else S.targets.forEach(function (t) {
       if (t.friend) return;
@@ -3128,7 +3210,7 @@ window.YLO = window.YLO || {};
       if (d > W().reach) return;
       let a = Math.atan2(dy, dx) - st.yaw;
       a = ((a + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-      if (Math.abs(a) > PAN_MAX) return;
+      if (Math.abs(a) > SEARCH) return;
       if (d >= bd) return;
       if (!clear(gunW, t)) return;
       bd = d; best = t;
@@ -3208,6 +3290,26 @@ window.YLO = window.YLO || {};
     spare: spare,
     hold: toggleHold,
     sweep: toggleAuto,
+    nextTarget: nextTarget,
+    /**
+     * Les repères à dessiner dans la caméra de l'arme : pour chaque cible
+     * retenue, sa place à l'écran en coordonnées normalisées, et si c'est
+     * elle que le canon tient. La projection appartient à la caméra, donc
+     * elle se fait ici — l'application n'a plus qu'à poser les ronds.
+     */
+    marks: function () {
+      if (!S.on || !S.fpv) return [];
+      const out = [];
+      marked().forEach(function (t) {
+        vMark.set(t.x, t.y, aimZ(t)).project(S.fpv);
+        if (vMark.z > 1) return;                       // derrière la caméra
+        if (Math.abs(vMark.x) > 1.15 || Math.abs(vMark.y) > 1.15) return;
+        out.push({ x: vMark.x, y: vMark.y, on: t === S.lock,
+                   held: t === S.hold, far: Math.hypot(t.x - Y.Motion.state.px,
+                                                       t.y - Y.Motion.state.py) });
+      });
+      return out;
+    },
     nextWeapon: nextWeapon,
     primaryWeapon: primaryWeapon,
     nextMode: nextMode,
@@ -3485,6 +3587,163 @@ window.YLO = window.YLO || {};
       [660, 880, 1320].forEach(function (f, i) {
         tone({ at: i * 0.10, type: "square", f0: f, dur: 0.13, gain: 0.13 });
       });
+    }
+  };
+})(window.YLO);
+/* =====================================================================
+   YLO-2 — le Shuffle
+
+   Un pas de danse, et pas une figure de plus.
+
+   Les figures du catalogue sont des acrobaties : elles quittent le sol, se
+   retournent, et le moteur qui les joue écrit directement l'assiette et les
+   appuis. Un pas de danse ne fait rien de tout cela — il MARCHE. C'est une
+   suite de consignes de marche, jouée au tempo : quelques pas de côté, un
+   pivot, une révérence. Le générateur d'allure existant fait le reste, et
+   c'est lui qui donne au shuffle son balancement de hanches : le style
+   « souple » fait déjà osciller la caisse au rythme du trot, il suffit de
+   lui donner des pas qui vont d'un côté puis de l'autre.
+
+   Écrire la danse dans le vocabulaire du robot plutôt que dans celui de
+   l'animation a un avantage qu'on ne voit qu'à l'usage : elle reste vraie.
+   Le robot ne triche pas, ses douze articulations font ce qu'elles feraient
+   pour n'importe quel déplacement, les butées tiennent, et la danse marche
+   sur un terrain en pente comme sur du plat.
+   ===================================================================== */
+(function (Y) {
+  "use strict";
+
+  /* Le tempo. 0,52 s la mesure, soit 115 à la noire — le tempo des
+     démonstrations de danse de quadrupèdes, et surtout celui auquel un trot
+     de robot tombe juste. */
+  const BEAT = 0.52;
+
+  /* La chorégraphie, en consignes de marche. Chaque temps donne une vitesse
+     longitudinale, une vitesse latérale, une rotation, une hauteur de caisse
+     et une garde au sol. Rien d'autre : ce sont exactement les commandes
+     qu'un pilote peut donner, et c'est ce qui rend le pas reproductible. */
+  const SHUFFLE = [
+    { n: 1, vx: 0.00, vy: 0.00, wz: 0.0, h: 0.250, sw: 0.045, say: "En place" },
+
+    // 1. le shuffle : quatre allers-retours latéraux, en avançant un peu
+    { n: 1, vx: 0.18, vy: -0.62, wz: 0.55, h: 0.232, sw: 0.062, say: "Shuffle" },
+    { n: 1, vx: 0.18, vy: 0.62, wz: -0.55, h: 0.268, sw: 0.062 },
+    { n: 1, vx: 0.18, vy: -0.62, wz: 0.55, h: 0.232, sw: 0.062 },
+    { n: 1, vx: 0.18, vy: 0.62, wz: -0.55, h: 0.268, sw: 0.062 },
+
+    // 2. deux pas serrés, plus bas et plus vifs : le « in »
+    { n: 0.5, vx: 0.40, vy: -0.40, wz: 0.0, h: 0.215, sw: 0.070, say: "Shuffle in" },
+    { n: 0.5, vx: 0.40, vy: 0.40, wz: 0.0, h: 0.215, sw: 0.070 },
+    { n: 0.5, vx: 0.40, vy: -0.40, wz: 0.0, h: 0.215, sw: 0.070 },
+    { n: 0.5, vx: 0.40, vy: 0.40, wz: 0.0, h: 0.215, sw: 0.070 },
+
+    /* 3. le pivot : un TOUR COMPLET sur place, caisse haute. Quatre temps et
+          non deux — à deux, la commande demandait six radians par seconde,
+          que l'accélération angulaire du robot n'atteint jamais : il faisait
+          un demi-tour et l'on croyait le pas raté. */
+    { n: 4, vx: 0.00, vy: 0.00, wz: 3.02, h: 0.285, sw: 0.050, say: "Pivot" },
+
+    // 4. deux pas en arrière, hanches marquées
+    { n: 1, vx: -0.30, vy: 0.55, wz: -0.70, h: 0.240, sw: 0.060, say: "Retour" },
+    { n: 1, vx: -0.30, vy: -0.55, wz: 0.70, h: 0.240, sw: 0.060 },
+
+    // 5. la révérence : on s'écrase, on remonte
+    { n: 1, vx: 0.00, vy: 0.00, wz: 0.0, h: 0.170, sw: 0.030, say: "Révérence" },
+    { n: 1, vx: 0.00, vy: 0.00, wz: 0.0, h: 0.290, sw: 0.045 },
+    { n: 0.6, vx: 0.00, vy: 0.00, wz: 0.0, h: 0.250, sw: 0.045, say: "" }
+  ];
+
+  /* Le fondu d'un temps sur l'autre. Passer d'un pas de côté à l'autre en une
+     image donnerait une consigne en créneau, que les pattes suivraient en
+     saccade ; 160 ms de transition suffisent à lier les pas sans mollir le
+     rythme. */
+  const BLEND = 0.16;
+
+  const S = { on: false, t: 0, i: 0, say: "", back: null, modeFn: null };
+
+  function total() {
+    let d = 0;
+    SHUFFLE.forEach(function (s) { d += s.n * BEAT; });
+    return d;
+  }
+
+  const DUR = total();
+
+  function lerp(a, b, k) { return a + (b - a) * k; }
+
+  /** Le pas courant, et le suivant, avec le fondu entre les deux. */
+  function sample(t) {
+    let acc = 0;
+    for (let i = 0; i < SHUFFLE.length; i++) {
+      const s = SHUFFLE[i], d = s.n * BEAT;
+      if (t < acc + d || i === SHUFFLE.length - 1) {
+        const nx = SHUFFLE[Math.min(i + 1, SHUFFLE.length - 1)];
+        const into = t - acc;
+        const k = into < BLEND && i > 0
+          ? 0                                   // le fondu se fait à la SORTIE
+          : Math.max(0, (into - (d - BLEND)) / BLEND);
+        return {
+          i: i,
+          vx: lerp(s.vx, nx.vx, k), vy: lerp(s.vy, nx.vy, k),
+          wz: lerp(s.wz, nx.wz, k), h: lerp(s.h, nx.h, k),
+          sw: lerp(s.sw, nx.sw, k), say: s.say
+        };
+      }
+      acc += d;
+    }
+    return null;
+  }
+
+  Y.Dance = {
+    state: S,
+    duration: DUR,
+
+    /**
+     * Lancer le pas. `modeFn` sert à passer sur les PATTES et à revenir comme
+     * on était : un shuffle sur roues n'aurait pas de pas.
+     */
+    start: function (modeFn) {
+      if (S.on) return false;
+      const st = Y.Motion.state;
+      S.modeFn = modeFn || null;
+      S.back = { mode: st.mode, gait: st.gait, height: st.height,
+                 swing: st.swing, vx: st.vx, vy: st.vy, wz: st.wz };
+      if (Y.Stunt) Y.Stunt.stop(false);
+      if (Y.Natural) { Y.Natural.setFreeRoll(false); Y.Natural.setBrake(false); }
+      if (S.modeFn) S.modeFn("pattes"); else st.mode = "pattes";
+      st.gait = "trot";
+      S.on = true; S.t = 0; S.say = "Shuffle";
+      return true;
+    },
+
+    stop: function () {
+      if (!S.on) return;
+      const st = Y.Motion.state, b = S.back;
+      S.on = false; S.say = "";
+      if (!b) return;
+      st.vx = 0; st.vy = 0; st.wz = 0;
+      /* Le mode d'abord, la posture ensuite : revenir aux roues impose sa
+         propre hauteur de caisse, et la rendre avant la remettrait à zéro. */
+      if (b.mode !== "pattes") { if (S.modeFn) S.modeFn(b.mode); else st.mode = b.mode; }
+      st.gait = b.gait; st.height = b.height; st.swing = b.swing;
+      S.back = null;
+    },
+
+    dancing: function () { return S.on; },
+
+    /** Appelé AVANT le pas de simulation : la danse donne les consignes. */
+    step: function (dt) {
+      if (!S.on) return false;
+      S.t += dt;
+      if (S.t >= DUR) { Y.Dance.stop(); return false; }
+      const c = sample(S.t);
+      if (!c) { Y.Dance.stop(); return false; }
+      const st = Y.Motion.state;
+      st.vx = c.vx; st.vy = c.vy; st.wz = c.wz;
+      st.height = c.h; st.swing = c.sw;
+      if (c.say) S.say = c.say;
+      S.i = c.i;
+      return true;
     }
   };
 })(window.YLO);
@@ -8078,9 +8337,10 @@ window.YLO = window.YLO || {};
     { pad: "L1", key: "A", act: "Double salto arrière — au champ de tir : LA DÉTENTE" },
     { pad: "PARTAGE", key: "F", act: "Champ de tir : figer le viseur sur la cible (rappui = libre)" },
     { pad: "OPTIONS", key: "O", act: "Champ de tir : déclarer la cible amie — tir interdit" },
+    { pad: "□ + ○ + △ + ✕", key: "C + V + Y + Espace", act: "Shuffle : le pas de danse, sur les pattes" },
     { pad: "PS", key: "P", act: "Champ de tir : le robot nettoie seul les cibles repérées (85 % de la vitesse)" },
     { pad: "—", key: "H", act: "Afficher ou masquer cette aide" },
-    { pad: "R1", key: "E", act: "540 McTwist" },
+    { pad: "R1", key: "E", act: "540 McTwist — au champ de tir : CIBLE SUIVANTE" },
     { pad: "L1 + R1", key: "A + E", act: "Pirouette / 360 en l'air" },
     { pad: "□ ○ pendant", key: "C V pendant", act: "…passe en tenue SANS cesser de tourner" },
     { pad: "✕ en tenue", key: "Espace en tenue", act: "Saut sur place, dans la position" },
@@ -8218,6 +8478,14 @@ window.YLO = window.YLO || {};
       if (Y.Range.fire(false)) say(Y.Range.mode().name);
       return;
     }
+    /* Et R1 DÉSIGNE : au champ de tir, elle fait tourner le choix parmi les
+       cibles entourées au viseur au lieu de lancer un McTwist. C'est le
+       pendant de la détente — l'une choisit, l'autre tire, et rien n'oblige
+       à finir l'une avant l'autre. */
+    if (side === "r" && Y.Range.active()) {
+      Y.Range.nextTarget(); say(Y.Range.state.say);
+      return;
+    }
     if (prev[side === "l" ? "r1" : "l1"]) {        // l'autre est déjà tenue
       waitBoth = null;
       /* Déjà en tenue ? On ne relance pas une pirouette à sa place : on la
@@ -8281,6 +8549,8 @@ window.YLO = window.YLO || {};
         return;
       }
       if (down || !was) return;
+      // Au champ de tir, R1 a déjà tout fait à l'appui : rien au relâchement.
+      if (side === "r" && Y.Range.active()) return;
       // Front descendant : le premier relâchement arrête la pirouette.
       if (Y.Stunt.active === "pirouette") { Y.Stunt.release(); return; }
       // vrille passée à une tenue : lâcher les épaules la freine
@@ -8379,6 +8649,33 @@ window.YLO = window.YLO || {};
    * du doigt ferait attendre le robot, et on veut le voir passer d'un appui à
    * l'autre pendant qu'on appuie.
    */
+  /**
+   * Les QUATRE boutons ensemble : le Shuffle.
+   *
+   * Un accord, pas une touche. Les quatre boutons de droite ont chacun leur
+   * figure et la lancent à l'appui : appuyer sur les quatre en lance donc
+   * quatre, et c'est bien ce qui se passe pendant les quelques images où l'on
+   * pose les doigts. L'accord annule tout et prend la main — le pas de danse
+   * commence par remettre le robot d'aplomb, ce qui efface le désordre.
+   *
+   * On le lit sur la TENUE et non sur la simultanéité : quatre doigts ne
+   * tombent jamais dans la même image, et exiger qu'ils le fassent rendrait
+   * l'accord injouable.
+   */
+  function resolveDance() {
+    if (Y.Dance.dancing()) return;
+    if (!(prev.square && prev.circle && prev.triangle && prev.cross)) return;
+    held.square = 0; held.circle = 0;
+    waitDir = null; waitBoth = null;
+    /* Le triangle de l'accord a changé la hauteur de caisse au passage : on
+       la lui reprend. Les figures lancées par les trois autres s'effacent
+       toutes seules quand la danse remet le robot d'aplomb, mais une hauteur
+       ne s'efface pas — elle reste, et on la retrouverait à la fin du pas. */
+    heightStep = (heightStep + HEIGHTS.length - 1) % HEIGHTS.length;
+    if (hooks.setHeight) hooks.setHeight(HEIGHTS[heightStep]);
+    if (Y.Dance.start(hooks.mode)) say("Shuffle");
+  }
+
   function resolveHold() {
     ["square", "circle"].forEach(function (name) {
       if (!held[name]) return;
@@ -8455,7 +8752,9 @@ window.YLO = window.YLO || {};
     drive(trig("r2"), trig("l2"));
     const lx = ax[L.stick.lx] || 0;
     const stick = Math.abs(lx) > DEAD ? lx : 0;
-    if (hooks.setWz && !Y.Range.autopilot()) hooks.setWz(-stick * WZ_MAX);
+    if (hooks.setWz && !Y.Range.autopilot() && !Y.Dance.dancing()) {
+      hooks.setWz(-stick * WZ_MAX);
+    }
 
     /* Stick droit : la caméra. On envoie une VITESSE de rotation, que
        l'application intègre avec son propre pas de temps — un stick tenu à
@@ -8485,7 +8784,7 @@ window.YLO = window.YLO || {};
        image se battraient en duel à soixante images par seconde. Les figures,
        elles, restent disponibles — arrêter le nettoyage n'est pas la seule
        chose qu'on doit pouvoir faire pendant qu'il tourne. */
-    if (Y.Range.autopilot()) return;
+    if (Y.Range.autopilot() || Y.Dance.dancing()) return;
     const rolling = Y.Natural.state.vx * (Y.Natural.state.dir || 1) > 0.05;
     const braking = brk > TRIG && rolling;
     /* Relâcher les DEUX gâchettes freine. Un skateur roule sur son erre, mais
@@ -8533,7 +8832,7 @@ window.YLO = window.YLO || {};
 
   function stepKeys() {
     drive(keys.ArrowUp ? 1 : 0, keys.ArrowDown ? 1 : 0);
-    if (Y.Range.autopilot()) return;
+    if (Y.Range.autopilot() || Y.Dance.dancing()) return;
     const turn = (keys.ArrowLeft ? 1 : 0) - (keys.ArrowRight ? 1 : 0);
     if (hooks.setWz) hooks.setWz(turn * WZ_MAX);
   }
@@ -8610,6 +8909,7 @@ window.YLO = window.YLO || {};
       if (S.source === "manette") stepPad(); else stepKeys();
       resolvePending();
       resolveHold();
+      resolveDance();
       stepCombo();
       return true;
     },
@@ -9803,6 +10103,8 @@ window.YLO = window.YLO || {};
     if (Y.Record.replaying()) Y.Record.apply();
     else Y.Play.step(dt);
     Y.Record.capture(dt);
+    // la danse écrit les consignes AVANT le pas : c'est un pilote, pas un effet
+    Y.Dance.step(dt);
     M.step(dt);
     Y.Ball.step(dt);
     Y.Range.step(dt);
@@ -10036,6 +10338,37 @@ window.YLO = window.YLO || {};
   }
 
   const fpvBox = document.getElementById("fpv");
+  const fpvMarks = document.getElementById("fpvmarks");
+  const markPool = [];
+
+  /**
+   * Les ronds sur les cibles.
+   *
+   * Le module de tir fait la projection — c'est lui qui a la caméra — et rend
+   * des coordonnées normalisées ; ici on ne fait que poser les éléments, en
+   * POURCENTAGE de la vignette. Un réservoir d'éléments réutilisés plutôt
+   * qu'un nettoyage à chaque image : douze ronds recréés soixante fois par
+   * seconde, c'est sept cents nœuds par seconde pour rien.
+   */
+  function drawMarks() {
+    const list = Y.Range.marks();
+    while (markPool.length < list.length) {
+      const el = document.createElement("i");
+      el.appendChild(document.createElement("b"));
+      fpvMarks.appendChild(el); markPool.push(el);
+    }
+    markPool.forEach(function (el, i) {
+      const m = list[i];
+      if (!m) { el.hidden = true; return; }
+      el.hidden = false;
+      el.style.left = ((m.x + 1) * 50) + "%";
+      el.style.top = ((1 - m.y) * 50) + "%";
+      el.classList.toggle("on", m.on);
+      el.classList.toggle("held", m.held);
+      el.firstChild.textContent = m.far.toFixed(0) + " m";
+    });
+  }
+
   const fpvTag = document.getElementById("fpvtag");
   let fpvWasLock = false;
 
@@ -10070,6 +10403,7 @@ window.YLO = window.YLO || {};
       : "tir libre")
       + " · stab " + r.stab.toFixed(0) + "°";
     if (r.ready !== fpvWasLock) fpvWasLock = r.ready;
+    drawMarks();
   }
 
   /* =====================================================================

@@ -139,9 +139,10 @@
     { pad: "L1", key: "A", act: "Double salto arrière — au champ de tir : LA DÉTENTE" },
     { pad: "PARTAGE", key: "F", act: "Champ de tir : figer le viseur sur la cible (rappui = libre)" },
     { pad: "OPTIONS", key: "O", act: "Champ de tir : déclarer la cible amie — tir interdit" },
+    { pad: "□ + ○ + △ + ✕", key: "C + V + Y + Espace", act: "Shuffle : le pas de danse, sur les pattes" },
     { pad: "PS", key: "P", act: "Champ de tir : le robot nettoie seul les cibles repérées (85 % de la vitesse)" },
     { pad: "—", key: "H", act: "Afficher ou masquer cette aide" },
-    { pad: "R1", key: "E", act: "540 McTwist" },
+    { pad: "R1", key: "E", act: "540 McTwist — au champ de tir : CIBLE SUIVANTE" },
     { pad: "L1 + R1", key: "A + E", act: "Pirouette / 360 en l'air" },
     { pad: "□ ○ pendant", key: "C V pendant", act: "…passe en tenue SANS cesser de tourner" },
     { pad: "✕ en tenue", key: "Espace en tenue", act: "Saut sur place, dans la position" },
@@ -279,6 +280,14 @@
       if (Y.Range.fire(false)) say(Y.Range.mode().name);
       return;
     }
+    /* Et R1 DÉSIGNE : au champ de tir, elle fait tourner le choix parmi les
+       cibles entourées au viseur au lieu de lancer un McTwist. C'est le
+       pendant de la détente — l'une choisit, l'autre tire, et rien n'oblige
+       à finir l'une avant l'autre. */
+    if (side === "r" && Y.Range.active()) {
+      Y.Range.nextTarget(); say(Y.Range.state.say);
+      return;
+    }
     if (prev[side === "l" ? "r1" : "l1"]) {        // l'autre est déjà tenue
       waitBoth = null;
       /* Déjà en tenue ? On ne relance pas une pirouette à sa place : on la
@@ -342,6 +351,8 @@
         return;
       }
       if (down || !was) return;
+      // Au champ de tir, R1 a déjà tout fait à l'appui : rien au relâchement.
+      if (side === "r" && Y.Range.active()) return;
       // Front descendant : le premier relâchement arrête la pirouette.
       if (Y.Stunt.active === "pirouette") { Y.Stunt.release(); return; }
       // vrille passée à une tenue : lâcher les épaules la freine
@@ -440,6 +451,33 @@
    * du doigt ferait attendre le robot, et on veut le voir passer d'un appui à
    * l'autre pendant qu'on appuie.
    */
+  /**
+   * Les QUATRE boutons ensemble : le Shuffle.
+   *
+   * Un accord, pas une touche. Les quatre boutons de droite ont chacun leur
+   * figure et la lancent à l'appui : appuyer sur les quatre en lance donc
+   * quatre, et c'est bien ce qui se passe pendant les quelques images où l'on
+   * pose les doigts. L'accord annule tout et prend la main — le pas de danse
+   * commence par remettre le robot d'aplomb, ce qui efface le désordre.
+   *
+   * On le lit sur la TENUE et non sur la simultanéité : quatre doigts ne
+   * tombent jamais dans la même image, et exiger qu'ils le fassent rendrait
+   * l'accord injouable.
+   */
+  function resolveDance() {
+    if (Y.Dance.dancing()) return;
+    if (!(prev.square && prev.circle && prev.triangle && prev.cross)) return;
+    held.square = 0; held.circle = 0;
+    waitDir = null; waitBoth = null;
+    /* Le triangle de l'accord a changé la hauteur de caisse au passage : on
+       la lui reprend. Les figures lancées par les trois autres s'effacent
+       toutes seules quand la danse remet le robot d'aplomb, mais une hauteur
+       ne s'efface pas — elle reste, et on la retrouverait à la fin du pas. */
+    heightStep = (heightStep + HEIGHTS.length - 1) % HEIGHTS.length;
+    if (hooks.setHeight) hooks.setHeight(HEIGHTS[heightStep]);
+    if (Y.Dance.start(hooks.mode)) say("Shuffle");
+  }
+
   function resolveHold() {
     ["square", "circle"].forEach(function (name) {
       if (!held[name]) return;
@@ -516,7 +554,9 @@
     drive(trig("r2"), trig("l2"));
     const lx = ax[L.stick.lx] || 0;
     const stick = Math.abs(lx) > DEAD ? lx : 0;
-    if (hooks.setWz && !Y.Range.autopilot()) hooks.setWz(-stick * WZ_MAX);
+    if (hooks.setWz && !Y.Range.autopilot() && !Y.Dance.dancing()) {
+      hooks.setWz(-stick * WZ_MAX);
+    }
 
     /* Stick droit : la caméra. On envoie une VITESSE de rotation, que
        l'application intègre avec son propre pas de temps — un stick tenu à
@@ -546,7 +586,7 @@
        image se battraient en duel à soixante images par seconde. Les figures,
        elles, restent disponibles — arrêter le nettoyage n'est pas la seule
        chose qu'on doit pouvoir faire pendant qu'il tourne. */
-    if (Y.Range.autopilot()) return;
+    if (Y.Range.autopilot() || Y.Dance.dancing()) return;
     const rolling = Y.Natural.state.vx * (Y.Natural.state.dir || 1) > 0.05;
     const braking = brk > TRIG && rolling;
     /* Relâcher les DEUX gâchettes freine. Un skateur roule sur son erre, mais
@@ -594,7 +634,7 @@
 
   function stepKeys() {
     drive(keys.ArrowUp ? 1 : 0, keys.ArrowDown ? 1 : 0);
-    if (Y.Range.autopilot()) return;
+    if (Y.Range.autopilot() || Y.Dance.dancing()) return;
     const turn = (keys.ArrowLeft ? 1 : 0) - (keys.ArrowRight ? 1 : 0);
     if (hooks.setWz) hooks.setWz(turn * WZ_MAX);
   }
@@ -671,6 +711,7 @@
       if (S.source === "manette") stepPad(); else stepKeys();
       resolvePending();
       resolveHold();
+      resolveDance();
       stepCombo();
       return true;
     },

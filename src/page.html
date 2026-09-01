@@ -392,6 +392,23 @@ input[type=range]::-moz-range-thumb{
 .fpv.aim .ret{stroke:#ffc24d}
 .fpv.aim .rdot{fill:#ffc24d}
 .fpv.held .rbrk{opacity:1}
+.fpvmarks{position:absolute;inset:0;overflow:hidden}
+.fpvmarks i{
+  position:absolute;width:34px;height:34px;margin:-17px 0 0 -17px;
+  border:1.5px solid #9fd8c0;border-radius:50%;opacity:.6;
+  transition:opacity .1s linear,border-color .1s linear;
+}
+/* Celle que le canon tient : plus grande, ambre, avec ses quatre crochets.
+   Celle qu'on a DÉSIGNÉE en plus : rouge et pleine d'un liseré. */
+.fpvmarks i.on{width:46px;height:46px;margin:-23px 0 0 -23px;
+  border-color:#ffc24d;opacity:1;border-width:2px}
+.fpvmarks i.held{border-color:#ff4433;box-shadow:0 0 0 1px #ff443355}
+.fpvmarks i b{
+  position:absolute;left:50%;top:calc(100% + 3px);transform:translateX(-50%);
+  font-family:var(--mono);font-size:8px;letter-spacing:.08em;color:var(--faint);
+  font-weight:400;white-space:nowrap;
+}
+.fpvmarks i.on b{color:#ffc24d}
 .fpvret .rlob{opacity:0}
 .fpv.lob .rlob{opacity:.9}
 .fpvtag{
@@ -547,6 +564,12 @@ input[type=range]::-moz-range-thumb{
             <path class="rlob" d="M92 118h16M94 128h12M96 138h8"/>
           </g>
         </svg>
+        <!-- Les ronds posés sur les cibles repérées. Des éléments du
+             document et non du dessin dans le SVG : le viseur garde son
+             rapport carré au milieu de l'image, alors qu'un repère doit
+             tomber PILE là où est la cible, sur une image qui n'est pas
+             carrée. Un placement en pourcentage règle les deux. -->
+        <div class="fpvmarks" id="fpvmarks"></div>
         <div class="fpvtag" id="fpvtag"></div>
         <div class="fpvlabel">CAM ARME</div>
       </div>

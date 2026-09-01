@@ -879,6 +879,82 @@ information qu'on lit sans quitter la cible des yeux :
 | **Rouge** | l'axe est bon à moins de 45 mrad — **c'est le moment de tirer** |
 | **+ crochets** | viseur figé à la main sur cette cible |
 
+#### Le viseur entoure ce qu'il tient, et R1 choisit
+
+Chaque cible **repérée et à portée** porte un rond dans la caméra de l'arme.
+Celle que le canon tient grossit et passe à l'ambre, celle qu'on a désignée
+soi-même passe au rouge, et chacune affiche sa distance. On voit donc d'un
+coup d'œil ce qui est prenable — c'est l'information qui manquait pour
+choisir.
+
+Ce sont des éléments du document, pas du dessin dans le SVG du réticule : le
+viseur garde son rapport carré au milieu de l'image, alors qu'un repère doit
+tomber *pile* là où est la cible, sur une image qui n'est pas carrée. Un
+placement en pourcentage règle les deux. La projection appartient à la caméra
+de l'arme, donc elle se fait dans le module de tir ; l'application ne fait que
+poser les ronds, sur un réservoir d'éléments réutilisés — douze ronds recréés
+soixante fois par seconde, ce serait sept cents nœuds par seconde pour rien.
+
+**R1 passe à la cible suivante** *(touche `E`)*. La visée automatique prend
+toujours la plus proche, et c'est le bon choix neuf fois sur dix ; la dixième,
+on veut celle d'à côté, et il fallait jusqu'ici manœuvrer le robot pour la lui
+faire préférer. Un appui fait tourner le choix dans la liste des cibles
+entourées, sans rien changer d'autre : **on peut tirer à tout moment**, y
+compris pendant qu'on change. Au champ de tir, R1 ne lance donc plus le
+540 McTwist — ni à l'appui, ni au relâchement.
+
+**Et la visée est deux fois moins collante.** Le cône de *recherche* valait
+2,0 rad, presque tout l'horizon : elle happait ce qui passait sur le côté et
+n'en démordait plus. Il vaut **1,0 rad**. Le débattement mécanique, lui, ne
+bouge pas — l'affût pointe toujours à ±150° ; c'est la zone où il va
+*chercher* qui se resserre. Une cible désignée se lâche aussi dès qu'on se
+détourne d'elle ou qu'elle sort de portée : le verrouillage ne survit plus au
+geste qui l'abandonne.
+
+### Le Shuffle
+
+□ + ○ + △ + ✕ **ensemble** *(`C` + `V` + `Y` + Espace)* : le robot descend de
+ses roues et danse.
+
+C'est un pas de danse, **pas une figure de plus**. Les figures du catalogue
+sont des acrobaties : elles quittent le sol, et le moteur qui les joue écrit
+directement l'assiette et les appuis. Un pas de danse ne fait rien de tout
+cela — il **marche**. Le Shuffle est donc une suite de *consignes de marche*
+jouées au tempo : 0,52 s la mesure, soit 115 à la noire.
+
+| Temps | Le pas |
+| --- | --- |
+| 4 | le shuffle : quatre allers-retours latéraux à 0,62 m/s, en avançant |
+| 2 | le « in » : quatre pas serrés, caisse basse à 215 mm |
+| 4 | le pivot : **un tour complet** sur place, caisse haute |
+| 2 | deux pas en arrière, hanches marquées |
+| 2,6 | la révérence : 170 mm, puis on se relève |
+
+Le générateur d'allure fait le reste, et c'est lui qui donne au pas son
+balancement de hanches : le style « souple » fait déjà osciller la caisse au
+rythme du trot, il suffit de lui donner des pas qui vont d'un côté puis de
+l'autre. Écrire la danse dans le vocabulaire du robot plutôt que dans celui de
+l'animation a un avantage qu'on ne voit qu'à l'usage : **elle reste vraie**.
+Les douze articulations font ce qu'elles feraient pour n'importe quel
+déplacement — relevé : **aucune butée franchie**, caisse entre 242 et 377 mm —
+et le pas marche en pente comme sur du plat.
+
+Deux détails qui ont demandé une correction :
+
+- **le pivot faisait un demi-tour.** Deux temps, c'était demander six radians
+  par seconde à un robot dont l'accélération angulaire ne les atteint jamais.
+  Sur quatre temps à 3,02 rad/s, le tour est **exact à 360°** ;
+- **l'accord se lit sur la tenue**, pas sur la simultanéité : quatre doigts ne
+  tombent jamais dans la même image. Chacun des quatre boutons lance donc sa
+  figure au passage — la danse les annule en remettant le robot d'aplomb —,
+  sauf le triangle, dont la hauteur de caisse ne s'efface pas toute seule :
+  elle est explicitement reprise.
+
+Le robot revient ensuite exactement comme il était : mode, allure, hauteur, et
+pilotable dans la seconde. *(Le pas de côté n'est pas capturé par
+l'enregistreur, qui ne garde pas la vitesse latérale : une prise rejouée
+gardera le rythme mais pas le déhanché.)*
+
 #### PARTAGE fige, OPTIONS épargne
 
 La visée automatique prend toujours la plus proche. C'est le bon choix neuf
@@ -1871,7 +1947,8 @@ mentir sur ce que fait la manette.
 | PARTAGE | `F` | Champ de tir : figer le viseur sur la cible (rappui = libre) |
 | OPTIONS | `O` | Champ de tir : déclarer la cible **amie** — tir impossible |
 | PS | `P` | Champ de tir : **nettoyage automatique** des cibles repérées |
-| R1 | `E` | 540 McTwist |
+| □ + ○ + △ + ✕ | `C`+`V`+`Y`+Espace | **Shuffle** : le pas de danse, sur les pattes |
+| R1 | `E` | 540 McTwist — au champ de tir : **cible suivante** |
 | L1 + R1 **tenus ensemble** | `A` + `E` | Pirouette, tant que les deux restent enfoncés |
 | Clic stick gauche | `T` | Champ de tir : arme suivante — **appui long** : mode de tir |
 | ↑ ↓ ← → | `Z` `S` `Q` `D` | Salto dans la direction de la flèche |
@@ -2139,6 +2216,7 @@ src/12-terrain.js     terrains analytiques : hauteur, volumes, ligne de vue, ter
 src/13-ball.js        la boule poussable : inertie, pentes, rebonds, roulement sans glissement
 src/14-range.js       champ de tir : armes, affût stabilisé, carte mémoire, dégâts, nettoyage auto
 src/15-audio.js       le son, synthétisé : coups, explosions, impacts, chargeur, verrouillage
+src/16-dance.js       le Shuffle : une chorégraphie en consignes de marche
 src/20-materials.js   matières PBR et motifs procéduraux
 src/30-robot.js       décodage des maillages et montage de l'arbre cinématique
 src/40-motion.js      cinématique inverse, allures, lecture de trajectoire, liaison directe

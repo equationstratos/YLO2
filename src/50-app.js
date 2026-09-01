@@ -1179,6 +1179,8 @@
     if (Y.Record.replaying()) Y.Record.apply();
     else Y.Play.step(dt);
     Y.Record.capture(dt);
+    // la danse écrit les consignes AVANT le pas : c'est un pilote, pas un effet
+    Y.Dance.step(dt);
     M.step(dt);
     Y.Ball.step(dt);
     Y.Range.step(dt);
@@ -1412,6 +1414,37 @@
   }
 
   const fpvBox = document.getElementById("fpv");
+  const fpvMarks = document.getElementById("fpvmarks");
+  const markPool = [];
+
+  /**
+   * Les ronds sur les cibles.
+   *
+   * Le module de tir fait la projection — c'est lui qui a la caméra — et rend
+   * des coordonnées normalisées ; ici on ne fait que poser les éléments, en
+   * POURCENTAGE de la vignette. Un réservoir d'éléments réutilisés plutôt
+   * qu'un nettoyage à chaque image : douze ronds recréés soixante fois par
+   * seconde, c'est sept cents nœuds par seconde pour rien.
+   */
+  function drawMarks() {
+    const list = Y.Range.marks();
+    while (markPool.length < list.length) {
+      const el = document.createElement("i");
+      el.appendChild(document.createElement("b"));
+      fpvMarks.appendChild(el); markPool.push(el);
+    }
+    markPool.forEach(function (el, i) {
+      const m = list[i];
+      if (!m) { el.hidden = true; return; }
+      el.hidden = false;
+      el.style.left = ((m.x + 1) * 50) + "%";
+      el.style.top = ((1 - m.y) * 50) + "%";
+      el.classList.toggle("on", m.on);
+      el.classList.toggle("held", m.held);
+      el.firstChild.textContent = m.far.toFixed(0) + " m";
+    });
+  }
+
   const fpvTag = document.getElementById("fpvtag");
   let fpvWasLock = false;
 
@@ -1446,6 +1479,7 @@
       : "tir libre")
       + " · stab " + r.stab.toFixed(0) + "°";
     if (r.ready !== fpvWasLock) fpvWasLock = r.ready;
+    drawMarks();
   }
 
   /* =====================================================================
