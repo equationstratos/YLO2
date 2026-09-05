@@ -4841,7 +4841,12 @@ window.YLO = window.YLO || {};
 
   function step(dt) {
     if (!S.on || !S.group) return;
-    S.group.visible = true;
+    /* Il n'est VISIBLE qu'en vol. Posé sur le pont, il se tenait juste
+       derrière la tourelle, pile dans l'axe de la caméra de l'arme : un
+       quadrirotor en travers du viseur au champ de tir. Rangé, un drone est
+       rangé — il ne réapparaît qu'au décollage. Le reste continue de tourner
+       en coulisse : la recharge, la batterie, les charges. */
+    S.group.visible = S.fly;
 
     // les hélices tournent tant qu'il est en l'air : c'est ce qui le fait vivre
     S.spin += dt * (S.fly ? 62 : 0);
@@ -5042,7 +5047,7 @@ window.YLO = window.YLO || {};
       S.route = S.on ? route() : [];
       S.say = S.on ? "Drone au pont — ↑ pour décoller" : "";
       S.view = true;
-      if (S.group) S.group.visible = S.on;
+      if (S.group) S.group.visible = false;   // rangé tant qu'il n'a pas décollé
       if (S.on && S.group) {
         S.group.traverse(function (c) {
           if (c.userData.mat) c.material = Y.Mat.get(c.userData.mat);

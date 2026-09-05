@@ -1129,6 +1129,14 @@ qui était déjà écrit **marche sans une ligne de plus** — les cibles appara
 sur la mini-carte, le nettoyage automatique les prend, la désignation à R1 les
 trouve.
 
+#### Rangé, il est invisible
+
+Le drone n'apparaît qu'**en vol**. Posé sur le pont, il se tenait juste
+derrière la tourelle, pile dans l'axe de la caméra de l'arme : un quadrirotor
+en travers du viseur, au champ de tir, en permanence. Un drone rangé est
+rangé. Tout le reste continue de tourner en coulisse — la batterie se
+recharge, les charges se reconstituent — et il réapparaît au décollage.
+
 #### Il ne se pose jamais de lui-même
 
 C'était la demande, et elle a une raison : un drone qui atterrit parce qu'il
